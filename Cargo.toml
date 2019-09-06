@@ -7,9 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures-preview = "0.3.0-alpha.17"
+futures-preview = "=0.3.0-alpha.18"
 tokio = "0.2.0-alpha.1"
 failure = "*"
 bytes = "*"
 byteorder = "*"
 smallvec = "*"
+rmp-serde="0.13"
+log="*"
+pretty_env_logger="*"
+serde = { version = "1.0", features = ["derive"] }
+serde_bytes = "*"

@@ -1,33 +1,32 @@
+mod client;
+mod common;
+mod connection;
+mod core;
 mod daskcodec;
+mod messages;
+mod prelude;
+mod task;
+mod worker;
 
-use tokio::net::TcpListener;
-use tokio::prelude::*;
 use failure::Error;
+use tokio::net::TcpListener;
+use tokio::runtime::current_thread;
 
-use daskcodec::DaskCodec;
-use tokio::codec::Framed;
-use bytes::Bytes;
-
-#[tokio::main]
+#[tokio::main(single_thread)]
 async fn main() -> Result<(), Error> {
-    println!("STARTED");
-
-    let mut listener = TcpListener::bind("127.0.0.1:7070").await?;
-    loop {
-        let (socket, _) = listener.accept().await?;
-        println!("New connection");
-        socket.set_nodelay(true).unwrap();
-        let mut framed = Framed::new(socket, DaskCodec::new());
-
-        let data = Bytes::from(&b"this should crash"[..]);
-        framed.send(data).await.unwrap();
-
-        println!("Send finished!");
-
-        let (buffer, framed) = framed.into_future().await;
-        println!("{:?}", buffer);
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
     }
-/*    for stream in listener.incoming() {
-        dbg!(stream?);
-    }*/
+    pretty_env_logger::init();
+    let core_ref = core::CoreRef::new();
+    let mut listener = TcpListener::bind("127.0.0.1:7070").await?;
+    log::info!("rsds v0.0 started at port 7070");
+    loop {
+        let (socket, address) = listener.accept().await?;
+        current_thread::spawn(connection::handle_connection(
+            core_ref.clone(),
+            socket,
+            address,
+        ));
+    }
 }
