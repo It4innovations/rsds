@@ -1,6 +1,4 @@
-
 use serde::{Deserialize, Serialize};
-
 
 /*
 {b'status': b'OK',

@@ -1,10 +1,11 @@
 use crate::common::RcEqWrapper;
-
+use crate::prelude::*;
+use crate::scheduler::schedproto::{TaskId, TaskUpdate};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-type TaskKey = String;
+pub type TaskKey = String;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TaskSpec {
@@ -14,48 +15,69 @@ pub struct TaskSpec {
     pub args: Vec<u8>,
 }
 
-pub enum TaskState {
+pub enum TaskRuntimeState {
     Waiting,
-    Ready,
     Assigned,
     Finished,
 }
 
 pub struct TaskRuntimeInfo {
-    pub state: TaskState,
-    pub unfinished_deps: u32,
+    pub state: TaskRuntimeState,
+    pub unfinished_inputs: u32,
     pub consumers: HashSet<TaskRef>,
 }
 
+impl TaskRuntimeInfo {
+    #[inline]
+    pub fn is_ready(&self) -> bool {
+        self.unfinished_inputs == 0
+    }
+}
+
 pub struct Task {
+    pub id: TaskId,
     pub key: TaskKey,
     pub info: RefCell<TaskRuntimeInfo>,
     pub spec: TaskSpec,
-    pub dependencies: Vec<TaskKey>,
+    pub dependencies: Vec<TaskId>,
 }
 
 pub type TaskRef = RcEqWrapper<Task>;
 
 impl Task {
-    pub fn new(
-        key: String,
-        spec: TaskSpec,
-        dependencies: Vec<TaskKey>,
-        unfinished_deps: u32,
-    ) -> Self {
+    pub fn new(id: TaskId, key: String, spec: TaskSpec, dependencies: Vec<TaskId>, unfinished_inputs: u32) -> Self {
         Task {
+            id,
             key,
             spec,
             dependencies,
             info: RefCell::new(TaskRuntimeInfo {
-                state: if unfinished_deps != 0 {
-                    TaskState::Waiting
-                } else {
-                    TaskState::Ready
-                },
-                unfinished_deps,
+                unfinished_inputs,
+                state: TaskRuntimeState::Waiting,
                 consumers: Default::default(),
             }),
         }
+    }
+
+    pub fn make_sched_info(&self) -> crate::scheduler::schedproto::TaskInfo {
+        crate::scheduler::schedproto::TaskInfo {
+            id: self.id,
+            inputs: self.dependencies.clone(),
+        }
+    }
+
+    pub fn make_sched_update(&self) -> Option<TaskUpdate> {
+        let info = self.info.borrow();
+        let state = match info.state {
+            TaskRuntimeState::Finished => TaskState::Finished,
+            TaskRuntimeState::Waiting | TaskRuntimeState::Assigned => {
+                return None
+            }
+        };
+        Some(TaskUpdate {
+            id: self.id,
+            state: state,
+            worker: None,
+        })
     }
 }

@@ -1,5 +1,5 @@
 use crate::task::TaskSpec;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 /*
 

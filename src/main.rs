@@ -5,6 +5,7 @@ mod core;
 mod daskcodec;
 mod messages;
 mod prelude;
+mod scheduler;
 mod task;
 mod worker;
 
@@ -19,8 +20,10 @@ async fn main() -> Result<(), Error> {
     }
     pretty_env_logger::init();
     let core_ref = core::CoreRef::new();
-    let mut listener = TcpListener::bind("127.0.0.1:7070").await?;
     log::info!("rsds v0.0 started at port 7070");
+
+    core_ref.start_scheduler().await;
+    let mut listener = TcpListener::bind("127.0.0.1:7070").await?;
     loop {
         let (socket, address) = listener.accept().await?;
         current_thread::spawn(connection::handle_connection(

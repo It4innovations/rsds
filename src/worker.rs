@@ -6,24 +6,30 @@ use futures::future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
-use futures::stream::{TryStreamExt};
+use futures::stream::TryStreamExt;
 
 use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
 
-pub type WorkerId = u64;
-
 pub struct Worker {
     id: WorkerId,
     sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    ncpus: u32,
 }
 
 impl Worker {
     #[inline]
     pub fn id(&self) -> WorkerId {
         self.id
+    }
+
+    pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
+        crate::scheduler::schedproto::WorkerInfo {
+            id: self.id,
+            ncpus: self.ncpus,
+        }
     }
 }
 
@@ -53,6 +59,7 @@ pub fn start_worker(
         let worker_id = core.new_worker_id();
         let worker = WorkerRef::wrap(Worker {
             id: worker_id,
+            ncpus: 1, // TODO: real cpus
             sender: snd_sender,
         });
         core.register_worker(worker);
