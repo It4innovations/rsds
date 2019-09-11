@@ -67,7 +67,8 @@ pub fn start_client(
             }
         }
         Ok(())
-    }.boxed_local();
+    }
+        .boxed_local();
 
     //let snd_loop = forward(snd_receiver, sender).boxed();
 

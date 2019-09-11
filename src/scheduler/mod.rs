@@ -7,4 +7,4 @@ mod task;
 pub mod schedproto;
 
 pub use schedproto::{FromSchedulerMessage, ToSchedulerMessage, Update};
-pub use scheduler::{BasicScheduler, SchedulerComm, prepare_scheduler_comm};
+pub use scheduler::{prepare_scheduler_comm, BasicScheduler, NetworkScheduler, SchedulerComm};

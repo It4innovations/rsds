@@ -6,5 +6,10 @@ quick_error! {
             description(err.description())
             from()
         }
+        SerializationError(err: serde_json::Error) {
+            cause(err)
+            description(err.description())
+            from()
+        }
     }
 }

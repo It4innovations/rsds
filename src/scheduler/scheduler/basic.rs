@@ -14,12 +14,14 @@ impl BasicScheduler {
         log::debug!("Scheduler initialized");
         let mut state = State::new();
 
-        comm.send.try_send(FromSchedulerMessage::Register(SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "test_scheduler".into(),
-            scheduler_version: "0.0".into(),
-            reassigning: false,
-        })).expect("Send failed");
+        comm.send
+            .try_send(FromSchedulerMessage::Register(SchedulerRegistration {
+                protocol_version: 0,
+                scheduler_name: "test_scheduler".into(),
+                scheduler_version: "0.0".into(),
+                reassigning: false,
+            }))
+            .expect("Send failed");
 
         while let Some(msg) = comm.recv.next().await {
             match msg {

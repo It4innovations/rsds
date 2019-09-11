@@ -1,39 +1,46 @@
-use std::net::SocketAddr;
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage, SchedulerComm};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use std::thread;
 use crate::scheduler::schedproto::SchedulerRegistration;
+use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
+use futures::future::Either;
+use futures::{FutureExt, SinkExt, StreamExt};
+use std::io::Bytes;
+use std::net::SocketAddr;
+use tokio::codec::{Framed, LengthDelimitedCodec};
 use tokio::net::TcpStream;
-use futures::StreamExt;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct NetworkScheduler;
 
 impl NetworkScheduler {
     pub async fn start(self, mut comm: SchedulerComm, address: &str) -> crate::Result<()> {
-        let msg = FromSchedulerMessage::Register(SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "test_scheduler".into(),
-            scheduler_version: "0.0".into(),
-            reassigning: false,
-        });
-        comm.send.try_send(msg).unwrap();
-
         let conn = TcpStream::connect(address).await?;
-        let (rx, tx) = conn.split();
+        let conn = Framed::new(conn, LengthDelimitedCodec::new());
+        let (mut tx, mut rx) = conn.split();
 
+        let SchedulerComm { mut recv, mut send } = comm;
         let receiver = async move {
-            while let Some(msg) = comm.recv.next().await {
-                // send msg to tx
+            while let Some(msg) = recv.next().await {
+                let data = serde_json::to_vec(&msg)?;
+                log::debug!("Sending scheduler command: {:?}", msg);
+                tx.send(bytes::Bytes::from(data)).await?;
             }
-        };
+            Ok(())
+        }
+            .boxed_local();
+
         let sender = async move {
-            /*while let Some(msg) = rx.next.await {
-                // send msg to conn.send
-            }*/
-        };
+            while let Some(msg) = rx.next().await {
+                let msg = msg?;
+                let data: FromSchedulerMessage = serde_json::from_slice(&msg)?;
+                log::debug!("Received scheduler command: {:?}", data);
+                send.try_send(data).expect("Send failed");
+            }
+            Ok(())
+        }
+            .boxed_local();
 
-        futures::future::join(receiver, sender).await;
-
-        Ok(())
+        futures::future::select(receiver, sender)
+            .await
+            .factor_first()
+            .0
     }
 }

@@ -1,33 +1,35 @@
+use serde::{Deserialize, Serialize};
+
 pub type WorkerId = u64;
 pub type TaskId = u64;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerInfo {
     pub id: WorkerId,
     pub ncpus: u32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum TaskState {
     Waiting,
     Running,
     Finished,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskInfo {
     pub id: TaskId,
     pub inputs: Vec<TaskId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskUpdate {
     pub id: TaskId,
     pub state: TaskState,
     pub worker: Option<WorkerId>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Update {
     pub task_updates: Vec<TaskUpdate>,
     pub new_tasks: Vec<TaskInfo>,
@@ -35,12 +37,12 @@ pub struct Update {
     pub network_bandwidth: Option<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ToSchedulerMessage {
     Update(Update),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulerRegistration {
     pub protocol_version: u32,
     pub scheduler_name: String,
@@ -48,14 +50,14 @@ pub struct SchedulerRegistration {
     pub reassigning: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: TaskId,
     pub worker: WorkerId,
     pub priority: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum FromSchedulerMessage {
     TaskAssignments(Vec<TaskAssignment>),
     Register(SchedulerRegistration),

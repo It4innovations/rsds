@@ -60,5 +60,5 @@ pub enum ClientMessage {
     UpdateGraph(UpdateGraphMsg),
     ClientReleasesKeys(ClientReleasesKeysMsg),
     CloseClient,
-    CloseStream
+    CloseStream,
 }
