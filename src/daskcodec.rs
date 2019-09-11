@@ -1,6 +1,5 @@
 use crate::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use failure::Error;
 use smallvec::SmallVec;
 use std::io::Cursor;
 use tokio::codec::{Decoder, Encoder};
@@ -19,9 +18,9 @@ impl DaskCodec {
 
 impl Decoder for DaskCodec {
     type Item = BytesMut;
-    type Error = Error;
+    type Error = crate::DsError;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<BytesMut>, Error> {
+    fn decode(&mut self, src: &mut BytesMut) -> crate::Result<Option<BytesMut>> {
         let src = if self.sizes.is_empty() {
             let size = src.len() as u64;
             if size < 8 {
@@ -59,9 +58,9 @@ impl Decoder for DaskCodec {
 
 impl Encoder for DaskCodec {
     type Item = Bytes;
-    type Error = Error;
+    type Error = crate::DsError;
 
-    fn encode(&mut self, data: Bytes, dst: &mut BytesMut) -> Result<(), Error> {
+    fn encode(&mut self, data: Bytes, dst: &mut BytesMut) -> crate::Result<()> {
         let n = data.len() + 8 * 3;
         dst.reserve(n);
         dst.put_u64_le(2);

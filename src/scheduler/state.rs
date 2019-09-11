@@ -39,8 +39,6 @@ impl State {
             self.network_bandwidth = nb;
         }
 
-        for task_info in &update.new_tasks {
-
-        }
+        for task_info in &update.new_tasks {}
     }
 }

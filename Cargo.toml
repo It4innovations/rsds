@@ -4,17 +4,15 @@ version = "0.1.0"
 authors = ["Stanislav Bohm <spirali@kreatrix.org>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 futures-preview = "=0.3.0-alpha.18"
 tokio = "0.2.0-alpha.1"
-failure = "*"
-bytes = "*"
-byteorder = "*"
-smallvec = "*"
-rmp-serde="0.13"
-log="*"
-pretty_env_logger="*"
+bytes = "0.4"
+byteorder = "1.3"
+smallvec = "0.6"
+rmp-serde = "0.13"
+log = "0.4"
+pretty_env_logger="0.3"
 serde = { version = "1.0", features = ["derive"] }
-serde_bytes = "*"
+serde_bytes = "0.11"
+quick-error = "1.2"

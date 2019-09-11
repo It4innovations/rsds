@@ -5,11 +5,11 @@ use futures::future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
-use futures::stream::{TryStreamExt};
+use futures::stream::TryStreamExt;
 
 use rmp_serde as rmps;
-use std::rc::Rc;
 use std::collections::HashMap;
+use std::rc::Rc;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
@@ -131,7 +131,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, mut update: UpdateG
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
-    let mut new_task_ids : HashMap<String, TaskId> = Default::default();
+    let mut new_task_ids: HashMap<String, TaskId> = Default::default();
 
     for task_key in update.tasks.keys() {
         new_task_ids.insert(task_key.clone(), core.new_task_id());
@@ -139,13 +139,21 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, mut update: UpdateG
 
     for (task_key, task_spec) in update.tasks {
         let task_id = core.new_task_id();
-        let inputs : Vec<_> = if let Some(deps) = update.dependencies.get(&task_key) {
-            deps.iter().map(|key| *new_task_ids.get(key).unwrap()).collect()
+        let inputs: Vec<_> = if let Some(deps) = update.dependencies.get(&task_key) {
+            deps.iter()
+                .map(|key| *new_task_ids.get(key).unwrap())
+                .collect()
         } else {
             Vec::new()
         };
         let unfinished_deps = inputs.len() as u32;
-        let task_rc = Rc::new(Task::new(task_id, task_key, task_spec, inputs, unfinished_deps));
+        let task_rc = Rc::new(Task::new(
+            task_id,
+            task_key,
+            task_spec,
+            inputs,
+            unfinished_deps,
+        ));
 
         new_tasks.push(TaskRef::new(task_rc.clone()));
         if unfinished_deps == 0 {

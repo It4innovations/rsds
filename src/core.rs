@@ -1,12 +1,13 @@
 use crate::common::WrappedRcRefCell;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskUpdate;
+use crate::scheduler::{FromSchedulerMessage, Scheduler, ToSchedulerMessage};
 use futures::future::FutureExt;
 use futures::stream::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use tokio::runtime::current_thread;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, Rc<Task>>,
@@ -16,7 +17,7 @@ pub struct Core {
 
     task_state_changed: HashSet<TaskRef>,
     update: crate::scheduler::Update,
-    scheduler_sender: Option<UnboundedSender<crate::scheduler::ToSchedulerMessage>>,
+    scheduler_sender: UnboundedSender<ToSchedulerMessage>,
     update_timeout_running: bool,
 
     id_counter: u64,
@@ -118,12 +119,8 @@ impl Core {
                 .filter_map(|r| r.get().make_sched_update())
                 .collect();
             core.task_state_changed.clear();
-            let msg = crate::scheduler::schedproto::ToSchedulerMessage::Update(update);
-            core.scheduler_sender
-                .as_mut()
-                .unwrap()
-                .try_send(msg)
-                .unwrap();
+            let msg = ToSchedulerMessage::Update(update);
+            core.scheduler_sender.try_send(msg).unwrap();
         }));
     }
 
@@ -133,7 +130,7 @@ impl Core {
 }
 
 impl CoreRef {
-    pub fn new() -> Self {
+    pub fn new(scheduler_sender: UnboundedSender<ToSchedulerMessage>) -> Self {
         let core_ref = Self::wrap(Core {
             tasks_by_id: Default::default(),
             tasks_by_key: Default::default(),
@@ -143,7 +140,7 @@ impl CoreRef {
             workers: Default::default(),
             clients: Default::default(),
 
-            scheduler_sender: None,
+            scheduler_sender,
             task_state_changed: Default::default(),
             update: Default::default(),
             update_timeout_running: false,
@@ -162,15 +159,11 @@ impl CoreRef {
         core_ref
     }
 
-    pub async fn start_scheduler(&self) {
+    pub async fn observe_scheduler(
+        self,
+        mut recv: UnboundedReceiver<FromSchedulerMessage>,
+    ) -> crate::Result<()> {
         log::debug!("Starting scheduler");
-        let (send, mut recv) = crate::scheduler::start_scheduler();
-
-        {
-            let mut core = self.get_mut();
-            assert!(core.scheduler_sender.is_none());
-            core.scheduler_sender = Some(send);
-        }
 
         let first_message = recv.next().await;
         match first_message {
@@ -185,17 +178,17 @@ impl CoreRef {
             }
         }
 
-        current_thread::spawn(recv.for_each(move |msg| {
+        while let Some(msg) = recv.next().await {
             match msg {
-                crate::scheduler::FromSchedulerMessage::TaskAssignments(assignments) => {
+                FromSchedulerMessage::TaskAssignments(assignments) => {
                     dbg!("Task assignments {}", assignments);
                 }
-                crate::scheduler::FromSchedulerMessage::Register(_) => {
+                FromSchedulerMessage::Register(_) => {
                     panic!("Double registration of scheduler");
                 }
             }
-            futures::future::ready(())
-        }));
+        }
+        Ok(())
     }
 
     pub fn uid(&self) -> String {

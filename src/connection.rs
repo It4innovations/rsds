@@ -1,16 +1,24 @@
 use crate::prelude::*;
 use tokio::prelude::*;
 
-//use failure::Error;
-use rmp_serde as rmps;
-
 use crate::client::start_client;
+use crate::connection;
 use crate::daskcodec::DaskCodec;
 use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
 use crate::worker::start_worker;
+use rmp_serde as rmps;
 use std::error::Error;
 use tokio::codec::Framed;
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::current_thread;
+
+pub async fn connection_initiator(address: &str, core_ref: CoreRef) -> crate::Result<()> {
+    let mut listener = TcpListener::bind(address).await?;
+    loop {
+        let (socket, address) = listener.accept().await?;
+        current_thread::spawn(handle_connection(core_ref.clone(), socket, address));
+    }
+}
 
 pub async fn handle_connection(
     core_ref: CoreRef,

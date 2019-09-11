@@ -45,7 +45,13 @@ pub struct Task {
 pub type TaskRef = RcEqWrapper<Task>;
 
 impl Task {
-    pub fn new(id: TaskId, key: String, spec: TaskSpec, dependencies: Vec<TaskId>, unfinished_inputs: u32) -> Self {
+    pub fn new(
+        id: TaskId,
+        key: String,
+        spec: TaskSpec,
+        dependencies: Vec<TaskId>,
+        unfinished_inputs: u32,
+    ) -> Self {
         Task {
             id,
             key,
@@ -70,13 +76,11 @@ impl Task {
         let info = self.info.borrow();
         let state = match info.state {
             TaskRuntimeState::Finished => TaskState::Finished,
-            TaskRuntimeState::Waiting | TaskRuntimeState::Assigned => {
-                return None
-            }
+            TaskRuntimeState::Waiting | TaskRuntimeState::Assigned => return None,
         };
         Some(TaskUpdate {
             id: self.id,
-            state: state,
+            state,
             worker: None,
         })
     }
