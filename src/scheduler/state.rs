@@ -1,6 +1,6 @@
 use super::schedproto::*;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 pub struct Worker {
     pub id: WorkerId,

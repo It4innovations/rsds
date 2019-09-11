@@ -1,6 +1,7 @@
 use rsds::prelude::*;
-use rsds::scheduler::Scheduler;
+use rsds::scheduler::prepare_scheduler_comm;
 use tokio::runtime::current_thread;
+use std::thread;
 
 #[tokio::main(single_thread)]
 async fn main() -> rsds::Result<()> {
@@ -9,10 +10,15 @@ async fn main() -> rsds::Result<()> {
     }
     pretty_env_logger::init();
 
+    let (comm, sender, receiver) = prepare_scheduler_comm();
     let scheduler = rsds::scheduler::BasicScheduler;
-    let (tx, rx) = scheduler.start();
 
-    let core_ref = CoreRef::new(tx);
+    thread::spawn(move || {
+        let mut runtime = current_thread::Runtime::new().expect("Runtime creation failed");
+        runtime.block_on(scheduler.start(comm)).expect("Scheduler failed");
+    });
+
+    let core_ref = CoreRef::new(sender);
     log::info!("rsds v0.0 started at port 7070");
 
     let core_ref2 = core_ref.clone();

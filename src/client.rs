@@ -60,18 +60,14 @@ pub fn start_client(
 
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
-        loop {
-            if let Some(data) = snd_receiver.next().await {
-                if let Err(e) = sender.send(data).await {
-                    log::error!("Send to worker failed");
-                    return Err(e);
-                }
-            } else {
-                return Ok(());
+        while let Some(data) = snd_receiver.next().await {
+            if let Err(e) = sender.send(data).await {
+                log::error!("Send to worker failed");
+                return Err(e);
             }
         }
-    }
-        .boxed();
+        Ok(())
+    }.boxed_local();
 
     //let snd_loop = forward(snd_receiver, sender).boxed();
 
@@ -91,6 +87,7 @@ pub fn start_client(
                 ClientMessage::UpdateGraph(update) => {
                     update_graph(&core_ref, client_id, update);
                 }
+                _ => {}
             }
         }
         future::ready(Ok(()))
@@ -115,7 +112,7 @@ pub fn start_client(
     }));
 }
 
-pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, mut update: UpdateGraphMsg) {
+pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg) {
     log::debug!("Updating graph from client {}", client_id);
 
     /* Validate dependencies */

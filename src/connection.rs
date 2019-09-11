@@ -2,7 +2,6 @@ use crate::prelude::*;
 use tokio::prelude::*;
 
 use crate::client::start_client;
-use crate::connection;
 use crate::daskcodec::DaskCodec;
 use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
 use crate::worker::start_worker;

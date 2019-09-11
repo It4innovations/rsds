@@ -59,4 +59,6 @@ pub enum ClientMessage {
     HeartbeatClient,
     UpdateGraph(UpdateGraphMsg),
     ClientReleasesKeys(ClientReleasesKeysMsg),
+    CloseClient,
+    CloseStream
 }

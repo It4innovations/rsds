@@ -1,8 +1,5 @@
-use crate::common::RcEqWrapper;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
-use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::HashSet;
 
 pub enum SchedulerTaskState {
