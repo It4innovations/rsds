@@ -38,9 +38,10 @@ impl Scheduler for BasicScheduler {
             }
             let mut runtime = tokio::runtime::current_thread::Runtime::new().unwrap();
             runtime.block_on(up_receiver.for_each(move |msg| {
+                log::debug!("Scheduler received message: {:?}", msg);
                 match msg {
                     ToSchedulerMessage::Update(update) => {
-                        state.update(update, &down_sender);
+                        state.update(update, &mut down_sender);
                     }
                 };
                 futures::future::ready(())

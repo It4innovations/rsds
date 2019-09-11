@@ -6,4 +6,3 @@ pub use crate::worker::WorkerRef;
 pub use crate::scheduler::schedproto::{TaskId, TaskState, WorkerId};
 
 pub use bytes::{BufMut, Bytes, BytesMut};
-pub use std::rc::Rc;

@@ -46,9 +46,9 @@ pub async fn handle_connection(
                         log::debug!("Heartbeat from worker");
                         continue;
                     }
-                    Ok(GenericMessage::RegisterWorker(_m)) => {
+                    Ok(GenericMessage::RegisterWorker(msg)) => {
                         log::debug!("Worker registration from {}", address);
-                        start_worker(&core_ref, address, framed);
+                        start_worker(&core_ref, address, framed, msg);
                         return;
                     }
                     Ok(GenericMessage::RegisterClient(m)) => {

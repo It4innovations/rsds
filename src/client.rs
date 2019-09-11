@@ -137,8 +137,14 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, mut update: UpdateG
         new_task_ids.insert(task_key.clone(), core.new_task_id());
     }
 
+    log::debug!(
+        "New tasks (count={}) from client_id={}",
+        update.tasks.len(),
+        client_id
+    );
+
     for (task_key, task_spec) in update.tasks {
-        let task_id = core.new_task_id();
+        let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs: Vec<_> = if let Some(deps) = update.dependencies.get(&task_key) {
             deps.iter()
                 .map(|key| *new_task_ids.get(key).unwrap())
@@ -147,26 +153,28 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, mut update: UpdateG
             Vec::new()
         };
         let unfinished_deps = inputs.len() as u32;
-        let task_rc = Rc::new(Task::new(
+
+        log::debug!("New task id={}, key={}", task_id, task_key);
+        let task_ref = TaskRef::new(
             task_id,
             task_key,
             task_spec,
             inputs,
             unfinished_deps,
-        ));
+        );
 
-        new_tasks.push(TaskRef::new(task_rc.clone()));
+        new_tasks.push(task_ref.clone());
         if unfinished_deps == 0 {
-            core.set_task_state_changed(task_rc.clone());
+            core.set_task_state_changed(task_ref.clone());
         }
-        core.add_task(task_rc);
+        core.add_task(task_ref);
     }
 
     for task_ref in new_tasks {
         for task_id in &task_ref.get().dependencies {
             let tr = core.get_task_by_id_or_panic(*task_id);
-            tr.info.borrow_mut().consumers.insert(task_ref.clone());
+            tr.get_mut().consumers.insert(task_ref.clone());
         }
     }
-    core.send_update();
+    core.send_scheduler_update();
 }

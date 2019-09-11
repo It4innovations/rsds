@@ -1,6 +1,6 @@
 use crate::common::WrappedRcRefCell;
 use crate::daskcodec::DaskCodec;
-use crate::messages::workermsg::{HeartbeatResponse, WorkerMessage};
+use crate::messages::workermsg::{FromWorkerMessage, HeartbeatResponse, ToWorkerMessage, Status};
 use crate::prelude::*;
 use futures::future;
 use futures::future::FutureExt;
@@ -12,11 +12,16 @@ use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
+use crate::task::TaskRuntimeState;
+use std::collections::HashMap;
+use crate::core::Core;
+use crate::messages::generic::RegisterWorkerMsg;
 
 pub struct Worker {
-    id: WorkerId,
-    sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
-    ncpus: u32,
+    pub id: WorkerId,
+    pub sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    pub ncpus: u32,
+    pub listen_address: String,
 }
 
 impl Worker {
@@ -31,6 +36,10 @@ impl Worker {
             ncpus: self.ncpus,
         }
     }
+
+    pub fn send_message(&mut self, data: Bytes) {
+        self.sender.try_send(data).unwrap();
+    }
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;
@@ -39,6 +48,7 @@ pub fn start_worker(
     core_ref: &CoreRef,
     address: std::net::SocketAddr,
     framed: Framed<TcpStream, DaskCodec>,
+    msg: RegisterWorkerMsg,
 ) {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
@@ -54,16 +64,17 @@ pub fn start_worker(
     let data = rmp_serde::encode::to_vec_named(&hb).unwrap();
     snd_sender.try_send(data.into()).unwrap();
 
-    let worker_id = {
+    let (worker_id, worker_ref) = {
         let mut core = core_ref.get_mut();
         let worker_id = core.new_worker_id();
-        let worker = WorkerRef::wrap(Worker {
+        let worker_ref = WorkerRef::wrap(Worker {
             id: worker_id,
             ncpus: 1, // TODO: real cpus
             sender: snd_sender,
+            listen_address: msg.address,
         });
-        core.register_worker(worker);
-        worker_id
+        core.register_worker(worker_ref.clone());
+        (worker_id, worker_ref)
     };
 
     log::info!("New worker registered as {} from {}", worker_id, address);
@@ -84,15 +95,38 @@ pub fn start_worker(
         .boxed();
 
     let recv_loop = receiver.try_for_each(move |data| {
-        let msgs: Result<Vec<WorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
+        let msgs: Result<Vec<FromWorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from worker ({}): {}", worker_id, e);
         }
+        let mut new_ready_scheduled = Vec::new();
         for msg in msgs.unwrap() {
             match msg {
-                WorkerMessage::KeepAlive => { /* Do nothing by design */ }
+                FromWorkerMessage::TaskFinished(msg) => {
+                    assert!(msg.status == Status::Ok); // TODO: handle other cases
+                    let mut core = core_ref.get_mut();
+                    core.on_task_finished(&worker_ref, msg, &mut new_ready_scheduled);
+                },
+                FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
+        }
+
+        if !new_ready_scheduled.is_empty() {
+            let mut tasks_per_worker : HashMap<WorkerRef, Vec<TaskRef>> = HashMap::new();
+            for task_ref in new_ready_scheduled {
+                let worker = {
+                    let mut task = task_ref.get_mut();
+                    let worker_ref = task.worker.clone().unwrap();
+                    task.state = TaskRuntimeState::Assigned;
+                    log::debug!("Task id={} assigned to worker={}", task.id, worker_ref.get().id);
+                    worker_ref
+                };
+                let v = tasks_per_worker.entry(worker).or_insert_with(Vec::new);
+                v.push(task_ref);
+            }
+            let core = core_ref.get();
+            send_tasks_to_workers(&core, tasks_per_worker);
         }
         future::ready(Ok(()))
     });
@@ -114,4 +148,12 @@ pub fn start_worker(
         let mut core = core_ref2.get_mut();
         core.unregister_worker(worker_id);
     }));
+}
+
+pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) {
+    for (worker, tasks) in tasks_per_worker {
+        let msgs: Vec<_> = tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
+        let data = rmp_serde::encode::to_vec_named(&msgs).unwrap();
+        worker.get_mut().send_message(data.into());
+    }
 }
