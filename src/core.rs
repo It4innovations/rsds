@@ -131,11 +131,11 @@ impl Core {
         self.self_ref.clone().unwrap()
     }
 
-    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) {
+    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) -> crate::Result<()> {
         log::debug!("Assignments from scheduler: {:?}", assignments);
         let mut tasks_per_worker = HashMap::new();
         for assignment in assignments {
-            let worker_ref = self.workers.get(&assignment.worker).unwrap().clone();
+            let worker_ref = self.workers.get(&assignment.worker).expect("Worker from assignment not found").clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
 
             let mut task = task_ref.get_mut();
@@ -160,7 +160,7 @@ impl Core {
                 );
             }
         }
-        send_tasks_to_workers(self, tasks_per_worker);
+        send_tasks_to_workers(self, tasks_per_worker)
     }
 
     pub fn on_task_finished(
@@ -169,7 +169,7 @@ impl Core {
         msg: TaskFinishedMsg,
         new_ready_scheduled: &mut Vec<TaskRef>,
     ) {
-        let mut task_ref = self.get_task_by_key_or_panic(&msg.key);
+        let mut task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
             let mut task = task_ref.get_mut();
             log::debug!(
@@ -193,7 +193,7 @@ impl Core {
                 }
             }
         }
-        self.set_task_state_changed(task_ref.clone());
+        self.set_task_state_changed(task_ref);
         self.send_scheduler_update();
     }
 }
@@ -250,7 +250,7 @@ impl CoreRef {
             match msg {
                 FromSchedulerMessage::TaskAssignments(assignments) => {
                     let mut core = self.get_mut();
-                    core.process_assignments(assignments);
+                    core.process_assignments(assignments)?;
                 }
                 FromSchedulerMessage::Register(_) => {
                     panic!("Double registration of scheduler");

@@ -1,5 +1,5 @@
 use crate::task::TaskSpec;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 /*
 
@@ -55,10 +55,22 @@ pub struct ClientReleasesKeysMsg {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum ClientMessage {
+pub enum FromClientMessage {
     HeartbeatClient,
     UpdateGraph(UpdateGraphMsg),
     ClientReleasesKeys(ClientReleasesKeysMsg),
     CloseClient,
     CloseStream,
+}
+
+#[derive(Serialize, Debug)]
+pub struct KeyInMemoryMsg {
+    pub key: String
+}
+
+#[derive(Serialize, Debug)]
+#[serde(tag = "op")]
+#[serde(rename_all = "kebab-case")]
+pub enum ToClientMessage {
+    KeyInMemory(KeyInMemoryMsg)
 }

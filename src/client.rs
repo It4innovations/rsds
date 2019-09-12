@@ -1,5 +1,5 @@
 use crate::daskcodec::DaskCodec;
-use crate::messages::clientmsg::{ClientMessage, UpdateGraphMsg};
+use crate::messages::clientmsg::{FromClientMessage, UpdateGraphMsg, ToClientMessage};
 use crate::prelude::*;
 use futures::future;
 use futures::future::FutureExt;
@@ -19,11 +19,11 @@ pub type ClientId = u64;
 pub struct Client {
     id: ClientId,
     id_string: String,
-    sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    sender: tokio::sync::mpsc::UnboundedSender<ToClientMessage>,
 }
 
 impl Client {
-    pub fn send_message(&mut self, message: Bytes) {
+    pub fn send_message(&mut self, message: ToClientMessage) {
         self.sender.try_send(message).unwrap();
     }
 
@@ -33,16 +33,16 @@ impl Client {
     }
 }
 
-pub fn start_client(
+pub async fn start_client(
     core_ref: &CoreRef,
     address: std::net::SocketAddr,
     framed: Framed<TcpStream, DaskCodec>,
     id_string: String,
-) {
+) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
-    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<ToClientMessage>();
 
     let client_id = {
         let mut core = core_ref.get_mut();
@@ -61,7 +61,8 @@ pub fn start_client(
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
         while let Some(data) = snd_receiver.next().await {
-            if let Err(e) = sender.send(data).await {
+            let serialized = rmps::to_vec_named(&data)?;
+            if let Err(e) = sender.send(serialized.into()).await {
                 log::error!("Send to worker failed");
                 return Err(e);
             }
@@ -70,22 +71,20 @@ pub fn start_client(
     }
         .boxed_local();
 
-    //let snd_loop = forward(snd_receiver, sender).boxed();
-
     let recv_loop = receiver.try_for_each(move |data| {
-        let msgs: Result<Vec<ClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
+        let msgs: Result<Vec<FromClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from client ({}): {}", client_id, e);
         }
         for msg in msgs.unwrap() {
             match msg {
-                ClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
-                ClientMessage::ClientReleasesKeys(_) => {
+                FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
+                FromClientMessage::ClientReleasesKeys(_) => {
                     /* TODO */
                     println!("Releasing keys");
                 }
-                ClientMessage::UpdateGraph(update) => {
+                FromClientMessage::UpdateGraph(update) => {
                     update_graph(&core_ref, client_id, update);
                 }
                 _ => {}
@@ -94,23 +93,23 @@ pub fn start_client(
         future::ready(Ok(()))
     });
 
-    current_thread::spawn(future::select(recv_loop, snd_loop).map(move |r| {
-        if let Err(e) = r.factor_first().0 {
-            log::error!(
-                "Error in client connection (id={}, connection={}): {}",
-                client_id,
-                address,
-                e
-            );
-        }
-        log::info!(
-            "Client {} connection closed (connection: {})",
+    let result = future::select(recv_loop, snd_loop).await;
+    if let Err(e) = result.factor_first().0 {
+        log::error!(
+            "Error in client connection (id={}, connection={}): {}",
             client_id,
-            address
+            address,
+            e
         );
-        let mut core = core_ref2.get_mut();
-        core.unregister_client(client_id);
-    }));
+    }
+    log::info!(
+        "Client {} connection closed (connection: {})",
+        client_id,
+        address
+    );
+    let mut core = core_ref2.get_mut();
+    core.unregister_client(client_id);
+    Ok(())
 }
 
 pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg) {

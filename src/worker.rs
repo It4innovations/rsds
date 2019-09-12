@@ -38,19 +38,20 @@ impl Worker {
         }
     }
 
-    pub fn send_message(&mut self, data: Bytes) {
+    pub fn send_message(&mut self, data: Bytes) -> crate::Result<()> {
         self.sender.try_send(data).unwrap();
+        Ok(())
     }
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;
 
-pub fn start_worker(
+pub async fn start_worker(
     core_ref: &CoreRef,
     address: std::net::SocketAddr,
     framed: Framed<TcpStream, DaskCodec>,
     msg: RegisterWorkerMsg,
-) {
+) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
@@ -62,7 +63,7 @@ pub fn start_worker(
         heartbeat_interval: 1.0,
         worker_plugins: Vec::new(),
     };
-    let data = rmp_serde::encode::to_vec_named(&hb).unwrap();
+    let data = rmp_serde::encode::to_vec_named(&hb)?;
     snd_sender.try_send(data.into()).unwrap();
 
     let (worker_id, worker_ref) = {
@@ -124,34 +125,36 @@ pub fn start_worker(
                 v.push(task_ref);
             }
             let core = core_ref.get();
-            send_tasks_to_workers(&core, tasks_per_worker);
+            send_tasks_to_workers(&core,tasks_per_worker).unwrap();
         }
         future::ready(Ok(()))
     });
 
-    current_thread::spawn(future::select(recv_loop, snd_loop).map(move |r| {
-        if let Err(e) = r.factor_first().0 {
-            log::error!(
-                "Error in worker connection (id={}, connection={}): {}",
-                worker_id,
-                address,
-                e
-            );
-        }
-        log::info!(
-            "Worker {} connection closed (connection: {})",
+    let result = future::select(recv_loop, snd_loop).await;
+    if let Err(e) = result.factor_first().0 {
+        log::error!(
+            "Error in worker connection (id={}, connection={}): {}",
             worker_id,
-            address
+            address,
+            e
         );
-        let mut core = core_ref2.get_mut();
-        core.unregister_worker(worker_id);
-    }));
+    }
+    log::info!(
+        "Worker {} connection closed (connection: {})",
+        worker_id,
+        address
+    );
+    let mut core = core_ref2.get_mut();
+    core.unregister_worker(worker_id);
+    Ok(())
 }
 
-pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) {
+
+pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) -> crate::Result<()> {
     for (worker, tasks) in tasks_per_worker {
         let msgs: Vec<_> = tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
         let data = rmp_serde::encode::to_vec_named(&msgs).unwrap();
-        worker.get_mut().send_message(data.into());
+        worker.get_mut().send_message(data.into())?;
     }
+    Ok(())
 }

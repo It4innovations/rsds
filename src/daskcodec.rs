@@ -27,13 +27,13 @@ impl Decoder for DaskCodec {
                 return Ok(None);
             }
             let mut cursor = Cursor::new(src);
-            let count: u64 = cursor.read_u64::<LittleEndian>().unwrap();
+            let count: u64 = cursor.read_u64::<LittleEndian>()?;
             let header_size = (count + 1) * 8;
             if size < header_size {
                 return Ok(None);
             }
             for _ in 0..count {
-                self.sizes.push_back(cursor.read_u64::<LittleEndian>().unwrap());
+                self.sizes.push_back(cursor.read_u64::<LittleEndian>()?);
             }
             let src = cursor.into_inner();
             src.advance(header_size as usize);

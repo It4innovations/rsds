@@ -6,10 +6,11 @@ quick_error! {
             description(err.description())
             from()
         }
-        SerializationError(err: serde_json::Error) {
-            cause(err)
+        SerializationError(err: Box<std::error::Error>) {
+            cause(&**err)
             description(err.description())
-            from()
+            from(err: serde_json::error::Error) -> (Box::new(err))
+            from(err: rmp_serde::encode::Error) -> (Box::new(err))
         }
     }
 }
