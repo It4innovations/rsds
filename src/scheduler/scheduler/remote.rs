@@ -8,9 +8,9 @@ use tokio::codec::{Framed, LengthDelimitedCodec};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-pub struct NetworkScheduler;
+pub struct RemoteScheduler;
 
-impl NetworkScheduler {
+impl RemoteScheduler {
     pub async fn start(self, mut comm: SchedulerComm, address: &str) -> crate::Result<()> {
         let conn = TcpStream::connect(address).await?;
         let conn = Framed::new(conn, LengthDelimitedCodec::new());

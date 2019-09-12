@@ -11,7 +11,7 @@ async fn main() -> rsds::Result<()> {
     pretty_env_logger::init();
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
-    let scheduler = rsds::scheduler::NetworkScheduler;
+    let scheduler = rsds::scheduler::RemoteScheduler;
 
     thread::spawn(move || {
         let mut runtime = current_thread::Runtime::new().expect("Runtime creation failed");
@@ -25,7 +25,10 @@ async fn main() -> rsds::Result<()> {
 
     let core_ref2 = core_ref.clone();
     current_thread::spawn(async move {
-        core_ref2.observe_scheduler(rx).await.expect("Core failed");
+        core_ref2
+            .observe_scheduler(receiver)
+            .await
+            .expect("Core failed");
     });
 
     rsds::connection::connection_initiator("127.0.0.1:7070", core_ref)

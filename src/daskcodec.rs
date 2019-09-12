@@ -1,11 +1,11 @@
 use crate::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
-use smallvec::SmallVec;
 use std::io::Cursor;
 use tokio::codec::{Decoder, Encoder};
+use std::collections::VecDeque;
 
 pub struct DaskCodec {
-    sizes: SmallVec<[u64; 2]>,
+    sizes: VecDeque<u64>,
 }
 
 impl DaskCodec {
@@ -32,13 +32,9 @@ impl Decoder for DaskCodec {
             if size < header_size {
                 return Ok(None);
             }
-            // let mut sizes : SmallVec<[u64; 2]> = smallvec!();
             for _ in 0..count {
-                self.sizes.push(cursor.read_u64::<LittleEndian>().unwrap());
+                self.sizes.push_back(cursor.read_u64::<LittleEndian>().unwrap());
             }
-            // !! This just a HACK! for specific observed frames
-            assert!(self.sizes.len() == 2);
-            assert!(*self.sizes.get(0).unwrap() == 0);
             let src = cursor.into_inner();
             src.advance(header_size as usize);
             src
@@ -46,13 +42,19 @@ impl Decoder for DaskCodec {
             src
         };
 
-        // !! HACK only
-        let data_size = *self.sizes.get(1).unwrap();
-        if (src.len() as u64) < data_size {
-            return Ok(None);
+        while let Some(frame_size) = self.sizes.pop_front() {
+            if frame_size > 0 {
+                return if (src.len() as u64) < frame_size {
+                    self.sizes.push_front(frame_size);
+                    Ok(None)
+                }
+                else {
+                    Ok(Some(src.split_to(frame_size as usize)))
+                }
+            }
         }
-        self.sizes.clear();
-        Ok(Some(src.split_to(data_size as usize)))
+
+        Ok(None)
     }
 }
 

@@ -1,17 +1,17 @@
 use crate::common::WrappedRcRefCell;
+use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskAssignment;
 use crate::scheduler::schedproto::TaskUpdate;
-use crate::task::TaskRuntimeState;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+use crate::task::TaskRuntimeState;
+use crate::worker::send_tasks_to_workers;
 use futures::future::FutureExt;
 use futures::stream::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use tokio::runtime::current_thread;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use crate::messages::workermsg::{ToWorkerMessage, TaskFinishedMsg};
-use crate::worker::send_tasks_to_workers;
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
@@ -88,14 +88,8 @@ impl Core {
         let task_id = task_ref.get().id;
         let task_key = task_ref.get().key.clone();
         self.update.new_tasks.push(task_ref.get().make_sched_info());
-        assert!(self
-            .tasks_by_id
-            .insert(task_id, task_ref.clone())
-            .is_none());
-        assert!(self
-            .tasks_by_key
-            .insert(task_key, task_ref)
-            .is_none());
+        assert!(self.tasks_by_id.insert(task_id, task_ref.clone()).is_none());
+        assert!(self.tasks_by_key.insert(task_key, task_ref).is_none());
     }
 
     pub fn get_task_by_key_or_panic(&self, key: &str) -> &TaskRef {
@@ -150,23 +144,39 @@ impl Core {
             task.worker = Some(worker_ref.clone());
             if task.is_ready() {
                 task.state = TaskRuntimeState::Assigned;
-                log::debug!("Task task={} scheduled & assigned to worker={}", assignment.task, assignment.worker);
+                log::debug!(
+                    "Task task={} scheduled & assigned to worker={}",
+                    assignment.task,
+                    assignment.worker
+                );
                 let v = tasks_per_worker.entry(worker_ref).or_insert_with(Vec::new);
                 v.push(task_ref.clone());
-
             } else {
                 task.state = TaskRuntimeState::Scheduled;
-                log::debug!("Task task={} scheduled to worker={}", assignment.task, assignment.worker);
+                log::debug!(
+                    "Task task={} scheduled to worker={}",
+                    assignment.task,
+                    assignment.worker
+                );
             }
         }
         send_tasks_to_workers(self, tasks_per_worker);
     }
 
-    pub fn on_task_finished(&mut self, worker: &WorkerRef, msg: TaskFinishedMsg, new_ready_scheduled: &mut Vec<TaskRef>) {
+    pub fn on_task_finished(
+        &mut self,
+        worker: &WorkerRef,
+        msg: TaskFinishedMsg,
+        new_ready_scheduled: &mut Vec<TaskRef>,
+    ) {
         let mut task_ref = self.get_task_by_key_or_panic(&msg.key);
         {
             let mut task = task_ref.get_mut();
-            log::debug!("Task id={} finished on worker={}", task.id, worker.get().id());
+            log::debug!(
+                "Task id={} finished on worker={}",
+                task.id,
+                worker.get().id()
+            );
             assert!(task.state == TaskRuntimeState::Assigned);
             assert!(task.worker.as_ref().unwrap() == worker);
             task.state = TaskRuntimeState::Finished;

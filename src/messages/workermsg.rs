@@ -106,7 +106,6 @@ pub enum Status {
     Ok, // TODO other options??
 }
 
-
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub status: Status,

@@ -26,7 +26,7 @@ impl BasicScheduler {
         while let Some(msg) = comm.recv.next().await {
             match msg {
                 ToSchedulerMessage::Update(update) => {
-                    state.update(update, &comm.send);
+                    state.update(update, &mut comm.send);
                 }
             }
         }

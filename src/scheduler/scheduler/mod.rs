@@ -2,7 +2,7 @@ use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 mod basic;
-mod network;
+mod remote;
 
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {
@@ -11,7 +11,7 @@ pub struct SchedulerComm {
 }
 
 pub use basic::BasicScheduler;
-pub use network::NetworkScheduler;
+pub use remote::RemoteScheduler;
 
 pub fn prepare_scheduler_comm() -> (
     SchedulerComm,

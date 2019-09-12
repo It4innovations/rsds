@@ -1,6 +1,6 @@
 use crate::common::WrappedRcRefCell;
 use crate::daskcodec::DaskCodec;
-use crate::messages::workermsg::{FromWorkerMessage, HeartbeatResponse, ToWorkerMessage, Status};
+use crate::messages::workermsg::{FromWorkerMessage, HeartbeatResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
 use futures::future;
 use futures::future::FutureExt;
@@ -8,14 +8,15 @@ use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
 
+use crate::task::TaskRuntimeState;
 use rmp_serde as rmps;
+use std::collections::HashMap;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
-use crate::task::TaskRuntimeState;
-use std::collections::HashMap;
 use crate::core::Core;
 use crate::messages::generic::RegisterWorkerMsg;
+
 
 pub struct Worker {
     pub id: WorkerId,
@@ -81,18 +82,15 @@ pub fn start_worker(
 
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
-        loop {
-            if let Some(data) = snd_receiver.next().await {
-                if let Err(e) = sender.send(data).await {
-                    log::error!("Send to worker failed");
-                    return Err(e);
-                }
-            } else {
-                return Ok(());
+        while let Some(data) = snd_receiver.next().await {
+            if let Err(e) = sender.send(data).await {
+                log::error!("Send to worker failed");
+                return Err(e);
             }
         }
+        Ok(())
     }
-        .boxed();
+        .boxed_local();
 
     let recv_loop = receiver.try_for_each(move |data| {
         let msgs: Result<Vec<FromWorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
@@ -107,13 +105,13 @@ pub fn start_worker(
                     assert!(msg.status == Status::Ok); // TODO: handle other cases
                     let mut core = core_ref.get_mut();
                     core.on_task_finished(&worker_ref, msg, &mut new_ready_scheduled);
-                },
+                }
                 FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
         }
 
         if !new_ready_scheduled.is_empty() {
-            let mut tasks_per_worker : HashMap<WorkerRef, Vec<TaskRef>> = HashMap::new();
+            let mut tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>> = HashMap::new();
             for task_ref in new_ready_scheduled {
                 let worker = {
                     let mut task = task_ref.get_mut();

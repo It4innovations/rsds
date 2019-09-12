@@ -153,13 +153,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         let unfinished_deps = inputs.len() as u32;
 
         log::debug!("New task id={}, key={}", task_id, task_key);
-        let task_ref = TaskRef::new(
-            task_id,
-            task_key,
-            task_spec,
-            inputs,
-            unfinished_deps,
-        );
+        let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
         new_tasks.push(task_ref.clone());
         if unfinished_deps == 0 {

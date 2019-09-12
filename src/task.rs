@@ -25,13 +25,9 @@ pub enum TaskRuntimeState {
     Finished,
 }
 
-pub struct TaskRuntimeInfo {
+pub struct TaskRuntimeInfo {}
 
-}
-
-impl TaskRuntimeInfo {
-
-}
+impl TaskRuntimeInfo {}
 
 pub struct Task {
     pub id: TaskId,
@@ -49,7 +45,6 @@ pub struct Task {
 pub type TaskRef = WrappedRcRefCell<Task>;
 
 impl Task {
-
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_inputs == 0
@@ -65,7 +60,9 @@ impl Task {
     pub fn make_sched_update(&self) -> Option<TaskUpdate> {
         let state = match self.state {
             TaskRuntimeState::Finished => TaskState::Finished,
-            TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled | TaskRuntimeState::Assigned => return None,
+            TaskRuntimeState::Waiting
+            | TaskRuntimeState::Scheduled
+            | TaskRuntimeState::Assigned => return None,
         };
         Some(TaskUpdate {
             id: self.id,
