@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::task::TaskKey;
 
 #[derive(Deserialize, Debug)]
 pub struct IdentityMsg {
@@ -33,6 +34,12 @@ pub struct HeartbeatWorkerMsg {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub struct GatherMsg {
+    pub keys: Vec<String>
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum GenericMessage {
@@ -41,6 +48,7 @@ pub enum GenericMessage {
     HeartbeatWorker(HeartbeatWorkerMsg),
     RegisterClient(RegisterClientMsg),
     RegisterWorker(RegisterWorkerMsg),
+    Gather(GatherMsg),
 }
 
 #[derive(Serialize, Debug)]

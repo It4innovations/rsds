@@ -199,6 +199,11 @@ impl Core {
         self.send_scheduler_update();
     }
 
+    pub async fn who_has(&self, key: &str) -> crate::Result<Option<WorkerRef>> {
+        // TODO
+        Ok(Some(self.workers.iter().take(1).map(|i| i.1.clone()).collect::<Vec<WorkerRef>>().pop().unwrap()))
+    }
+
     fn notify_key_in_memory(&mut self, task: &Task) {
         match self.clients.get_mut(&task.client) {
             Some(client) => {

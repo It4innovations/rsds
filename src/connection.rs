@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use tokio::prelude::*;
 
-use crate::client::start_client;
+use crate::client::{start_client, start_gather};
 use crate::daskcodec::DaskCodec;
 use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
 use crate::worker::start_worker;
@@ -36,7 +36,7 @@ pub async fn handle_connection(
         match buffer {
             Some(data) => {
                 let data = data?;
-                let msg: Result<GenericMessage, _> = rmps::from_read(std::io::Cursor::new(&data.message));
+                let msg: Result<GenericMessage, _> = rmps::from_slice(&data.message);
                 match msg {
                     Ok(GenericMessage::HeartbeatWorker(_)) => {
                         log::debug!("Heartbeat from worker");
@@ -61,6 +61,9 @@ pub async fn handle_connection(
                         };
                         let data = rmp_serde::encode::to_vec_named(&rsp)?;
                         framed.send(data.into()).await?;
+                    }
+                    Ok(GenericMessage::Gather(msg)) => {
+                        break start_gather(&core_ref, address, framed, msg.keys).await;
                     }
                     Err(e) => {
                         dbg!(data);

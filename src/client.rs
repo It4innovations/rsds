@@ -13,6 +13,8 @@ use std::rc::Rc;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
+use crate::messages::workermsg::{ToWorkerMessage, GetDataMsg, GetDataResponse, Status};
+use crate::messages::generic::SimpleMessage;
 
 pub type ClientId = u64;
 
@@ -168,4 +170,58 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         }
     }
     core.send_scheduler_update();
+}
+
+async fn get_data_from_worker<'a, 'b>(worker: &'a WorkerRef, keys: &'b Vec<&str>) -> crate::Result<HashMap<&'b str, Bytes>>
+{
+    let connection = TcpStream::connect(&worker.get().listen_address.trim_start_matches("tcp://")).await?;
+    let mut connection = Framed::new(connection, DaskCodec::new());
+
+    // send get data request
+    let msg = ToWorkerMessage::GetData(GetDataMsg {
+        keys,
+        who: None,
+        max_connections: false,
+        reply: true
+    });
+    connection.send(rmp_serde::to_vec_named(&msg)?.into()).await?;
+
+    let response = connection.next().await;
+    match response {
+        Some(data) => {
+            let data = data?;
+            println!("{:?}", data.message);
+            let response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap();
+            assert_eq!(response.status, "OK");
+            println!("{:?}", data.additional_frames);
+            panic!();
+            connection.send("OK".into()).await?;
+        }
+        None => unimplemented!()
+    }
+
+    Ok(Default::default())
+}
+
+pub async fn start_gather(core_ref: &CoreRef,
+                          address: std::net::SocketAddr,
+                          mut framed: Framed<TcpStream, DaskCodec>,
+                          keys: Vec<String>) -> crate::Result<()> {
+    let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
+    for key in &keys {
+        let worker = core_ref.get().who_has(&key).await?.expect("No worker holds key");
+        worker_map.entry(worker).or_default().push(key);
+    }
+
+    let mut result: HashMap<&str, Bytes> = Default::default();
+
+    // TODO: use join to run futures in parallel
+    for (worker, keys) in &worker_map {
+        let worker_result = get_data_from_worker(&worker, &keys).await?;
+        for (key, data) in worker_result {
+            result.insert(key, data);
+        }
+    }
+
+    Ok(())
 }

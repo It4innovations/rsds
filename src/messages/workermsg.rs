@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use bytes::Bytes;
 
 /*
 {b'status': b'OK',
@@ -85,10 +86,21 @@ pub struct ComputeTaskMsg {
 }
 
 #[derive(Serialize, Debug)]
+pub struct GetDataMsg<'a> {
+    pub keys: &'a Vec<&'a str>,
+    pub who: Option<u64>, // ?
+    pub max_connections: bool, // ?
+    pub reply: bool
+}
+
+#[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum ToWorkerMessage {
+pub enum ToWorkerMessage<'a> {
     ComputeTask(ComputeTaskMsg),
+
+    #[serde(rename = "get_data")]
+    GetData(GetDataMsg<'a>)
 }
 
 #[derive(Serialize, Debug)]
@@ -115,7 +127,6 @@ pub struct TaskFinishedMsg {
     pub nbytes: u64,
 }
 
-
 #[derive(Deserialize, Debug)]
 pub struct TaskErredMsg {
     pub status: Status,
@@ -123,12 +134,19 @@ pub struct TaskErredMsg {
     pub thread: u64,
 }
 
-
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum FromWorkerMessage {
     TaskFinished(TaskFinishedMsg),
     TaskErred(TaskErredMsg),
-    KeepAlive,
+    KeepAlive
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Empty;
+
+#[derive(Deserialize, Debug)]
+pub struct GetDataResponse<'a> {
+    pub status: &'a str,
 }

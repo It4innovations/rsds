@@ -11,6 +11,7 @@ quick_error! {
             description(err.description())
             from(err: serde_json::error::Error) -> (Box::new(err))
             from(err: rmp_serde::encode::Error) -> (Box::new(err))
+            from(err: rmp_serde::decode::Error) -> (Box::new(err))
         }
     }
 }
