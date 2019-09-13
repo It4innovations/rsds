@@ -39,7 +39,7 @@ impl Worker {
     }
 
     pub fn send_message(&mut self, data: Bytes) -> crate::Result<()> {
-        self.sender.try_send(data).unwrap();
+        self.sender.try_send(data).unwrap(); // TODO: bail!("Send of worker XYZ failed")
         Ok(())
     }
 }
@@ -125,7 +125,7 @@ pub async fn start_worker(
                 v.push(task_ref);
             }
             let core = core_ref.get();
-            send_tasks_to_workers(&core,tasks_per_worker).unwrap();
+            send_tasks_to_workers(&core,tasks_per_worker);
         }
         future::ready(Ok(()))
     });
@@ -150,11 +150,16 @@ pub async fn start_worker(
 }
 
 
-pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) -> crate::Result<()> {
-    for (worker, tasks) in tasks_per_worker {
+pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) {
+    for (worker_ref, tasks) in tasks_per_worker {
         let msgs: Vec<_> = tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
         let data = rmp_serde::encode::to_vec_named(&msgs).unwrap();
-        worker.get_mut().send_message(data.into())?;
+        let worker = worker_ref.get();
+        worker_ref.get_mut().send_message(data.into()).unwrap_or_else(|_| {
+            // !!! Do not propagate error right now, we need to finish sending messages to others
+            // Worker cleanup is done elsewhere (when worker future terminates),
+            // so we can safely ignore this. Since we are nice guys we log (debug) message.
+            log::debug!("Sending tasks to worker {} failed", worker.id);
+        });
     }
-    Ok(())
 }

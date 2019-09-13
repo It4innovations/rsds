@@ -131,7 +131,7 @@ impl Core {
         self.self_ref.clone().unwrap()
     }
 
-    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) -> crate::Result<()> {
+    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) {
         log::debug!("Assignments from scheduler: {:?}", assignments);
         let mut tasks_per_worker = HashMap::new();
         for assignment in assignments {
@@ -160,7 +160,7 @@ impl Core {
                 );
             }
         }
-        send_tasks_to_workers(self, tasks_per_worker)
+        send_tasks_to_workers(self, tasks_per_worker);
     }
 
     pub fn on_task_finished(
@@ -231,7 +231,7 @@ impl CoreRef {
     pub async fn observe_scheduler(
         self,
         mut recv: UnboundedReceiver<FromSchedulerMessage>,
-    ) -> crate::Result<()> {
+    ) {
         log::debug!("Starting scheduler");
 
         match recv.next().await {
@@ -250,14 +250,13 @@ impl CoreRef {
             match msg {
                 FromSchedulerMessage::TaskAssignments(assignments) => {
                     let mut core = self.get_mut();
-                    core.process_assignments(assignments)?;
+                    core.process_assignments(assignments);
                 }
                 FromSchedulerMessage::Register(_) => {
                     panic!("Double registration of scheduler");
                 }
             }
         }
-        Ok(())
     }
 
     pub fn uid(&self) -> String {

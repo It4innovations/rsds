@@ -28,7 +28,6 @@ async fn main() -> rsds::Result<()> {
         core_ref2
             .observe_scheduler(receiver)
             .await
-            .expect("Core failed");
     });
 
     rsds::connection::connection_initiator("127.0.0.1:7070", core_ref)
