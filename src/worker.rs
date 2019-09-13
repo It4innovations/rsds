@@ -83,7 +83,7 @@ pub async fn start_worker(
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
         while let Some(data) = snd_receiver.next().await {
-            if let Err(e) = sender.send(data).await {
+            if let Err(e) = sender.send(data.into()).await {
                 log::error!("Send to worker failed");
                 return Err(e);
             }

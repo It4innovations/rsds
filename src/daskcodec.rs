@@ -1,19 +1,28 @@
 use crate::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
+use std::collections::VecDeque;
 use std::io::Cursor;
 use tokio::codec::{Decoder, Encoder};
-use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct DaskMessage {
     pub message: Bytes,
-    pub additional_frames: Vec<Bytes>
+    pub additional_frames: Vec<Bytes>,
+}
+
+impl<T: Into<Bytes>> From<T> for DaskMessage {
+    fn from(message: T) -> Self {
+        Self {
+            message: message.into(),
+            additional_frames: Default::default(),
+        }
+    }
 }
 
 pub struct DaskCodec {
     sizes: Option<(u64, Vec<u64>)>,
     main_message: Option<Bytes>,
-    other_messages: Vec<Bytes>
+    other_messages: Vec<Bytes>,
 }
 
 impl DaskCodec {
@@ -62,18 +71,19 @@ impl Decoder for DaskCodec {
         if self.main_message.is_none() {
             let size = src.len() as u64;
             if *main_size > size {
-                return Ok(None)
+                return Ok(None);
             }
             self.main_message = Some(src.split_to(*main_size as usize).into());
         }
 
-        for i in  self.other_messages.len() .. sizes.len() {
+        for i in self.other_messages.len()..sizes.len() {
             let size = src.len() as u64;
             let frame_size = *sizes.get(i).unwrap();
             if frame_size > size {
-                return Ok(None)
+                return Ok(None);
             }
-            self.other_messages.push(src.split_to(frame_size as usize).into());
+            self.other_messages
+                .push(src.split_to(frame_size as usize).into());
         }
         self.sizes = None;
         Ok(Some(DaskMessage {
@@ -84,16 +94,26 @@ impl Decoder for DaskCodec {
 }
 
 impl Encoder for DaskCodec {
-    type Item = Bytes;
+    type Item = DaskMessage;
     type Error = crate::DsError;
 
-    fn encode(&mut self, data: Bytes, dst: &mut BytesMut) -> crate::Result<()> {
-        let n = data.len() + 8 * 3;
+    fn encode(&mut self, data: DaskMessage, dst: &mut BytesMut) -> crate::Result<()> {
+        let frames = 2 + data.additional_frames.len();
+
+        let n = 8 * (frames + 1)
+            + data.message.len()
+            + data.additional_frames.iter().map(|i| i.len()).sum::<usize>();
         dst.reserve(n);
-        dst.put_u64_le(2);
+        dst.put_u64_le(frames as u64);
         dst.put_u64_le(0);
-        dst.put_u64_le(data.len() as u64);
-        dst.extend_from_slice(&data[..]);
+        dst.put_u64_le(data.message.len() as u64);
+        for frame in &data.additional_frames {
+            dst.put_u64_le(frame.len() as u64);
+        }
+        dst.extend_from_slice(&data.message);
+        for frame in &data.additional_frames {
+            dst.extend_from_slice(&frame);
+        }
         Ok(())
     }
 }

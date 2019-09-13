@@ -64,6 +64,9 @@ use bytes::Bytes;
   b'thread': 140195060229888,
   b'startstops': [[b'compute', 1.337095022201538, 1.3390309810638428]]}]
 
+get_data response:
+b"\x82\xa6status\xa2OK\xa4data\x80"
+[b"\x83\xa7headers\x81\x92\xa4data\xd9#fn-290914ef7acde00ce350415c5821f1d4\x84\xaaserializer\xa6pickle\xa7lengths\x91\x0e\xabcompression\x91\xc0\xa5count\x01\xa4keys\x91\x92\xa4data\xd9#fn-290914ef7acde00ce350415c5821f1d4\xabbytestrings\x90", b"\x80\x04\x95\x03\0\0\0\0\0\0\0K\x02."]
 
 */
 
