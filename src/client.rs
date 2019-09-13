@@ -72,7 +72,7 @@ pub async fn start_client(
         .boxed_local();
 
     let recv_loop = receiver.try_for_each(move |data| {
-        let msgs: Result<Vec<FromClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
+        let msgs: Result<Vec<FromClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data.message));
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from client ({}): {}", client_id, e);
@@ -119,7 +119,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     for vals in update.dependencies.values() {
         for key in vals {
             if !update.tasks.contains_key(key) {
-                // TOOD: Error handling
+                // TODO: Error handling
                 panic!("Invalid key in dependecies: {}", key);
             }
         }

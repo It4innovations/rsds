@@ -4,37 +4,53 @@ use std::io::Cursor;
 use tokio::codec::{Decoder, Encoder};
 use std::collections::VecDeque;
 
+#[derive(Debug)]
+pub struct DaskMessage {
+    pub message: Bytes,
+    pub additional_frames: Vec<Bytes>
+}
+
 pub struct DaskCodec {
-    sizes: VecDeque<u64>,
+    sizes: Option<(u64, Vec<u64>)>,
+    main_message: Option<Bytes>,
+    other_messages: Vec<Bytes>
 }
 
 impl DaskCodec {
     pub fn new() -> Self {
         DaskCodec {
-            sizes: Default::default(),
+            sizes: None,
+            main_message: None,
+            other_messages: Default::default(),
         }
     }
 }
 
 impl Decoder for DaskCodec {
-    type Item = BytesMut;
+    type Item = DaskMessage;
     type Error = crate::DsError;
 
-    fn decode(&mut self, src: &mut BytesMut) -> crate::Result<Option<BytesMut>> {
-        let src = if self.sizes.is_empty() {
+    fn decode(&mut self, src: &mut BytesMut) -> crate::Result<Option<DaskMessage>> {
+        let src = if self.sizes.is_none() {
             let size = src.len() as u64;
             if size < 8 {
                 return Ok(None);
             }
             let mut cursor = Cursor::new(src);
-            let count: u64 = cursor.read_u64::<LittleEndian>()?;
+            // Following read_u64 cannot failed, hence do not propagate and leave .unwrap() here
+            let count: u64 = cursor.read_u64::<LittleEndian>().unwrap();
             let header_size = (count + 1) * 8;
             if size < header_size {
                 return Ok(None);
             }
-            for _ in 0..count {
-                self.sizes.push_back(cursor.read_u64::<LittleEndian>()?);
+            let first_size = cursor.read_u64::<LittleEndian>().unwrap();
+            assert_eq!(first_size, 0);
+            let main_size = cursor.read_u64::<LittleEndian>().unwrap();
+            let mut sizes = Vec::new();
+            for _ in 2..count {
+                sizes.push(cursor.read_u64::<LittleEndian>().unwrap());
             }
+            self.sizes = Some((main_size, sizes));
             let src = cursor.into_inner();
             src.advance(header_size as usize);
             src
@@ -42,19 +58,28 @@ impl Decoder for DaskCodec {
             src
         };
 
-        while let Some(frame_size) = self.sizes.pop_front() {
-            if frame_size > 0 {
-                return if (src.len() as u64) < frame_size {
-                    self.sizes.push_front(frame_size);
-                    Ok(None)
-                }
-                else {
-                    Ok(Some(src.split_to(frame_size as usize)))
-                }
+        let (main_size, sizes) = self.sizes.as_ref().unwrap();
+        if self.main_message.is_none() {
+            let size = src.len() as u64;
+            if *main_size > size {
+                return Ok(None)
             }
+            self.main_message = Some(src.split_to(*main_size as usize).into());
         }
 
-        Ok(None)
+        for i in  self.other_messages.len() .. sizes.len() {
+            let size = src.len() as u64;
+            let frame_size = *sizes.get(i).unwrap();
+            if frame_size > size {
+                return Ok(None)
+            }
+            self.other_messages.push(src.split_to(frame_size as usize).into());
+        }
+        self.sizes = None;
+        Ok(Some(DaskMessage {
+            message: self.main_message.take().unwrap(),
+            additional_frames: std::mem::replace(&mut self.other_messages, Vec::new()),
+        }))
     }
 }
 

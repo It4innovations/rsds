@@ -103,7 +103,9 @@ pub struct HeartbeatResponse {
 #[derive(Deserialize, Debug, PartialEq)]
 pub enum Status {
     #[serde(rename = "OK")]
-    Ok, // TODO other options??
+    Ok,
+    #[serde(rename = "error")]
+    Error,
 }
 
 #[derive(Deserialize, Debug)]
@@ -113,10 +115,20 @@ pub struct TaskFinishedMsg {
     pub nbytes: u64,
 }
 
+
+#[derive(Deserialize, Debug)]
+pub struct TaskErredMsg {
+    pub status: Status,
+    pub key: String,
+    pub thread: u64,
+}
+
+
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum FromWorkerMessage {
     TaskFinished(TaskFinishedMsg),
+    TaskErred(TaskErredMsg),
     KeepAlive,
 }

@@ -36,7 +36,7 @@ pub async fn handle_connection(
         match buffer {
             Some(data) => {
                 let data = data?;
-                let msg: Result<GenericMessage, _> = rmps::from_read(std::io::Cursor::new(&data));
+                let msg: Result<GenericMessage, _> = rmps::from_read(std::io::Cursor::new(&data.message));
                 match msg {
                     Ok(GenericMessage::HeartbeatWorker(_)) => {
                         log::debug!("Heartbeat from worker");

@@ -94,7 +94,7 @@ pub async fn start_worker(
         .boxed_local();
 
     let recv_loop = receiver.try_for_each(move |data| {
-        let msgs: Result<Vec<FromWorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data));
+        let msgs: Result<Vec<FromWorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data.message));
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from worker ({}): {}", worker_id, e);
@@ -103,10 +103,14 @@ pub async fn start_worker(
         for msg in msgs.unwrap() {
             match msg {
                 FromWorkerMessage::TaskFinished(msg) => {
-                    assert!(msg.status == Status::Ok); // TODO: handle other cases
+                    assert!(msg.status == Status::Ok); // TODO: handle other cases ??
                     let mut core = core_ref.get_mut();
                     core.on_task_finished(&worker_ref, msg, &mut new_ready_scheduled);
-                }
+                },
+                FromWorkerMessage::TaskErred(msg) => {
+                    assert!(msg.status == Status::Error); // TODO: handle other cases ??
+                    
+                },
                 FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
         }
@@ -154,8 +158,8 @@ pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, V
     for (worker_ref, tasks) in tasks_per_worker {
         let msgs: Vec<_> = tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
         let data = rmp_serde::encode::to_vec_named(&msgs).unwrap();
-        let worker = worker_ref.get();
-        worker_ref.get_mut().send_message(data.into()).unwrap_or_else(|_| {
+        let mut worker = worker_ref.get_mut();
+        worker.send_message(data.into()).unwrap_or_else(|_| {
             // !!! Do not propagate error right now, we need to finish sending messages to others
             // Worker cleanup is done elsewhere (when worker future terminates),
             // so we can safely ignore this. Since we are nice guys we log (debug) message.

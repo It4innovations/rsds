@@ -11,14 +11,16 @@ async fn main() -> rsds::Result<()> {
     pretty_env_logger::init();
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
-    let scheduler = rsds::scheduler::RemoteScheduler;
+
+    let scheduler = rsds::scheduler::BasicScheduler;
 
     thread::spawn(move || {
         let mut runtime = current_thread::Runtime::new().expect("Runtime creation failed");
         runtime
-            .block_on(scheduler.start(comm, "127.0.0.1:8888"))
+            .block_on(scheduler.start(comm))
             .expect("Scheduler failed");
     });
+
 
     let core_ref = CoreRef::new(sender);
     log::info!("rsds v0.0 started at port 7070");
