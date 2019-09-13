@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use tokio::runtime::current_thread;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use crate::messages::clientmsg::{ToClientMessage, KeyInMemoryMsg};
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
@@ -192,9 +193,24 @@ impl Core {
                     new_ready_scheduled.push(consumer.clone());
                 }
             }
+            self.notify_key_in_memory(&task);
         }
         self.set_task_state_changed(task_ref);
         self.send_scheduler_update();
+    }
+
+    fn notify_key_in_memory(&mut self, task: &Task) {
+        match self.clients.get_mut(&task.client) {
+            Some(client) => {
+                client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
+                    key: task.key.clone()
+                }));
+            },
+            None => {
+                // TODO: remove task
+                log::warn!("Task {} finished for a dropped client {}", task.key, task.client);
+            }
+        }
     }
 }
 

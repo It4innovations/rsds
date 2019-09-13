@@ -17,7 +17,6 @@ use tokio::runtime::current_thread;
 use crate::core::Core;
 use crate::messages::generic::RegisterWorkerMsg;
 
-
 pub struct Worker {
     pub id: WorkerId,
     pub sender: tokio::sync::mpsc::UnboundedSender<Bytes>,

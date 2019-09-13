@@ -1,11 +1,11 @@
 use crate::common::{RcEqWrapper, WrappedRcRefCell};
+use crate::core::Core;
 use crate::messages::workermsg::ComputeTaskMsg;
 use crate::prelude::*;
 use crate::scheduler::schedproto::{TaskId, TaskUpdate};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashSet;
-use crate::core::Core;
 
 pub type TaskKey = String;
 
@@ -40,6 +40,8 @@ pub struct Task {
     pub key: TaskKey,
     pub spec: TaskSpec,
     pub dependencies: Vec<TaskId>,
+
+    pub client: ClientId,
 }
 
 pub type TaskRef = WrappedRcRefCell<Task>;
@@ -72,25 +74,35 @@ impl Task {
     }
 
     pub fn make_compute_task_msg(&self, core: &Core) -> ComputeTaskMsg {
-        let task_refs : Vec<_> = self.dependencies.iter().map(|task_id| { core.get_task_by_id_or_panic(*task_id).clone() }).collect();
-        let who_has : Vec<_> = task_refs.iter().map(|task_ref| {
-            let task = task_ref.get();
-            let worker = task.worker.as_ref().unwrap().get();
-            (task.key.clone(), vec![worker.listen_address.clone()])
-        }).collect();
+        let task_refs: Vec<_> = self
+            .dependencies
+            .iter()
+            .map(|task_id| core.get_task_by_id_or_panic(*task_id).clone())
+            .collect();
+        let who_has: Vec<_> = task_refs
+            .iter()
+            .map(|task_ref| {
+                let task = task_ref.get();
+                let worker = task.worker.as_ref().unwrap().get();
+                (task.key.clone(), vec![worker.listen_address.clone()])
+            })
+            .collect();
 
-        let nbytes : Vec<_> = task_refs.iter().map(|task_ref| {
-            let task = task_ref.get();
-            (task.key.clone(), task.size.unwrap())
-        }).collect();
-
+        let nbytes: Vec<_> = task_refs
+            .iter()
+            .map(|task_ref| {
+                let task = task_ref.get();
+                (task.key.clone(), task.size.unwrap())
+            })
+            .collect();
 
         ComputeTaskMsg {
             key: self.key.clone(),
             function: self.spec.function.clone(),
             args: self.spec.args.clone(),
-            duration: 0.5, //
-            who_has, nbytes
+            duration: 0.5, // TODO
+            who_has,
+            nbytes,
         }
     }
 }
@@ -102,6 +114,7 @@ impl TaskRef {
         spec: TaskSpec,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
+        client: ClientId,
     ) -> Self {
         WrappedRcRefCell::wrap(Task {
             id,
@@ -113,6 +126,7 @@ impl TaskRef {
             consumers: Default::default(),
             worker: None,
             size: None,
+            client,
         })
     }
 }
