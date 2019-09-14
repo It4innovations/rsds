@@ -41,7 +41,7 @@ pub struct Task {
     pub spec: TaskSpec,
     pub dependencies: Vec<TaskId>,
 
-    pub client: ClientId,
+    pub subscribed_clients: HashSet<ClientId>,
 }
 
 pub type TaskRef = WrappedRcRefCell<Task>;
@@ -114,7 +114,6 @@ impl TaskRef {
         spec: TaskSpec,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
-        client: ClientId,
     ) -> Self {
         WrappedRcRefCell::wrap(Task {
             id,
@@ -126,7 +125,7 @@ impl TaskRef {
             consumers: Default::default(),
             worker: None,
             size: None,
-            client,
+            subscribed_clients: Default::default(),
         })
     }
 }

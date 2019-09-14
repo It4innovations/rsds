@@ -154,7 +154,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         let unfinished_deps = inputs.len() as u32;
 
         log::debug!("New task id={}, key={}", task_id, task_key);
-        let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps, client_id);
+        let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
         new_tasks.push(task_ref.clone());
         if unfinished_deps == 0 {
@@ -169,11 +169,20 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
             tr.get_mut().consumers.insert(task_ref.clone());
         }
     }
+
+    for task_key in update.keys {
+        let task_ref = core.get_task_by_key_or_panic(&task_key);
+        let mut task = task_ref.get_mut();
+        task.subscribed_clients.insert(client_id);
+    }
+
     core.send_scheduler_update();
 }
 
 async fn get_data_from_worker<'a, 'b>(worker: &'a WorkerRef, keys: &'b Vec<&str>) -> crate::Result<HashMap<&'b str, Bytes>>
 {
+    unimplemented!();
+    /*
     let connection = TcpStream::connect(&worker.get().listen_address.trim_start_matches("tcp://")).await?;
     let mut connection = Framed::new(connection, DaskCodec::new());
 
@@ -200,16 +209,19 @@ async fn get_data_from_worker<'a, 'b>(worker: &'a WorkerRef, keys: &'b Vec<&str>
         None => unimplemented!()
     }
 
-    Ok(Default::default())
+    Ok(Default::default())*/
 }
 
 pub async fn start_gather(core_ref: &CoreRef,
                           address: std::net::SocketAddr,
                           mut framed: Framed<TcpStream, DaskCodec>,
                           keys: Vec<String>) -> crate::Result<()> {
-    let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
+    unimplemented!();
+    /*let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
+    let core = core_ref.get();
     for key in &keys {
-        let worker = core_ref.get().who_has(&key).await?.expect("No worker holds key");
+        let task_ref = core.get_task_by_key_or_panic(key);
+        let worker_ref = task_ref.get().worker.unwrap(); // TODO: Error check
         worker_map.entry(worker).or_default().push(key);
     }
 
@@ -221,7 +233,7 @@ pub async fn start_gather(core_ref: &CoreRef,
         for (key, data) in worker_result {
             result.insert(key, data);
         }
-    }
+    }*/
 
     Ok(())
 }

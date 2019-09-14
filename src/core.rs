@@ -199,21 +199,17 @@ impl Core {
         self.send_scheduler_update();
     }
 
-    pub async fn who_has(&self, key: &str) -> crate::Result<Option<WorkerRef>> {
-        // TODO
-        Ok(Some(self.workers.iter().take(1).map(|i| i.1.clone()).collect::<Vec<WorkerRef>>().pop().unwrap()))
-    }
-
     fn notify_key_in_memory(&mut self, task: &Task) {
-        match self.clients.get_mut(&task.client) {
-            Some(client) => {
-                client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key.clone()
-                }));
-            },
-            None => {
-                // TODO: remove task
-                log::warn!("Task {} finished for a dropped client {}", task.key, task.client);
+        for client_id in &task.subscribed_clients {
+            match self.clients.get_mut(client_id) {
+                Some(client) => {
+                    client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
+                        key: task.key.clone()
+                    }));
+                },
+                None => {
+                    log::warn!("Task id={} finished for a dropped client={}", task.id, client_id);
+                }
             }
         }
     }
