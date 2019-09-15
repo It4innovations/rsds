@@ -1,5 +1,9 @@
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+
+pub use basic::BasicScheduler;
+pub use remote::RemoteScheduler;
+
+use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 
 mod basic;
 mod remote;
@@ -9,9 +13,6 @@ pub struct SchedulerComm {
     pub(crate) recv: UnboundedReceiver<ToSchedulerMessage>,
     pub(crate) send: UnboundedSender<FromSchedulerMessage>,
 }
-
-pub use basic::BasicScheduler;
-pub use remote::RemoteScheduler;
 
 pub fn prepare_scheduler_comm() -> (
     SchedulerComm,

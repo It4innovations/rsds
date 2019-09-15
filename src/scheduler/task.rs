@@ -1,6 +1,7 @@
+use std::collections::HashSet;
+
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
-use std::collections::HashSet;
 
 pub enum SchedulerTaskState {
     Waiting,

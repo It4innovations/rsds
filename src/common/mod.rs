@@ -1,3 +1,4 @@
+pub use wrapped::{RcEqWrapper, WrappedRcRefCell};
+
 mod wrapped;
 
-pub use wrapped::{RcEqWrapper, WrappedRcRefCell};

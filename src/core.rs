@@ -1,18 +1,20 @@
-use crate::common::WrappedRcRefCell;
-use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
-use crate::prelude::*;
-use crate::scheduler::schedproto::TaskAssignment;
-use crate::scheduler::schedproto::TaskUpdate;
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use crate::task::TaskRuntimeState;
-use crate::worker::send_tasks_to_workers;
-use futures::future::FutureExt;
-use futures::stream::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
+
+use futures::future::FutureExt;
+use futures::stream::StreamExt;
 use tokio::runtime::current_thread;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use crate::messages::clientmsg::{ToClientMessage, KeyInMemoryMsg};
+
+use crate::common::WrappedRcRefCell;
+use crate::messages::clientmsg::{KeyInMemoryMsg, ToClientMessage};
+use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
+use crate::prelude::*;
+use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+use crate::scheduler::schedproto::TaskAssignment;
+use crate::scheduler::schedproto::TaskUpdate;
+use crate::task::{ResultInfo, TaskRuntimeState};
+use crate::worker::send_tasks_to_workers;
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
@@ -20,7 +22,6 @@ pub struct Core {
     clients: HashMap<ClientId, Client>,
     workers: HashMap<WorkerId, WorkerRef>,
 
-    task_state_changed: HashSet<TaskRef>,
     update: crate::scheduler::Update,
     scheduler_sender: UnboundedSender<ToSchedulerMessage>,
     update_timeout_running: bool,
@@ -79,12 +80,6 @@ impl Core {
 
     // ! This function modifies update, but do not triggers, send_update
     // You have to done it manually.
-    pub fn set_task_state_changed(&mut self, task_ref: TaskRef) {
-        self.task_state_changed.insert(task_ref);
-    }
-
-    // ! This function modifies update, but do not triggers, send_update
-    // You have to done it manually.
     pub fn add_task(&mut self, task_ref: TaskRef) {
         let task_id = task_ref.get().id;
         let task_key = task_ref.get().key.clone();
@@ -117,12 +112,6 @@ impl Core {
             let mut core = core_ref.get_mut();
             core.update_timeout_running = false;
             let mut update = std::mem::replace(&mut core.update, Default::default());
-            update.task_updates = core
-                .task_state_changed
-                .iter()
-                .filter_map(|r| r.get().make_sched_update())
-                .collect();
-            core.task_state_changed.clear();
             let msg = ToSchedulerMessage::Update(update);
             core.scheduler_sender.try_send(msg).unwrap();
         }));
@@ -180,8 +169,9 @@ impl Core {
             );
             assert!(task.state == TaskRuntimeState::Assigned);
             assert!(task.worker.as_ref().unwrap() == worker);
+            assert!(task.result_info.is_none());
             task.state = TaskRuntimeState::Finished;
-            task.size = Some(msg.nbytes);
+            task.result_info = Some(ResultInfo { size: msg.nbytes, r#type: msg.r#type });
             for consumer in &task.consumers {
                 let is_prepared = {
                     let mut t = consumer.get_mut();
@@ -195,7 +185,6 @@ impl Core {
             }
             self.notify_key_in_memory(&task);
         }
-        self.set_task_state_changed(task_ref);
         self.send_scheduler_update();
     }
 
@@ -204,9 +193,10 @@ impl Core {
             match self.clients.get_mut(client_id) {
                 Some(client) => {
                     client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                        key: task.key.clone()
+                        key: task.key.clone(),
+                        r#type: task.result_info.as_ref().unwrap().r#type.clone(),
                     }));
-                },
+                }
                 None => {
                     log::warn!("Task id={} finished for a dropped client={}", task.id, client_id);
                 }
@@ -227,7 +217,6 @@ impl CoreRef {
             clients: Default::default(),
 
             scheduler_sender,
-            task_state_changed: Default::default(),
             update: Default::default(),
             update_timeout_running: false,
 

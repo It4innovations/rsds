@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+
 use crate::task::TaskKey;
 
 #[derive(Deserialize, Debug)]
@@ -62,4 +63,12 @@ pub struct SimpleMessage {
 pub enum GenericResponse {
     StreamStart(EmptyStruct),
     StreamStart2(EmptyStruct),
+}*/
+
+/*
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AdditionalFrameHeaders {
+    #[serde(with = "tuple_vec_map")]
+    headers: Vec<(Value, Value)>,
+    keys: Vec<Value>,
 }*/

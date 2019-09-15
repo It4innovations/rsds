@@ -1,12 +1,14 @@
-use crate::scheduler::schedproto::SchedulerRegistration;
-use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
-use futures::future::Either;
-use futures::{FutureExt, SinkExt, StreamExt};
 use std::io::Bytes;
 use std::net::SocketAddr;
+
+use futures::{FutureExt, SinkExt, StreamExt};
+use futures::future::Either;
 use tokio::codec::{Framed, LengthDelimitedCodec};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+
+use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
+use crate::scheduler::schedproto::SchedulerRegistration;
 
 pub struct RemoteScheduler;
 

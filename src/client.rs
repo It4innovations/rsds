@@ -1,20 +1,22 @@
-use crate::daskcodec::DaskCodec;
-use crate::messages::clientmsg::{FromClientMessage, UpdateGraphMsg, ToClientMessage};
-use crate::prelude::*;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use futures::future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
-
 use rmp_serde as rmps;
-use std::collections::HashMap;
-use std::rc::Rc;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
-use crate::messages::workermsg::{ToWorkerMessage, GetDataMsg, GetDataResponse, Status};
+
+use crate::daskcodec::{DaskCodec, DaskMessage};
+use crate::messages::aframe::AfDescriptor;
+use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::generic::SimpleMessage;
+use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
+use crate::prelude::*;
 
 pub type ClientId = u64;
 
@@ -157,9 +159,6 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
         new_tasks.push(task_ref.clone());
-        if unfinished_deps == 0 {
-            core.set_task_state_changed(task_ref.clone());
-        }
         core.add_task(task_ref);
     }
 
@@ -179,61 +178,58 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     core.send_scheduler_update();
 }
 
-async fn get_data_from_worker<'a, 'b>(worker: &'a WorkerRef, keys: &'b Vec<&str>) -> crate::Result<HashMap<&'b str, Bytes>>
-{
-    unimplemented!();
-    /*
-    let connection = TcpStream::connect(&worker.get().listen_address.trim_start_matches("tcp://")).await?;
-    let mut connection = Framed::new(connection, DaskCodec::new());
 
-    // send get data request
-    let msg = ToWorkerMessage::GetData(GetDataMsg {
-        keys,
-        who: None,
-        max_connections: false,
-        reply: true
-    });
-    connection.send(rmp_serde::to_vec_named(&msg)?.into()).await?;
-
-    let response = connection.next().await;
-    match response {
-        Some(data) => {
-            let data = data?;
-            println!("{:?}", data.message);
-            let response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap();
-            assert_eq!(response.status, "OK");
-            println!("{:?}", data.additional_frames);
-            panic!();
-            connection.send("OK".into()).await?;
+pub async fn gather(core_ref: &CoreRef,
+                    address: std::net::SocketAddr,
+                    framed: &mut Framed<TcpStream, DaskCodec>,
+                    keys: Vec<String>) -> crate::Result<()> {
+    let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
+    {
+        let core = core_ref.get();
+        for key in &keys {
+            let task_ref = core.get_task_by_key_or_panic(key);
+            let worker_ref = task_ref.get().worker.clone().unwrap(); // TODO: Error check if no worker has data
+            worker_map.entry(worker_ref).or_default().push(key);
         }
-        None => unimplemented!()
     }
-
-    Ok(Default::default())*/
-}
-
-pub async fn start_gather(core_ref: &CoreRef,
-                          address: std::net::SocketAddr,
-                          mut framed: Framed<TcpStream, DaskCodec>,
-                          keys: Vec<String>) -> crate::Result<()> {
-    unimplemented!();
-    /*let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
-    let core = core_ref.get();
-    for key in &keys {
-        let task_ref = core.get_task_by_key_or_panic(key);
-        let worker_ref = task_ref.get().worker.unwrap(); // TODO: Error check
-        worker_map.entry(worker).or_default().push(key);
-    }
-
     let mut result: HashMap<&str, Bytes> = Default::default();
+
+    let mut descriptors = Vec::new();
+    let mut frames = vec![Default::default()];
 
     // TODO: use join to run futures in parallel
     for (worker, keys) in &worker_map {
-        let worker_result = get_data_from_worker(&worker, &keys).await?;
-        for (key, data) in worker_result {
-            result.insert(key, data);
-        }
-    }*/
+        let data = super::worker::get_data_from_worker(&worker, &keys).await?;
+        let response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap_or_else(|e| {
+            dbg!(&data.message);
+            panic!("Get data response error {:?}", e);
+        });
+        //assert_eq!(response.status, Status::Ok);
+        // TODO: Error when additional frames are empty
+        let descriptor: AfDescriptor = rmps::from_slice(&data.additional_frames[0]).unwrap_or_else(|e| {
+            dbg!(&data.additional_frames[0]);
+            panic!("Get data response af descriptor error {:?}", e);
+        });
+        descriptors.push(descriptor);
+        frames.extend_from_slice(&data.additional_frames[1..]);
+    }
 
-    Ok(())
+    let mut descriptor: AfDescriptor = Default::default();
+    for d in descriptors {
+        descriptor.headers.extend(d.headers);
+        descriptor.keys.extend(d.keys);
+    }
+    frames[0] = rmps::to_vec_named(&descriptor)?.into();
+
+    let message = rmps::to_vec_named(&GetDataResponse {
+        status: "OK".into(), // Status::Ok,
+        data: Default::default(),
+    })?.into();
+
+    log::debug!("Sending gathered data {}", address);
+
+    framed.send(DaskMessage {
+        message,
+        additional_frames: frames,
+    }).await
 }

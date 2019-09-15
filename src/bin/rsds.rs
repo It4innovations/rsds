@@ -1,7 +1,9 @@
+use std::thread;
+
+use tokio::runtime::current_thread;
+
 use rsds::prelude::*;
 use rsds::scheduler::prepare_scheduler_comm;
-use std::thread;
-use tokio::runtime::current_thread;
 
 #[tokio::main(single_thread)]
 async fn main() -> rsds::Result<()> {

@@ -1,11 +1,14 @@
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use serde::{Deserialize, Serialize};
+
 use crate::common::{RcEqWrapper, WrappedRcRefCell};
 use crate::core::Core;
 use crate::messages::workermsg::ComputeTaskMsg;
 use crate::prelude::*;
 use crate::scheduler::schedproto::{TaskId, TaskUpdate};
-use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::collections::HashSet;
 
 pub type TaskKey = String;
 
@@ -23,11 +26,18 @@ pub enum TaskRuntimeState {
     Scheduled,
     Assigned,
     Finished,
+    Released,
+    Error,
 }
 
-pub struct TaskRuntimeInfo {}
+pub struct ErrorInfo {
+    //frames: Vec<AdditionalFrame>,
+}
 
-impl TaskRuntimeInfo {}
+pub struct ResultInfo {
+    pub size: u64,
+    pub r#type: Vec<u8>,
+}
 
 pub struct Task {
     pub id: TaskId,
@@ -35,7 +45,9 @@ pub struct Task {
     pub unfinished_inputs: u32,
     pub consumers: HashSet<TaskRef>,
     pub worker: Option<WorkerRef>,
-    pub size: Option<u64>,
+    pub result_info: Option<ResultInfo>,
+
+    pub error: Option<Rc<ErrorInfo>>,
 
     pub key: TaskKey,
     pub spec: TaskSpec,
@@ -59,20 +71,6 @@ impl Task {
         }
     }
 
-    pub fn make_sched_update(&self) -> Option<TaskUpdate> {
-        let state = match self.state {
-            TaskRuntimeState::Finished => TaskState::Finished,
-            TaskRuntimeState::Waiting
-            | TaskRuntimeState::Scheduled
-            | TaskRuntimeState::Assigned => return None,
-        };
-        Some(TaskUpdate {
-            id: self.id,
-            state,
-            worker: None,
-        })
-    }
-
     pub fn make_compute_task_msg(&self, core: &Core) -> ComputeTaskMsg {
         let task_refs: Vec<_> = self
             .dependencies
@@ -92,7 +90,7 @@ impl Task {
             .iter()
             .map(|task_ref| {
                 let task = task_ref.get();
-                (task.key.clone(), task.size.unwrap())
+                (task.key.clone(), task.result_info.as_ref().unwrap().size)
             })
             .collect();
 
@@ -124,7 +122,8 @@ impl TaskRef {
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
             worker: None,
-            size: None,
+            result_info: None,
+            error: None,
             subscribed_clients: Default::default(),
         })
     }

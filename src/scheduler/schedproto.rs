@@ -10,10 +10,15 @@ pub struct WorkerInfo {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum TaskState {
-    Waiting,
+pub enum TaskUpdateType {
     Running,
-    Finished,
+    // Task runs at worker
+    Placed,
+    // Task data are available on worker
+    Removed,
+    // Task data are no available on worker (or running state is cancelled)
+    Discard, // Task is removed from system, do not schedule it
+    // & it is no longer available on on any worker
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,8 +30,8 @@ pub struct TaskInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskUpdate {
     pub id: TaskId,
-    pub state: TaskState,
-    pub worker: Option<WorkerId>,
+    pub state: TaskUpdateType,
+    pub worker: WorkerId,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

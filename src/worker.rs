@@ -1,21 +1,24 @@
-use crate::common::WrappedRcRefCell;
-use crate::daskcodec::DaskCodec;
-use crate::messages::workermsg::{FromWorkerMessage, HeartbeatResponse, Status, ToWorkerMessage};
-use crate::prelude::*;
+use std::collections::HashMap;
+use std::io::Cursor;
+
 use futures::future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use futures::stream::TryStreamExt;
-
-use crate::task::TaskRuntimeState;
 use rmp_serde as rmps;
-use std::collections::HashMap;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
 use tokio::runtime::current_thread;
+
+use crate::common::WrappedRcRefCell;
 use crate::core::Core;
+use crate::daskcodec::{DaskCodec, DaskMessage};
+use crate::messages::aframe::AfDescriptor;
 use crate::messages::generic::RegisterWorkerMsg;
+use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, GetDataResponse, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::prelude::*;
+use crate::task::TaskRuntimeState;
 
 pub struct Worker {
     pub id: WorkerId,
@@ -98,6 +101,9 @@ pub async fn start_worker(
             dbg!(data);
             panic!("Invalid message from worker ({}): {}", worker_id, e);
         }
+
+        //let frame_map = crate::aframe::parse_additional_frames(data.additional_frames);
+
         let mut new_ready_scheduled = Vec::new();
         for msg in msgs.unwrap() {
             match msg {
@@ -105,11 +111,10 @@ pub async fn start_worker(
                     assert!(msg.status == Status::Ok); // TODO: handle other cases ??
                     let mut core = core_ref.get_mut();
                     core.on_task_finished(&worker_ref, msg, &mut new_ready_scheduled);
-                },
+                }
                 FromWorkerMessage::TaskErred(msg) => {
                     assert!(msg.status == Status::Error); // TODO: handle other cases ??
-                    
-                },
+                }
                 FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
         }
@@ -128,7 +133,7 @@ pub async fn start_worker(
                 v.push(task_ref);
             }
             let core = core_ref.get();
-            send_tasks_to_workers(&core,tasks_per_worker);
+            send_tasks_to_workers(&core, tasks_per_worker);
         }
         future::ready(Ok(()))
     });
@@ -165,4 +170,28 @@ pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, V
             log::debug!("Sending tasks to worker {} failed", worker.id);
         });
     }
+}
+
+
+pub async fn get_data_from_worker<'b>(worker: &WorkerRef, keys: &'b Vec<&str>) -> crate::Result<DaskMessage>
+{
+    let connection = {
+        let worker = worker.get();
+        let address = &worker.listen_address.trim_start_matches("tcp://");
+        TcpStream::connect(address).await?
+    };
+    let mut connection = Framed::new(connection, DaskCodec::new());
+
+    // send get data request
+    let msg = ToWorkerMessage::GetData(GetDataMsg {
+        keys,
+        who: None,
+        max_connections: false,
+        reply: true,
+    });
+    connection.send(rmp_serde::to_vec_named(&msg)?.into()).await?;
+
+    // TODO: Error propagation
+    // TODO: Storing worker connection?
+    Ok(connection.next().await.unwrap()?)
 }

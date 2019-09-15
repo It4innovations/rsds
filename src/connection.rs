@@ -1,15 +1,16 @@
-use crate::prelude::*;
-use tokio::prelude::*;
-
-use crate::client::{start_client, start_gather};
-use crate::daskcodec::DaskCodec;
-use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
-use crate::worker::start_worker;
-use rmp_serde as rmps;
 use std::error::Error;
+
+use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::prelude::*;
 use tokio::runtime::current_thread;
+
+use crate::client::{gather, start_client};
+use crate::daskcodec::DaskCodec;
+use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
+use crate::prelude::*;
+use crate::worker::start_worker;
 
 pub async fn connection_initiator(address: &str, core_ref: CoreRef) -> crate::Result<()> {
     let mut listener = TcpListener::bind(address).await?;
@@ -63,7 +64,8 @@ pub async fn handle_connection(
                         framed.send(data.into()).await?;
                     }
                     Ok(GenericMessage::Gather(msg)) => {
-                        break start_gather(&core_ref, address, framed, msg.keys).await;
+                        gather(&core_ref, address, &mut framed, msg.keys).await;
+                        continue;
                     }
                     Err(e) => {
                         dbg!(data);

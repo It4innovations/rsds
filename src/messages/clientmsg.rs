@@ -1,6 +1,9 @@
-use crate::task::TaskSpec;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::task::TaskSpec;
+
 /*
 
 [{b'op': b'update-graph',
@@ -65,7 +68,9 @@ pub enum FromClientMessage {
 
 #[derive(Serialize, Debug)]
 pub struct KeyInMemoryMsg {
-    pub key: String
+    pub key: String,
+    #[serde(with = "serde_bytes")]
+    pub r#type: Vec<u8>,
 }
 
 #[derive(Serialize, Debug)]

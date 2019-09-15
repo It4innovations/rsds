@@ -1,14 +1,17 @@
-use crate::prelude::*;
-use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::VecDeque;
 use std::io::Cursor;
+
+use byteorder::{LittleEndian, ReadBytesExt};
 use tokio::codec::{Decoder, Encoder};
+
+use crate::prelude::*;
 
 #[derive(Debug)]
 pub struct DaskMessage {
     pub message: Bytes,
     pub additional_frames: Vec<Bytes>,
 }
+
 
 impl<T: Into<Bytes>> From<T> for DaskMessage {
     fn from(message: T) -> Self {
@@ -78,7 +81,7 @@ impl Decoder for DaskCodec {
 
         for i in self.other_messages.len()..sizes.len() {
             let size = src.len() as u64;
-            let frame_size = *sizes.get(i).unwrap();
+            let frame_size = sizes[i];
             if frame_size > size {
                 return Ok(None);
             }

@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 /*
 {b'status': b'OK',
@@ -81,7 +82,7 @@ pub struct ComputeTaskMsg {
     #[serde(with = "serde_bytes")]
     pub args: Vec<u8>,
 
-     #[serde(with = "tuple_vec_map")]
+    #[serde(with = "tuple_vec_map")]
     pub who_has: Vec<(String, Vec<String>)>,
 
     #[serde(with = "tuple_vec_map")]
@@ -91,9 +92,11 @@ pub struct ComputeTaskMsg {
 #[derive(Serialize, Debug)]
 pub struct GetDataMsg<'a> {
     pub keys: &'a Vec<&'a str>,
-    pub who: Option<u64>, // ?
-    pub max_connections: bool, // ?
-    pub reply: bool
+    pub who: Option<u64>,
+    // ?
+    pub max_connections: bool,
+    // ?
+    pub reply: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -103,7 +106,7 @@ pub enum ToWorkerMessage<'a> {
     ComputeTask(ComputeTaskMsg),
 
     #[serde(rename = "get_data")]
-    GetData(GetDataMsg<'a>)
+    GetData(GetDataMsg<'a>),
 }
 
 #[derive(Serialize, Debug)]
@@ -115,7 +118,8 @@ pub struct HeartbeatResponse {
     pub worker_plugins: Vec<()>, // type of plugins??
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+// FIX: Deserialize from string (does it working for msgpack??)
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
 pub enum Status {
     #[serde(rename = "OK")]
     Ok,
@@ -128,6 +132,9 @@ pub struct TaskFinishedMsg {
     pub status: Status,
     pub key: String,
     pub nbytes: u64,
+
+    #[serde(with = "serde_bytes")]
+    pub r#type: Vec<u8>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -143,13 +150,17 @@ pub struct TaskErredMsg {
 pub enum FromWorkerMessage {
     TaskFinished(TaskFinishedMsg),
     TaskErred(TaskErredMsg),
-    KeepAlive
+    KeepAlive,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct Empty;
 
-#[derive(Deserialize, Debug)]
-pub struct GetDataResponse<'a> {
-    pub status: &'a str,
+#[derive(Deserialize, Serialize, Debug)]
+pub struct GetDataResponse {
+    pub status: String, // TODO: Migrate to enum Status
+
+    #[serde(with = "tuple_vec_map")]
+    pub data: Vec<((), ())>, // This should be empty, but we need to create entry when sending
+    // otherwise Python client fails
 }

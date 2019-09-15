@@ -1,6 +1,8 @@
-use super::schedproto::*;
 use std::collections::HashMap;
+
 use tokio::sync::mpsc::UnboundedSender;
+
+use super::schedproto::*;
 
 pub struct Worker {
     pub id: WorkerId,
@@ -31,7 +33,7 @@ impl State {
                         id: wi.id,
                         ncpus: wi.ncpus,
                         free_cpus: wi.ncpus as i32,
-                    }
+                    },
                 )
                 .is_none());
         }
