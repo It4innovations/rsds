@@ -5,6 +5,8 @@ use tokio::codec::Framed;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
+use std::net::SocketAddr;
+
 
 use crate::client::{gather, start_client};
 use crate::daskcodec::DaskCodec;
@@ -12,7 +14,8 @@ use crate::messages::generic::{GenericMessage, IdentityResponse, SimpleMessage};
 use crate::prelude::*;
 use crate::worker::start_worker;
 
-pub async fn connection_initiator(address: &str, core_ref: CoreRef) -> crate::Result<()> {
+
+pub async fn connection_initiator(address: SocketAddr, core_ref: CoreRef) -> crate::Result<()> {
     let mut listener = TcpListener::bind(address).await?;
     loop {
         let (socket, address) = listener.accept().await?;
