@@ -1,23 +1,22 @@
-
 import os
 import os.path
-import sys
+import signal
 import subprocess
 import time
-import shutil
-import pytest
-import signal
+import sys
+
 import psutil
+import pytest
 
-
-PYTEST_DIR = os.path.dirname(__file__)
-ROOT = os.path.dirname(os.path.dirname(PYTEST_DIR))
-RSDS_BIN = os.path.join(ROOT, "target", "debug", "rain")
+PYTEST_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(PYTEST_DIR)
+RSDS_BIN = os.path.join(ROOT, "target", "debug", "rsds")
 
 
 def check_free_port(port):
+    assert isinstance(port, int)
     for conn in psutil.net_connections('tcp'):
-        if conn.laddr.port == port:
+        if conn.laddr.port == port and conn.status == "LISTEN":
             return False
     return True
 
@@ -30,9 +29,9 @@ class Env:
         self.work_path = work_path
 
     def start_process(self, name, args, env=None, catch_io=True):
-        logfile = self.work_path / (name + ".out")
+        logfile = (self.work_path / name).with_suffix(".out")
         if catch_io:
-            with open(logfile + ".out", "w") as out:
+            with open(logfile, "w") as out:
                 p = subprocess.Popen(args,
                                      preexec_fn=os.setsid,
                                      stdout=out,
@@ -41,7 +40,7 @@ class Env:
                                      env=env)
         else:
             p = subprocess.Popen(args,
-                                 cwd=self.work_path,
+                                 cwd=str(self.work_path),
                                  env=env)
         self.processes.append((name, p))
         return p
@@ -56,8 +55,7 @@ class Env:
 
 
 class RsdsEnv(Env):
-
-    default_listen_port = "17070"
+    default_listen_port = 17070
 
     def __init__(self, work_dir):
         Env.__init__(self, work_dir)
@@ -69,18 +67,20 @@ class RsdsEnv(Env):
     def no_final_check(self):
         self.do_final_check = False
 
-
     def start_worker(self, ncpus, port):
         worker_id = self.id_counter
         self.id_counter += 1
         name = "worker{}".format(worker_id)
         args = ["dask-worker", "localhost:{}".format(port)]
-        self.workers[name] = self.start_process(name, args)
-
+        env = os.environ.copy()
+        env["PYTHONPATH"] = PYTEST_DIR + ":" + env.get("PYTHONPATH", "")
+        self.workers[name] = self.start_process(name, args, env)
 
     def start(self,
               workers=(),
               port=None):
+        print("Starting rsds env in ", self.work_path)
+
         """
         Start infrastructure: server & n governors
         """
@@ -97,7 +97,7 @@ class RsdsEnv(Env):
         env["RUST_LOG"] = "trace"
         env["RUST_BACKTRACE"] = "1"
 
-        args = (RSDS_BIN, "--port", port)
+        args = (RSDS_BIN, "--port", str(port))
         self.server = self.start_process("server", args, env=env)
         assert self.server is not None
 
@@ -112,9 +112,10 @@ class RsdsEnv(Env):
         for cpus in workers:
             self.start_worker(cpus, port=port)
 
-        time.sleep(0.5)  # TODO: Replace with real check that worker is
+        time.sleep(0.2)  # TODO: Replace with real check that worker is
 
         self.check_running_processes()
+        return "127.0.0.1:{}".format(port)
 
     def check_running_processes(self):
         """Checks that everything is still running"""
@@ -141,6 +142,7 @@ class RsdsEnv(Env):
 @pytest.yield_fixture(autouse=False, scope="function")
 def rsds_env(tmp_path):
     """Fixture that allows to start Rain test environment"""
+    os.chdir(tmp_path)
     env = RsdsEnv(tmp_path)
     yield env
     time.sleep(0.2)

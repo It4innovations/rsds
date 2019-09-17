@@ -13,6 +13,8 @@ pub struct Worker {
 pub struct State {
     network_bandwidth: f32,
     workers: HashMap<WorkerId, Worker>,
+
+    _tmp_hack: Vec<WorkerId>,
 }
 
 impl State {
@@ -20,6 +22,7 @@ impl State {
         State {
             workers: Default::default(),
             network_bandwidth: 100.0, // Guess better default
+            _tmp_hack: Vec::new(),
         }
     }
 
@@ -54,9 +57,22 @@ impl State {
                     priority: 0,
                 });
             }
+
+            // TMP HACK
+            for task_id in &self._tmp_hack {
+                result.push(TaskAssignment {
+                    task: *task_id,
+                    worker: *ws.choose(&mut rng).unwrap(),
+                    priority: 0,
+                });
+            }
+            self._tmp_hack.clear();
+
             sender
                 .try_send(FromSchedulerMessage::TaskAssignments(result))
                 .unwrap();
+        } else {
+            self._tmp_hack.extend(update.new_tasks.into_iter().map(|ti| ti.id));
         }
     }
 }

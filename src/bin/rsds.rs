@@ -7,6 +7,7 @@ use rsds::scheduler::prepare_scheduler_comm;
 
 use structopt::StructOpt;
 use std::net::{SocketAddr, Ipv4Addr};
+use tokio::net::TcpListener;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
@@ -24,6 +25,12 @@ async fn main() -> rsds::Result<()> {
 
     let opt = Opt::from_args();
 
+    log::info!("rsds v0.0 started");
+
+    let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), opt.port);
+    log::info!("listening on port {}", address);
+    let listener = TcpListener::bind(address).await?;
+
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
     let scheduler = rsds::scheduler::BasicScheduler;
@@ -37,8 +44,6 @@ async fn main() -> rsds::Result<()> {
 
 
     let core_ref = CoreRef::new(sender);
-    log::info!("rsds v0.0 started");
-
     let core_ref2 = core_ref.clone();
     current_thread::spawn(async move {
         core_ref2
@@ -46,9 +51,7 @@ async fn main() -> rsds::Result<()> {
             .await
     });
 
-    let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), opt.port);
-    log::info!("listening on port {}", address);
-    rsds::connection::connection_initiator(address, core_ref)
+    rsds::connection::connection_initiator(listener, core_ref)
         .await
         .expect("Connection initiator failed");
     Ok(())

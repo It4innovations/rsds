@@ -117,14 +117,14 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     log::debug!("Updating graph from client {}", client_id);
 
     /* Validate dependencies */
-    for vals in update.dependencies.values() {
+    /*for vals in update.dependencies.values() {
         for key in vals {
             if !update.tasks.contains_key(key) {
                 // TODO: Error handling
                 panic!("Invalid key in dependecies: {}", key);
             }
         }
-    }
+    }*/
 
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
@@ -145,7 +145,9 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs: Vec<_> = if let Some(deps) = update.dependencies.get(&task_key) {
             deps.iter()
-                .map(|key| *new_task_ids.get(key).unwrap())
+                .map(|key| new_task_ids.get(key).map(|v| *v).unwrap_or_else(|| {
+                    core.get_task_by_key_or_panic(key).get().id
+                }))
                 .collect()
         } else {
             Vec::new()

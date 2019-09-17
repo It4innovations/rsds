@@ -15,8 +15,7 @@ use crate::prelude::*;
 use crate::worker::start_worker;
 
 
-pub async fn connection_initiator(address: SocketAddr, core_ref: CoreRef) -> crate::Result<()> {
-    let mut listener = TcpListener::bind(address).await?;
+pub async fn connection_initiator(mut listener: TcpListener, core_ref: CoreRef) -> crate::Result<()> {
     loop {
         let (socket, address) = listener.accept().await?;
         let core_ref = core_ref.clone();
