@@ -1,19 +1,13 @@
-use std::io::Bytes;
-use std::net::SocketAddr;
-
 use futures::{FutureExt, SinkExt, StreamExt};
-use futures::future::Either;
 use tokio::codec::{Framed, LengthDelimitedCodec};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
-use crate::scheduler::schedproto::SchedulerRegistration;
+use crate::scheduler::{FromSchedulerMessage, SchedulerComm};
 
 pub struct RemoteScheduler;
 
 impl RemoteScheduler {
-    pub async fn start(self, mut comm: SchedulerComm, address: &str) -> crate::Result<()> {
+    pub async fn start(self, comm: SchedulerComm, address: &str) -> crate::Result<()> {
         let conn = TcpStream::connect(address).await?;
         let conn = Framed::new(conn, LengthDelimitedCodec::new());
         let (mut tx, mut rx) = conn.split();

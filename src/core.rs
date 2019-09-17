@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use futures::future::FutureExt;
@@ -8,11 +8,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::common::WrappedRcRefCell;
 use crate::messages::clientmsg::{KeyInMemoryMsg, ToClientMessage};
-use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
+use crate::messages::workermsg::TaskFinishedMsg;
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::schedproto::TaskAssignment;
-use crate::scheduler::schedproto::TaskUpdate;
 use crate::task::{ResultInfo, TaskRuntimeState};
 use crate::worker::send_tasks_to_workers;
 
@@ -111,7 +110,7 @@ impl Core {
             log::debug!("Sending update to scheduler");
             let mut core = core_ref.get_mut();
             core.update_timeout_running = false;
-            let mut update = std::mem::replace(&mut core.update, Default::default());
+            let update = std::mem::replace(&mut core.update, Default::default());
             let msg = ToSchedulerMessage::Update(update);
             core.scheduler_sender.try_send(msg).unwrap();
         }));
@@ -159,7 +158,7 @@ impl Core {
         msg: TaskFinishedMsg,
         new_ready_scheduled: &mut Vec<TaskRef>,
     ) {
-        let mut task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
+        let task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
             let mut task = task_ref.get_mut();
             log::debug!(

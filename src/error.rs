@@ -6,7 +6,7 @@ quick_error! {
             description(err.description())
             from()
         }
-        SerializationError(err: Box<std::error::Error>) {
+        SerializationError(err: Box<dyn std::error::Error>) {
             cause(&**err)
             description(err.description())
             from(err: serde_json::error::Error) -> (Box::new(err))

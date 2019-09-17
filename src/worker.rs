@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 
 use futures::future;
 use futures::future::FutureExt;
@@ -9,14 +8,12 @@ use futures::stream::TryStreamExt;
 use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
-use tokio::runtime::current_thread;
 
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 use crate::daskcodec::{DaskCodec, DaskMessage};
-use crate::messages::aframe::AfDescriptor;
 use crate::messages::generic::RegisterWorkerMsg;
-use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, GetDataResponse, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
 use crate::task::TaskRuntimeState;
 

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::io::Cursor;
 
 use byteorder::{LittleEndian, ReadBytesExt};

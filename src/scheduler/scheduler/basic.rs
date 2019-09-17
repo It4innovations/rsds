@@ -1,7 +1,4 @@
-use std::thread;
-
 use futures::StreamExt;
-use tokio::sync::mpsc::unbounded_channel;
 
 use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
 use crate::scheduler::schedproto::SchedulerRegistration;

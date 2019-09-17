@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use futures::future;
 use futures::future::FutureExt;
@@ -9,12 +8,10 @@ use futures::stream::TryStreamExt;
 use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
-use tokio::runtime::current_thread;
 
 use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::AfDescriptor;
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
-use crate::messages::generic::SimpleMessage;
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
 
@@ -192,15 +189,13 @@ pub async fn gather(core_ref: &CoreRef,
             worker_map.entry(worker_ref).or_default().push(key);
         }
     }
-    let mut result: HashMap<&str, Bytes> = Default::default();
-
     let mut descriptors = Vec::new();
     let mut frames = vec![Default::default()];
 
     // TODO: use join to run futures in parallel
     for (worker, keys) in &worker_map {
         let data = super::worker::get_data_from_worker(&worker, &keys).await?;
-        let response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap_or_else(|e| {
+        let _response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap_or_else(|e| {
             dbg!(&data.message);
             panic!("Get data response error {:?}", e);
         });

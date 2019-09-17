@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::task::TaskKey;
-
 #[derive(Deserialize, Debug)]
 pub struct IdentityMsg {
     //pub reply: bool,

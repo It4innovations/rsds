@@ -64,7 +64,7 @@ pub async fn handle_connection(
                         framed.send(data.into()).await?;
                     }
                     Ok(GenericMessage::Gather(msg)) => {
-                        gather(&core_ref, address, &mut framed, msg.keys).await;
+                        gather(&core_ref, address, &mut framed, msg.keys).await.unwrap();
                         continue;
                     }
                     Err(e) => {
