@@ -12,8 +12,9 @@ use crate::messages::workermsg::TaskFinishedMsg;
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::schedproto::TaskAssignment;
-use crate::task::{ResultInfo, TaskRuntimeState};
+use crate::task::{ResultInfo, TaskRuntimeState, ErrorInfo};
 use crate::worker::send_tasks_to_workers;
+use std::rc::Rc;
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
@@ -150,6 +151,11 @@ impl Core {
             }
         }
         send_tasks_to_workers(self, tasks_per_worker);
+    }
+
+    pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo) {
+        let error_info = Rc::new(error_info);
+        unimplemented!();
     }
 
     pub fn on_task_finished(

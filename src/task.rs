@@ -8,6 +8,7 @@ use crate::core::Core;
 use crate::messages::workermsg::ComputeTaskMsg;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
+use crate::messages::aframe::AdditionalFrame;
 
 pub type TaskKey = String;
 
@@ -30,7 +31,7 @@ pub enum TaskRuntimeState {
 }
 
 pub struct ErrorInfo {
-    //frames: Vec<AdditionalFrame>,
+    pub frames: Vec<AdditionalFrame>,
 }
 
 pub struct ResultInfo {

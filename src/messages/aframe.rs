@@ -1,10 +1,21 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use bytes::Bytes;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum AfKeyElement {
     Index(u64),
     Attribute(String),
+}
+
+impl AfKeyElement {
+    pub fn as_index(&self) -> Option<u64> {
+        match self {
+            Self::Index(index) => Some(*index),
+            _ => None
+        }
+    }
 }
 
 type AfKey = Vec<AfKeyElement>;
@@ -32,13 +43,33 @@ pub struct AfDescriptor {
     pub bytestrings: Vec<()>, // Expected type?
 }
 
-/*
-pub struct AdditionalFrame {
-    header_key: rmpv::Value,
-    header_value: rmpv::Value,
-    data: Bytes,
+impl AfDescriptor {
+    pub fn split_frames_by_index(self, additional_headers: Vec<Bytes>) -> crate::Result<HashMap<u64, Vec<AdditionalFrame>>> {
+        let mut result : HashMap<u64, Vec<AdditionalFrame>> = HashMap::new();
+        for ((key, header), data) in self.headers.into_iter().zip(additional_headers) {
+            if key.is_empty() {
+                panic!("Key is empty"); // TODO: bail
+            }
+            let index = key[0].as_index().unwrap_or_else(|| {
+                panic!("FIrst element of key is not index"); // TODO bail
+            });
+            result.entry(index).or_default().push(AdditionalFrame {
+                header_key: key,
+                header_value: header,
+                data
+            });
+        }
+        Ok(result)
+    }
 }
 
+
+pub struct AdditionalFrame {
+    pub header_key: AfKey,
+    pub header_value: AfHeader,
+    pub data: Bytes,
+}
+/*
 type AdditionalFramesMap = HashMap<u64, Vec<AdditionalFrame>>;
 
 

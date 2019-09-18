@@ -66,6 +66,7 @@ pub async fn handle_connection(
                         framed.send(data.into()).await?;
                     }
                     Ok(GenericMessage::Gather(msg)) => {
+                        log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
                         gather(&core_ref, address, &mut framed, msg.keys).await.unwrap();
                         continue;
                     }

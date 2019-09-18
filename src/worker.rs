@@ -15,7 +15,8 @@ use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::generic::RegisterWorkerMsg;
 use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
-use crate::task::TaskRuntimeState;
+use crate::task::{TaskRuntimeState, ErrorInfo};
+use crate::messages::aframe::AfDescriptor;
 
 pub struct Worker {
     pub id: WorkerId,
@@ -92,17 +93,24 @@ pub async fn start_worker(
     }
         .boxed_local();
 
-    let recv_loop = receiver.try_for_each(move |data| {
+    let recv_loop = receiver.try_for_each(move |mut data| {
         let msgs: Result<Vec<FromWorkerMessage>, _> = rmps::from_read(std::io::Cursor::new(&data.message));
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from worker ({}): {}", worker_id, e);
         }
 
+        let mut aframe_map : HashMap<u64, _> = if !data.additional_frames.is_empty() {
+            let descriptor: AfDescriptor = rmps::from_slice(&data.additional_frames.remove(0)).unwrap();
+            descriptor.split_frames_by_index(data.additional_frames).unwrap()
+        } else {
+            Default::default()
+        };
+
         //let frame_map = crate::aframe::parse_additional_frames(data.additional_frames);
 
         let mut new_ready_scheduled = Vec::new();
-        for msg in msgs.unwrap() {
+        for (i, msg) in msgs.unwrap().into_iter().enumerate() {
             match msg {
                 FromWorkerMessage::TaskFinished(msg) => {
                     assert!(msg.status == Status::Ok); // TODO: handle other cases ??
@@ -111,6 +119,11 @@ pub async fn start_worker(
                 }
                 FromWorkerMessage::TaskErred(msg) => {
                     assert!(msg.status == Status::Error); // TODO: handle other cases ??
+                    let error_info = ErrorInfo {
+                        frames: aframe_map.remove(&(i as u64)).unwrap_or_else(Vec::new),
+                    };
+                    let mut core = core_ref.get_mut();
+                    core.on_task_error(&worker_ref, msg.key, error_info);
                 }
                 FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
