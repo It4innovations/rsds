@@ -64,7 +64,7 @@ impl Core {
         let worker_id = {
             let worker = worker_ref.get();
             self.update.new_workers.push(worker.make_sched_info());
-            self.send_scheduler_update();
+            self.send_scheduler_update(false);
             worker.id()
         };
         assert!(self.workers.insert(worker_id, worker_ref).is_none());
@@ -98,22 +98,30 @@ impl Core {
         })
     }
 
-    pub fn send_scheduler_update(&mut self) {
+    fn _send_scheduler_update_now(&mut self) {
+        log::debug!("Sending update to scheduler");
+        let update = std::mem::replace(&mut self.update, Default::default());
+        let msg = ToSchedulerMessage::Update(update);
+        self.scheduler_sender.try_send(msg).unwrap();
+    }
+
+    pub fn send_scheduler_update(&mut self, aggregate: bool) {
         if self.update_timeout_running {
+            return;
+        }
+        if !aggregate {
+            self._send_scheduler_update_now();
             return;
         }
         self.update_timeout_running = true;
         let core_ref = self.new_self_ref();
         let deadline = Instant::now()
-            .checked_add(Duration::from_millis(50))
+            .checked_add(Duration::from_millis(25))
             .unwrap();
         current_thread::spawn(tokio::timer::delay(deadline).map(move |()| {
-            log::debug!("Sending update to scheduler");
             let mut core = core_ref.get_mut();
             core.update_timeout_running = false;
-            let update = std::mem::replace(&mut core.update, Default::default());
-            let msg = ToSchedulerMessage::Update(update);
-            core.scheduler_sender.try_send(msg).unwrap();
+            core._send_scheduler_update_now();
         }));
     }
 
@@ -190,7 +198,7 @@ impl Core {
             }
             self.notify_key_in_memory(&task);
         }
-        self.send_scheduler_update();
+        self.send_scheduler_update(true);
     }
 
     fn notify_key_in_memory(&mut self, task: &Task) {

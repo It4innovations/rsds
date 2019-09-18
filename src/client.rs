@@ -174,7 +174,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         task.subscribed_clients.insert(client_id);
     }
 
-    core.send_scheduler_update();
+    core.send_scheduler_update(false);
 }
 
 
