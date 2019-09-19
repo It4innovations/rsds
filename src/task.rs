@@ -53,7 +53,7 @@ pub struct Task {
     pub spec: TaskSpec,
     pub dependencies: Vec<TaskId>,
 
-    pub subscribed_clients: HashSet<ClientId>,
+    subscribed_clients: Vec<ClientId>,
 }
 
 pub type TaskRef = WrappedRcRefCell<Task>;
@@ -62,6 +62,20 @@ impl Task {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_inputs == 0
+    }
+
+    pub fn subscribe_client(&mut self, client_id: ClientId) {
+        if !self.subscribed_clients.contains(&client_id) {
+            self.subscribed_clients.push(client_id);
+        }
+    }
+
+    pub fn unsubscribe_client(&mut self, client_id: ClientId) {
+        self.subscribed_clients.iter().position(|x| *x == client_id).map(|i| self.subscribed_clients.remove(i));
+    }
+
+    pub fn subscribed_clients(&self) -> &Vec<ClientId> {
+        &self.subscribed_clients
     }
 
     pub fn make_sched_info(&self) -> crate::scheduler::schedproto::TaskInfo {

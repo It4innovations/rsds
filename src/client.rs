@@ -19,7 +19,7 @@ pub type ClientId = u64;
 
 pub struct Client {
     id: ClientId,
-    id_string: String,
+    key: String,
     sender: tokio::sync::mpsc::UnboundedSender<ToClientMessage>,
 }
 
@@ -32,13 +32,18 @@ impl Client {
     pub fn id(&self) -> ClientId {
         self.id
     }
+
+    #[inline]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
 }
 
 pub async fn start_client(
     core_ref: &CoreRef,
     address: std::net::SocketAddr,
     framed: Framed<TcpStream, DaskCodec>,
-    id_string: String,
+    client_key: String,
 ) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
@@ -50,7 +55,7 @@ pub async fn start_client(
         let client_id = core.new_client_id();
         let client = Client {
             id: client_id,
-            id_string,
+            key: client_key,
             sender: snd_sender,
         };
         core.register_client(client);
@@ -81,9 +86,8 @@ pub async fn start_client(
         for msg in msgs.unwrap() {
             match msg {
                 FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
-                FromClientMessage::ClientReleasesKeys(_) => {
-                    /* TODO */
-                    println!("Releasing keys");
+                FromClientMessage::ClientReleasesKeys(msg) => {
+                    release_keys(&core_ref, msg.client, msg.keys);
                 }
                 FromClientMessage::UpdateGraph(update) => {
                     update_graph(&core_ref, client_id, update);
@@ -143,12 +147,15 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
 
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
-        let inputs: Vec<_> = if let Some(deps) = update.dependencies.get(&task_key) {
-            deps.iter()
+        let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
+            let mut inputs : Vec<_> = deps.iter()
                 .map(|key| new_task_ids.get(key).map(|v| *v).unwrap_or_else(|| {
                     core.get_task_by_key_or_panic(key).get().id
                 }))
-                .collect()
+                .collect();
+            inputs.sort();
+            inputs.dedup();
+            inputs
         } else {
             Vec::new()
         };
@@ -171,10 +178,21 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
-        task.subscribed_clients.insert(client_id);
+        task.subscribe_client(client_id);
     }
 
     core.send_scheduler_update(false);
+}
+
+fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<String>) {
+    let mut core = core_ref.get_mut();
+    let client_id = core.get_client_id_by_key(&client_key);
+    let tasks = task_keys.into_iter().map(|key| core.get_task_by_key_or_panic(&key));
+    for task_ref in tasks {
+        let mut task = task_ref.get_mut();
+        log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
+        task.unsubscribe_client(client_id);
+    }
 }
 
 

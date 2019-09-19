@@ -13,7 +13,7 @@ use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::generic::RegisterWorkerMsg;
-use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage, DeleteDataMsg};
 use crate::prelude::*;
 use crate::task::{TaskRuntimeState, ErrorInfo};
 use crate::messages::aframe::AfDescriptor;
@@ -41,6 +41,12 @@ impl Worker {
     pub fn send_message(&mut self, data: Bytes) -> crate::Result<()> {
         self.sender.try_send(data).unwrap(); // TODO: bail!("Send of worker XYZ failed")
         Ok(())
+    }
+
+    pub fn send_delete_data(&mut self, keys: Vec<String>) {
+        let msg = ToWorkerMessage::DeleteData(DeleteDataMsg {keys});
+        let data = rmp_serde::encode::to_vec_named(&msg).unwrap();
+        self.send_message(data.into()).unwrap();
     }
 }
 

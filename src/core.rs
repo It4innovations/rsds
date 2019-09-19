@@ -20,6 +20,7 @@ pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
     tasks_by_key: HashMap<TaskKey, TaskRef>,
     clients: HashMap<ClientId, Client>,
+    client_key_to_id: HashMap<String, ClientId>,
     workers: HashMap<WorkerId, WorkerRef>,
 
     update: crate::scheduler::Update,
@@ -39,7 +40,9 @@ pub type CoreRef = WrappedRcRefCell<Core>;
 
 impl Core {
     pub fn register_client(&mut self, client: Client) {
-        assert!(self.clients.insert(client.id(), client).is_none());
+        let client_id = client.id();
+        assert!(self.client_key_to_id.insert(client.key().to_string(), client_id).is_none());
+        assert!(self.clients.insert(client_id, client).is_none());
     }
 
     #[inline]
@@ -71,7 +74,8 @@ impl Core {
     }
 
     pub fn unregister_client(&mut self, client_id: ClientId) {
-        assert!(self.clients.remove(&client_id).is_some());
+        let client = self.clients.remove(&client_id).unwrap();
+        assert!(self.client_key_to_id.remove(client.key()).is_some());
     }
 
     pub fn unregister_worker(&mut self, worker_id: WorkerId) {
@@ -95,6 +99,12 @@ impl Core {
     pub fn get_task_by_id_or_panic(&self, id: TaskId) -> &TaskRef {
         self.tasks_by_id.get(&id).unwrap_or_else(|| {
             panic!("Asking for invalid task id={}", id);
+        })
+    }
+
+    pub fn get_client_id_by_key(&self, key: &str) -> ClientId {
+        self.client_key_to_id.get(key).map(|r| *r).unwrap_or_else(|| {
+            panic!("Asking for invalid client key={}", key);
         })
     }
 
@@ -161,6 +171,13 @@ impl Core {
         send_tasks_to_workers(self, tasks_per_worker);
     }
 
+    pub fn check_if_data_cannot_be_removed(&mut self, task: &mut Task) {
+        if task.consumers.is_empty() && task.subscribed_clients().is_empty() && task.state == TaskRuntimeState::Finished {
+            let worker_ref = task.worker.as_ref().unwrap();
+            worker_ref.get_mut().send_delete_data(vec![task.key.clone()]);
+        }
+    }
+
     pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo) {
         let error_info = Rc::new(error_info);
         unimplemented!();
@@ -196,13 +213,19 @@ impl Core {
                     new_ready_scheduled.push(consumer.clone());
                 }
             }
+
+            for input_id in &task.dependencies {
+                let mut t = self.get_task_by_id_or_panic(*input_id).get_mut();
+                assert!(t.consumers.remove(&task_ref));
+            }
+
             self.notify_key_in_memory(&task);
         }
         self.send_scheduler_update(true);
     }
 
     fn notify_key_in_memory(&mut self, task: &Task) {
-        for client_id in &task.subscribed_clients {
+        for client_id in task.subscribed_clients() {
             match self.clients.get_mut(client_id) {
                 Some(client) => {
                     client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
@@ -228,6 +251,7 @@ impl CoreRef {
 
             workers: Default::default(),
             clients: Default::default(),
+            client_key_to_id: Default::default(),
 
             scheduler_sender,
             update: Default::default(),

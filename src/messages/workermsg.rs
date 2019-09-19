@@ -87,6 +87,11 @@ pub struct ComputeTaskMsg {
 }
 
 #[derive(Serialize, Debug)]
+pub struct DeleteDataMsg {
+    keys: Vec<String>,
+}
+
+#[derive(Serialize, Debug)]
 pub struct GetDataMsg<'a> {
     pub keys: &'a Vec<&'a str>,
     pub who: Option<u64>,
@@ -101,7 +106,7 @@ pub struct GetDataMsg<'a> {
 #[serde(rename_all = "kebab-case")]
 pub enum ToWorkerMessage<'a> {
     ComputeTask(ComputeTaskMsg),
-
+    DeleteData(DeleteDataMsg),
     #[serde(rename = "get_data")]
     GetData(GetDataMsg<'a>),
 }
