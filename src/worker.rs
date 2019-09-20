@@ -12,11 +12,11 @@ use tokio::net::TcpStream;
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 use crate::daskcodec::{DaskCodec, DaskMessage};
-use crate::messages::generic::RegisterWorkerMsg;
-use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage, DeleteDataMsg};
-use crate::prelude::*;
-use crate::task::{TaskRuntimeState, ErrorInfo};
 use crate::messages::aframe::AfDescriptor;
+use crate::messages::generic::RegisterWorkerMsg;
+use crate::messages::workermsg::{DeleteDataMsg, FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::prelude::*;
+use crate::task::{ErrorInfo, TaskRuntimeState};
 
 pub struct Worker {
     pub id: WorkerId,
@@ -109,7 +109,7 @@ pub async fn start_worker(
             panic!("Invalid message from worker ({}): {}", worker_id, e);
         }
 
-        let mut aframe_map : HashMap<u64, _> = if !data.additional_frames.is_empty() {
+        let mut aframe_map: HashMap<u64, _> = if !data.additional_frames.is_empty() {
             let descriptor: AfDescriptor = rmps::from_slice(&data.additional_frames.remove(0)).unwrap();
             descriptor.split_frames_by_index(data.additional_frames).unwrap()
         } else {
@@ -188,7 +188,7 @@ pub fn send_worker_updates(core: &Core, worker_updates: WorkerUpdateMap) {
     for (worker_ref, w_update) in worker_updates {
         let mut msgs: Vec<_> = w_update.compute_tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
         if !w_update.delete_keys.is_empty() {
-            msgs.push(ToWorkerMessage::DeleteData(DeleteDataMsg {keys: w_update.delete_keys, report: false}));
+            msgs.push(ToWorkerMessage::DeleteData(DeleteDataMsg { keys: w_update.delete_keys, report: false }));
         }
         if !msgs.is_empty() {
             let mut worker = worker_ref.get_mut();

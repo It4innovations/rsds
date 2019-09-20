@@ -1,5 +1,5 @@
-from distributed.client import Client
 from dask import delayed
+from distributed.client import Client
 
 
 # Function for submitting in testing pipelines ----
@@ -66,14 +66,26 @@ def test_recompute_existing(rsds_env):
     url = rsds_env.start([1])
     client = Client(url)
 
-    #assert delayed_fn1(10).compute() == 100
-    #assert delayed_fn1(10).compute() == 100
+    # assert delayed_fn1(10).compute() == 100
+    # assert delayed_fn1(10).compute() == 100
 
     f1 = client.submit(comp_fn1, 10)
     f2 = client.submit(comp_fn1, 10)
     r1, r2 = client.gather([f1, f2])
     assert r1 == 100
     assert r2 == 100
+
+
+def test_long_chain(rsds_env):
+    url = rsds_env.start([1])
+    client = Client(url)
+
+    t = delayed_fn1(1)
+    for _ in range(10):
+        t = delayed_fn1(t)
+
+    r = t.compute()
+    assert r == 100_000_000_000
 
 
 def test_more_clients(rsds_env):
@@ -88,10 +100,10 @@ def test_more_clients(rsds_env):
     assert r1 == 100
     assert r2 == 200
 
-
-def test_compute_error(rsds_env):
-    url = rsds_env.start([1])
-    _ = Client(url)
-    delayed_fn1(error_fn()).compute()
-
-    # error_fn().compute()
+# FIX THIS
+# def test_compute_error(rsds_env):
+#    url = rsds_env.start([1])
+#    _ = Client(url)
+#    delayed_fn1(error_fn()).compute()
+#
+#    # error_fn().compute()

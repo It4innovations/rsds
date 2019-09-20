@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use futures::future::FutureExt;
@@ -12,9 +13,8 @@ use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::schedproto::TaskAssignment;
-use crate::task::{ResultInfo, TaskRuntimeState, ErrorInfo};
+use crate::task::{ErrorInfo, ResultInfo, TaskRuntimeState};
 use crate::worker::{send_worker_updates, WorkerUpdateMap};
-use std::rc::Rc;
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,

@@ -3,7 +3,6 @@ import os.path
 import signal
 import subprocess
 import time
-import sys
 
 import psutil
 import pytest

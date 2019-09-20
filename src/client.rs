@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 use futures::future;
 use futures::future::FutureExt;
@@ -14,8 +15,7 @@ use crate::messages::aframe::AfDescriptor;
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
-use std::convert::TryInto;
-use crate::worker::{WorkerUpdateMap, send_worker_updates};
+use crate::worker::{send_worker_updates, WorkerUpdateMap};
 
 pub type ClientId = u64;
 
@@ -150,7 +150,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
-            let mut inputs : Vec<_> = deps.iter()
+            let mut inputs: Vec<_> = deps.iter()
                 .map(|key| new_task_ids.get(key).map(|v| *v).unwrap_or_else(|| {
                     core.get_task_by_key_or_panic(key).get().id
                 }))

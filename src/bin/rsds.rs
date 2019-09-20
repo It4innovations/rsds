@@ -1,13 +1,12 @@
+use std::net::{Ipv4Addr, SocketAddr};
 use std::thread;
 
+use structopt::StructOpt;
+use tokio::net::TcpListener;
 use tokio::runtime::current_thread;
 
 use rsds::prelude::*;
 use rsds::scheduler::prepare_scheduler_comm;
-
-use structopt::StructOpt;
-use std::net::{SocketAddr, Ipv4Addr};
-use tokio::net::TcpListener;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]

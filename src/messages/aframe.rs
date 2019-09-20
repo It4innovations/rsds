@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
@@ -45,7 +46,7 @@ pub struct AfDescriptor {
 
 impl AfDescriptor {
     pub fn split_frames_by_index(self, additional_headers: Vec<Bytes>) -> crate::Result<HashMap<u64, Vec<AdditionalFrame>>> {
-        let mut result : HashMap<u64, Vec<AdditionalFrame>> = HashMap::new();
+        let mut result: HashMap<u64, Vec<AdditionalFrame>> = HashMap::new();
         for ((key, header), data) in self.headers.into_iter().zip(additional_headers) {
             if key.is_empty() {
                 panic!("Key is empty"); // TODO: bail
@@ -56,7 +57,7 @@ impl AfDescriptor {
             result.entry(index).or_default().push(AdditionalFrame {
                 header_key: key,
                 header_value: header,
-                data
+                data,
             });
         }
         Ok(result)
