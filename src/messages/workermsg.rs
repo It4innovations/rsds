@@ -88,7 +88,8 @@ pub struct ComputeTaskMsg {
 
 #[derive(Serialize, Debug)]
 pub struct DeleteDataMsg {
-    keys: Vec<String>,
+    pub keys: Vec<String>,
+    pub report: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -145,6 +146,14 @@ pub struct TaskErredMsg {
     pub key: String,
     pub thread: u64,
 }
+
+/*#[derive(Deserialize, Debug)]
+pub struct RemoveKeysMsg {
+    // It seems that it just informative message, ignoring
+}
+
+    #[serde(rename = "remove_keys")]
+    RemoveKeys(RemoveKeysMsg),*/
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]

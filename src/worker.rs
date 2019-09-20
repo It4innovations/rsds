@@ -25,6 +25,14 @@ pub struct Worker {
     pub listen_address: String,
 }
 
+#[derive(Default)]
+pub struct WorkerUpdate {
+    pub compute_tasks: Vec<TaskRef>,
+    pub delete_keys: Vec<TaskKey>,
+}
+
+pub type WorkerUpdateMap = HashMap<WorkerRef, WorkerUpdate>;
+
 impl Worker {
     #[inline]
     pub fn id(&self) -> WorkerId {
@@ -38,15 +46,10 @@ impl Worker {
         }
     }
 
-    pub fn send_message(&mut self, data: Bytes) -> crate::Result<()> {
-        self.sender.try_send(data).unwrap(); // TODO: bail!("Send of worker XYZ failed")
+    pub fn send_message(&mut self, message: Vec<ToWorkerMessage>) -> crate::Result<()> {
+        let data = rmp_serde::encode::to_vec_named(&message).unwrap();
+        self.sender.try_send(data.into()).unwrap(); // TODO: bail!("Send of worker XYZ failed")
         Ok(())
-    }
-
-    pub fn send_delete_data(&mut self, keys: Vec<String>) {
-        let msg = ToWorkerMessage::DeleteData(DeleteDataMsg {keys});
-        let data = rmp_serde::encode::to_vec_named(&msg).unwrap();
-        self.send_message(data.into()).unwrap();
     }
 }
 
@@ -115,13 +118,17 @@ pub async fn start_worker(
 
         //let frame_map = crate::aframe::parse_additional_frames(data.additional_frames);
 
-        let mut new_ready_scheduled = Vec::new();
+        /*let mut new_ready_scheduled = Vec::new();
+        let mut task_to_delete = HashMap::new();*/
+
+        let mut worker_updates = HashMap::new();
+
         for (i, msg) in msgs.unwrap().into_iter().enumerate() {
             match msg {
                 FromWorkerMessage::TaskFinished(msg) => {
                     assert!(msg.status == Status::Ok); // TODO: handle other cases ??
                     let mut core = core_ref.get_mut();
-                    core.on_task_finished(&worker_ref, msg, &mut new_ready_scheduled);
+                    core.on_task_finished(&worker_ref, msg, &mut worker_updates);
                 }
                 FromWorkerMessage::TaskErred(msg) => {
                     assert!(msg.status == Status::Error); // TODO: handle other cases ??
@@ -135,7 +142,10 @@ pub async fn start_worker(
             }
         }
 
-        if !new_ready_scheduled.is_empty() {
+        let core = core_ref.get();
+        send_worker_updates(&core, worker_updates);
+
+        /*if !new_ready_scheduled.is_empty() {
             let mut tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>> = HashMap::new();
             for task_ref in new_ready_scheduled {
                 let worker = {
@@ -150,7 +160,7 @@ pub async fn start_worker(
             }
             let core = core_ref.get();
             send_tasks_to_workers(&core, tasks_per_worker);
-        }
+        }*/
         future::ready(Ok(()))
     });
 
@@ -174,17 +184,21 @@ pub async fn start_worker(
 }
 
 
-pub fn send_tasks_to_workers(core: &Core, tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>>) {
-    for (worker_ref, tasks) in tasks_per_worker {
-        let msgs: Vec<_> = tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
-        let data = rmp_serde::encode::to_vec_named(&msgs).unwrap();
-        let mut worker = worker_ref.get_mut();
-        worker.send_message(data.into()).unwrap_or_else(|_| {
-            // !!! Do not propagate error right now, we need to finish sending messages to others
-            // Worker cleanup is done elsewhere (when worker future terminates),
-            // so we can safely ignore this. Since we are nice guys we log (debug) message.
-            log::debug!("Sending tasks to worker {} failed", worker.id);
-        });
+pub fn send_worker_updates(core: &Core, worker_updates: WorkerUpdateMap) {
+    for (worker_ref, w_update) in worker_updates {
+        let mut msgs: Vec<_> = w_update.compute_tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
+        if !w_update.delete_keys.is_empty() {
+            msgs.push(ToWorkerMessage::DeleteData(DeleteDataMsg {keys: w_update.delete_keys, report: false}));
+        }
+        if !msgs.is_empty() {
+            let mut worker = worker_ref.get_mut();
+            worker.send_message(msgs).unwrap_or_else(|_| {
+                // !!! Do not propagate error right now, we need to finish sending messages to others
+                // Worker cleanup is done elsewhere (when worker future terminates),
+                // so we can safely ignore this. Since we are nice guys we log (debug) message.
+                log::debug!("Sending tasks to worker {} failed", worker.id);
+            });
+        }
     }
 }
 

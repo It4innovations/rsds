@@ -14,6 +14,8 @@ use crate::messages::aframe::AfDescriptor;
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::prelude::*;
+use std::convert::TryInto;
+use crate::worker::{WorkerUpdateMap, send_worker_updates};
 
 pub type ClientId = u64;
 
@@ -188,11 +190,14 @@ fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<String>) 
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
     let tasks = task_keys.into_iter().map(|key| core.get_task_by_key_or_panic(&key));
+    let mut worker_updates = WorkerUpdateMap::new();
     for task_ref in tasks {
         let mut task = task_ref.get_mut();
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
+        task.check_if_data_cannot_be_removed(&mut worker_updates);
     }
+    send_worker_updates(&core, worker_updates);
 }
 
 

@@ -8,12 +8,12 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::common::WrappedRcRefCell;
 use crate::messages::clientmsg::{KeyInMemoryMsg, ToClientMessage};
-use crate::messages::workermsg::TaskFinishedMsg;
+use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::schedproto::TaskAssignment;
 use crate::task::{ResultInfo, TaskRuntimeState, ErrorInfo};
-use crate::worker::send_tasks_to_workers;
+use crate::worker::{send_worker_updates, WorkerUpdateMap};
 use std::rc::Rc;
 
 pub struct Core {
@@ -141,7 +141,7 @@ impl Core {
 
     pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) {
         log::debug!("Assignments from scheduler: {:?}", assignments);
-        let mut tasks_per_worker = HashMap::new();
+        let mut worker_updates: WorkerUpdateMap = HashMap::new();
         for assignment in assignments {
             let worker_ref = self.workers.get(&assignment.worker).expect("Worker from assignment not found").clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
@@ -157,8 +157,7 @@ impl Core {
                     assignment.task,
                     assignment.worker
                 );
-                let v = tasks_per_worker.entry(worker_ref).or_insert_with(Vec::new);
-                v.push(task_ref.clone());
+                worker_updates.entry(worker_ref).or_default().compute_tasks.push(task_ref.clone());
             } else {
                 task.state = TaskRuntimeState::Scheduled;
                 log::debug!(
@@ -168,14 +167,7 @@ impl Core {
                 );
             }
         }
-        send_tasks_to_workers(self, tasks_per_worker);
-    }
-
-    pub fn check_if_data_cannot_be_removed(&mut self, task: &mut Task) {
-        if task.consumers.is_empty() && task.subscribed_clients().is_empty() && task.state == TaskRuntimeState::Finished {
-            let worker_ref = task.worker.as_ref().unwrap();
-            worker_ref.get_mut().send_delete_data(vec![task.key.clone()]);
-        }
+        send_worker_updates(self, worker_updates);
     }
 
     pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo) {
@@ -187,7 +179,7 @@ impl Core {
         &mut self,
         worker: &WorkerRef,
         msg: TaskFinishedMsg,
-        new_ready_scheduled: &mut Vec<TaskRef>,
+        worker_updates: &mut WorkerUpdateMap,
     ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
@@ -203,20 +195,20 @@ impl Core {
             task.state = TaskRuntimeState::Finished;
             task.result_info = Some(ResultInfo { size: msg.nbytes, r#type: msg.r#type });
             for consumer in &task.consumers {
-                let is_prepared = {
-                    let mut t = consumer.get_mut();
-                    assert!(t.state != TaskRuntimeState::Finished);
-                    t.unfinished_inputs -= 1;
-                    t.unfinished_inputs == 0 && t.state == TaskRuntimeState::Scheduled
-                };
-                if is_prepared {
-                    new_ready_scheduled.push(consumer.clone());
+                let mut t = consumer.get_mut();
+                assert!(t.state != TaskRuntimeState::Finished);
+                t.unfinished_inputs -= 1;
+                if t.unfinished_inputs == 0 && t.state == TaskRuntimeState::Scheduled {
+                    t.state = TaskRuntimeState::Assigned;
+                    worker_updates.entry(t.worker.clone().unwrap()).or_default().compute_tasks.push(consumer.clone());
                 }
             }
 
             for input_id in &task.dependencies {
-                let mut t = self.get_task_by_id_or_panic(*input_id).get_mut();
+                let tr = self.get_task_by_id_or_panic(*input_id);
+                let mut t = tr.get_mut();
                 assert!(t.consumers.remove(&task_ref));
+                t.check_if_data_cannot_be_removed(worker_updates);
             }
 
             self.notify_key_in_memory(&task);

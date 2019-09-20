@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use crate::messages::workermsg::ComputeTaskMsg;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
 use crate::messages::aframe::AdditionalFrame;
+use crate::worker::WorkerUpdate;
 
 pub type TaskKey = String;
 
@@ -82,6 +83,14 @@ impl Task {
         crate::scheduler::schedproto::TaskInfo {
             id: self.id,
             inputs: self.dependencies.clone(),
+        }
+    }
+
+    pub fn check_if_data_cannot_be_removed(&mut self, worker_updates: &mut HashMap<WorkerRef, WorkerUpdate>) {
+        if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.state == TaskRuntimeState::Finished {
+            let worker_ref = self.worker.clone().unwrap();
+            log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
+            worker_updates.entry(worker_ref).or_default().delete_keys.push(self.key.clone());
         }
     }
 
