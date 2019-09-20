@@ -171,15 +171,41 @@ impl Core {
     }
 
     pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo) {
+        let task_ref = self.get_task_by_key_or_panic(&task_key);
         let error_info = Rc::new(error_info);
+        let mut task_refs = {
+            let mut task = task_ref.get();
+            assert!(task.state == TaskRuntimeState::Assigned);
+            //task.state = TaskRuntimeState::Error;
+            //task.error = Some(error_info.clone());
+            // TODO: unregister_as_consumer
+            task.collect_consumers()
+        };
+
+        for task_ref in task_refs {
+            let mut task = task_ref.get_mut();
+            //task.state = TaskRuntimeState::Error;
+            //task.error = Some(error_info.clone());
+            // TODO: unregister_as_consumer
+        }
+
         unimplemented!();
+    }
+
+    pub fn unregister_as_consumer(&self, task: &Task, task_ref: &TaskRef, worker_updates: &mut WorkerUpdateMap) {
+        for input_id in &task.dependencies {
+            let tr = self.get_task_by_id_or_panic(*input_id);
+            let mut t = tr.get_mut();
+            assert!(t.consumers.remove(&task_ref));
+            t.check_if_data_cannot_be_removed(worker_updates);
+        }
     }
 
     pub fn on_task_finished(
         &mut self,
         worker: &WorkerRef,
         msg: TaskFinishedMsg,
-        worker_updates: &mut WorkerUpdateMap,
+        mut worker_updates: &mut WorkerUpdateMap,
     ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
@@ -203,14 +229,7 @@ impl Core {
                     worker_updates.entry(t.worker.clone().unwrap()).or_default().compute_tasks.push(consumer.clone());
                 }
             }
-
-            for input_id in &task.dependencies {
-                let tr = self.get_task_by_id_or_panic(*input_id);
-                let mut t = tr.get_mut();
-                assert!(t.consumers.remove(&task_ref));
-                t.check_if_data_cannot_be_removed(worker_updates);
-            }
-
+            self.unregister_as_consumer(&task, &task_ref, &mut worker_updates);
             self.notify_key_in_memory(&task);
         }
         self.send_scheduler_update(true);

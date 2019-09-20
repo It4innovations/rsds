@@ -94,6 +94,24 @@ impl Task {
         }
     }
 
+    pub fn collect_consumers(&self) -> HashSet<TaskRef>
+    {
+        let mut stack: Vec<_> = self.consumers.iter().cloned().collect();
+        let mut result : HashSet<TaskRef> = stack.iter().cloned().collect();
+
+        while !stack.is_empty() {
+            let task_ref = stack.pop().unwrap();
+            let task = task_ref.get();
+            for t in &task.consumers {
+                if !result.contains(&t) {
+                    result.insert(t.clone());
+                    stack.push(t.clone());
+                }
+            }
+        }
+        result
+    }
+
     pub fn make_compute_task_msg(&self, core: &Core) -> ComputeTaskMsg {
         let task_refs: Vec<_> = self
             .dependencies
