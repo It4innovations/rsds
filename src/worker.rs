@@ -15,6 +15,7 @@ use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::AfDescriptor;
 use crate::messages::generic::RegisterWorkerMsg;
 use crate::messages::workermsg::{DeleteDataMsg, FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::notifications::Notifications;
 use crate::prelude::*;
 use crate::task::{ErrorInfo, TaskRuntimeState};
 
@@ -25,13 +26,6 @@ pub struct Worker {
     pub listen_address: String,
 }
 
-#[derive(Default)]
-pub struct WorkerUpdate {
-    pub compute_tasks: Vec<TaskRef>,
-    pub delete_keys: Vec<TaskKey>,
-}
-
-pub type WorkerUpdateMap = HashMap<WorkerRef, WorkerUpdate>;
 
 impl Worker {
     #[inline]
@@ -121,14 +115,15 @@ pub async fn start_worker(
         /*let mut new_ready_scheduled = Vec::new();
         let mut task_to_delete = HashMap::new();*/
 
-        let mut worker_updates = HashMap::new();
+        let mut notifications = Notifications::new();
 
         for (i, msg) in msgs.unwrap().into_iter().enumerate() {
             match msg {
                 FromWorkerMessage::TaskFinished(msg) => {
                     assert!(msg.status == Status::Ok); // TODO: handle other cases ??
                     let mut core = core_ref.get_mut();
-                    core.on_task_finished(&worker_ref, msg, &mut worker_updates);
+                    core.on_task_finished(&worker_ref, msg, &mut notifications);
+                    // TODO: Inform scheduler
                 }
                 FromWorkerMessage::TaskErred(msg) => {
                     assert!(msg.status == Status::Error); // TODO: handle other cases ??
@@ -136,14 +131,15 @@ pub async fn start_worker(
                         frames: aframe_map.remove(&(i as u64)).unwrap_or_else(Vec::new),
                     };
                     let mut core = core_ref.get_mut();
-                    core.on_task_error(&worker_ref, msg.key, error_info);
+                    core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
+                    // TODO: Inform scheduler
                 }
                 FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
             }
         }
 
-        let core = core_ref.get();
-        send_worker_updates(&core, worker_updates);
+        let mut core = core_ref.get_mut();
+        notifications.send(&mut core);
 
         /*if !new_ready_scheduled.is_empty() {
             let mut tasks_per_worker: HashMap<WorkerRef, Vec<TaskRef>> = HashMap::new();
@@ -181,25 +177,6 @@ pub async fn start_worker(
     let mut core = core_ref2.get_mut();
     core.unregister_worker(worker_id);
     Ok(())
-}
-
-
-pub fn send_worker_updates(core: &Core, worker_updates: WorkerUpdateMap) {
-    for (worker_ref, w_update) in worker_updates {
-        let mut msgs: Vec<_> = w_update.compute_tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
-        if !w_update.delete_keys.is_empty() {
-            msgs.push(ToWorkerMessage::DeleteData(DeleteDataMsg { keys: w_update.delete_keys, report: false }));
-        }
-        if !msgs.is_empty() {
-            let mut worker = worker_ref.get_mut();
-            worker.send_message(msgs).unwrap_or_else(|_| {
-                // !!! Do not propagate error right now, we need to finish sending messages to others
-                // Worker cleanup is done elsewhere (when worker future terminates),
-                // so we can safely ignore this. Since we are nice guys we log (debug) message.
-                log::debug!("Sending tasks to worker {} failed", worker.id);
-            });
-        }
-    }
 }
 
 

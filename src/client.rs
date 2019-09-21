@@ -14,21 +14,28 @@ use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::AfDescriptor;
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
+use crate::notifications::Notifications;
 use crate::prelude::*;
-use crate::worker::{send_worker_updates, WorkerUpdateMap};
 
 pub type ClientId = u64;
 
 pub struct Client {
     id: ClientId,
     key: String,
-    sender: tokio::sync::mpsc::UnboundedSender<ToClientMessage>,
+    sender: tokio::sync::mpsc::UnboundedSender<DaskMessage>,
 }
 
 impl Client {
-    pub fn send_message(&mut self, message: ToClientMessage) {
-        self.sender.try_send(message).unwrap();
+    pub fn send_message(&mut self, message: ToClientMessage) -> crate::Result<()> {
+        let data = rmp_serde::encode::to_vec_named(&message).unwrap();
+        self.send_dask_message(data.into())
     }
+
+    pub fn send_dask_message(&mut self, dask_message: DaskMessage) -> crate::Result<()> {
+        self.sender.try_send(dask_message).unwrap(); // TODO: bail!("Send to client XXX failed")
+        Ok(())
+    }
+
 
     #[inline]
     pub fn id(&self) -> ClientId {
@@ -50,7 +57,7 @@ pub async fn start_client(
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
-    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<ToClientMessage>();
+    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskMessage>();
 
     let client_id = {
         let mut core = core_ref.get_mut();
@@ -69,8 +76,7 @@ pub async fn start_client(
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
         while let Some(data) = snd_receiver.next().await {
-            let serialized = rmps::to_vec_named(&data)?;
-            if let Err(e) = sender.send(serialized.into()).await {
+            if let Err(e) = sender.send(data).await {
                 log::error!("Send to worker failed");
                 return Err(e);
             }
@@ -190,14 +196,14 @@ fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<String>) 
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
     let tasks = task_keys.into_iter().map(|key| core.get_task_by_key_or_panic(&key));
-    let mut worker_updates = WorkerUpdateMap::new();
+    let mut notifications = Notifications::new();
     for task_ref in tasks {
         let mut task = task_ref.get_mut();
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
-        task.check_if_data_cannot_be_removed(&mut worker_updates);
+        task.check_if_data_cannot_be_removed(&mut notifications);
     }
-    send_worker_updates(&core, worker_updates);
+    notifications.send(&mut core);
 }
 
 

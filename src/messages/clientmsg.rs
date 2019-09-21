@@ -74,8 +74,15 @@ pub struct KeyInMemoryMsg {
 }
 
 #[derive(Serialize, Debug)]
+pub struct TaskErredMsg {
+    pub key: String,
+}
+
+
+#[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum ToClientMessage {
-    KeyInMemory(KeyInMemoryMsg)
+    KeyInMemory(KeyInMemoryMsg),
+    TaskErred(TaskErredMsg),
 }

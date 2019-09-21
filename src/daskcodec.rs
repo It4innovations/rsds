@@ -12,6 +12,15 @@ pub struct DaskMessage {
 }
 
 
+impl DaskMessage {
+    pub fn new(message: Bytes, additional_frames: Vec<Bytes>) -> Self {
+        DaskMessage {
+            message,
+            additional_frames,
+        }
+    }
+}
+
 impl<T: Into<Bytes>> From<T> for DaskMessage {
     fn from(message: T) -> Self {
         Self {

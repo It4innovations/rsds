@@ -10,11 +10,11 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::common::WrappedRcRefCell;
 use crate::messages::clientmsg::{KeyInMemoryMsg, ToClientMessage};
 use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
+use crate::notifications::Notifications;
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::schedproto::TaskAssignment;
-use crate::task::{ErrorInfo, ResultInfo, TaskRuntimeState};
-use crate::worker::{send_worker_updates, WorkerUpdateMap};
+use crate::task::{DataInfo, ErrorInfo, TaskRuntimeState};
 
 pub struct Core {
     tasks_by_id: HashMap<TaskId, TaskRef>,
@@ -102,6 +102,12 @@ impl Core {
         })
     }
 
+    pub fn get_client_by_id_or_panic(&mut self, id: ClientId) -> &mut Client {
+        self.clients.get_mut(&id).unwrap_or_else(|| {
+            panic!("Asking for invalid client id={}", id);
+        })
+    }
+
     pub fn get_client_id_by_key(&self, key: &str) -> ClientId {
         self.client_key_to_id.get(key).map(|r| *r).unwrap_or_else(|| {
             panic!("Asking for invalid client key={}", key);
@@ -141,13 +147,13 @@ impl Core {
 
     pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) {
         log::debug!("Assignments from scheduler: {:?}", assignments);
-        let mut worker_updates: WorkerUpdateMap = HashMap::new();
+        let mut notifications = Notifications::new();
         for assignment in assignments {
             let worker_ref = self.workers.get(&assignment.worker).expect("Worker from assignment not found").clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
 
             let mut task = task_ref.get_mut();
-            assert_eq!(task.state, TaskRuntimeState::Waiting);
+            assert!(task.is_waiting());
             assert!(task.worker.is_none());
             task.worker = Some(worker_ref.clone());
             if task.is_ready() {
@@ -157,7 +163,7 @@ impl Core {
                     assignment.task,
                     assignment.worker
                 );
-                worker_updates.entry(worker_ref).or_default().compute_tasks.push(task_ref.clone());
+                notifications.compute_task_on_worker(worker_ref, task_ref.clone());
             } else {
                 task.state = TaskRuntimeState::Scheduled;
                 log::debug!(
@@ -167,37 +173,40 @@ impl Core {
                 );
             }
         }
-        send_worker_updates(self, worker_updates);
+        notifications.send(self);
     }
 
-    pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo) {
-        let task_ref = self.get_task_by_key_or_panic(&task_key);
+    pub fn _on_task_error_helper(&mut self, task: &mut Task, task_ref: &TaskRef, error_info: Rc<ErrorInfo>, mut notifications: &mut Notifications) {
+        task.state = TaskRuntimeState::Error(error_info);
+        self.unregister_as_consumer(&task, task_ref, &mut notifications);
+        for client_id in task.subscribed_clients() {
+            notifications.notify_client_about_task_error(*client_id, task_ref.clone());
+        }
+    }
+
+    pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo, mut notifications: &mut Notifications) {
+        let task_ref = self.get_task_by_key_or_panic(&task_key).clone();
         let error_info = Rc::new(error_info);
         let mut task_refs = {
-            let mut task = task_ref.get();
-            assert!(task.state == TaskRuntimeState::Assigned);
-            //task.state = TaskRuntimeState::Error;
-            //task.error = Some(error_info.clone());
-            // TODO: unregister_as_consumer
+            let mut task = task_ref.get_mut();
+            assert!(task.is_assigned());
+            self._on_task_error_helper(&mut task, &task_ref, error_info.clone(), &mut notifications);
             task.collect_consumers()
         };
 
         for task_ref in task_refs {
             let mut task = task_ref.get_mut();
-            //task.state = TaskRuntimeState::Error;
-            //task.error = Some(error_info.clone());
-            // TODO: unregister_as_consumer
+            assert!(task.is_waiting() || task.is_scheduled());
+            self._on_task_error_helper(&mut task, &task_ref, error_info.clone(), &mut notifications);
         }
-
-        unimplemented!();
     }
 
-    pub fn unregister_as_consumer(&self, task: &Task, task_ref: &TaskRef, worker_updates: &mut WorkerUpdateMap) {
+    pub fn unregister_as_consumer(&self, task: &Task, task_ref: &TaskRef, notifications: &mut Notifications) {
         for input_id in &task.dependencies {
             let tr = self.get_task_by_id_or_panic(*input_id);
             let mut t = tr.get_mut();
             assert!(t.consumers.remove(&task_ref));
-            t.check_if_data_cannot_be_removed(worker_updates);
+            t.check_if_data_cannot_be_removed(notifications);
         }
     }
 
@@ -205,7 +214,7 @@ impl Core {
         &mut self,
         worker: &WorkerRef,
         msg: TaskFinishedMsg,
-        mut worker_updates: &mut WorkerUpdateMap,
+        mut notifications: &mut Notifications,
     ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
@@ -215,22 +224,21 @@ impl Core {
                 task.id,
                 worker.get().id()
             );
-            assert!(task.state == TaskRuntimeState::Assigned);
+            assert!(task.is_assigned());
             assert!(task.worker.as_ref().unwrap() == worker);
-            assert!(task.result_info.is_none());
-            task.state = TaskRuntimeState::Finished;
-            task.result_info = Some(ResultInfo { size: msg.nbytes, r#type: msg.r#type });
+            task.state = TaskRuntimeState::Finished(DataInfo { size: msg.nbytes, r#type: msg.r#type });
             for consumer in &task.consumers {
                 let mut t = consumer.get_mut();
-                assert!(t.state != TaskRuntimeState::Finished);
+                assert!(t.is_waiting() || t.is_scheduled());
                 t.unfinished_inputs -= 1;
-                if t.unfinished_inputs == 0 && t.state == TaskRuntimeState::Scheduled {
+                if t.unfinished_inputs == 0 && t.is_scheduled() {
                     t.state = TaskRuntimeState::Assigned;
-                    worker_updates.entry(t.worker.clone().unwrap()).or_default().compute_tasks.push(consumer.clone());
+                    notifications.compute_task_on_worker(t.worker.clone().unwrap(), consumer.clone());
                 }
             }
-            self.unregister_as_consumer(&task, &task_ref, &mut worker_updates);
+            self.unregister_as_consumer(&task, &task_ref, &mut notifications);
             self.notify_key_in_memory(&task);
+            task.check_if_data_cannot_be_removed(notifications);
         }
         self.send_scheduler_update(true);
     }
@@ -241,11 +249,11 @@ impl Core {
                 Some(client) => {
                     client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
                         key: task.key.clone(),
-                        r#type: task.result_info.as_ref().unwrap().r#type.clone(),
+                        r#type: task.data_info().unwrap().r#type.clone(),
                     }));
                 }
                 None => {
-                    log::warn!("Task id={} finished for a dropped client={}", task.id, client_id);
+                    panic!("Task id={} finished for a dropped client={}", task.id, client_id);
                 }
             }
         }

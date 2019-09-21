@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum AfKeyElement {
     Index(u64),
@@ -28,7 +28,7 @@ pub enum AfKey {
     Composed(Vec<AfKeyElement>),
 }*/
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AfHeader {
     serializer: String,
     compression: Vec<Option<String>>,

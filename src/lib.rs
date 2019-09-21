@@ -14,5 +14,6 @@ pub mod prelude;
 pub mod scheduler;
 mod task;
 mod worker;
+mod notifications;
 
 pub type Result<T> = std::result::Result<T, DsError>;

@@ -1,3 +1,4 @@
+import pytest
 from dask import delayed
 from distributed.client import Client
 
@@ -100,10 +101,9 @@ def test_more_clients(rsds_env):
     assert r1 == 100
     assert r2 == 200
 
-# FIX THIS
-# def test_compute_error(rsds_env):
-#    url = rsds_env.start([1])
-#    _ = Client(url)
-#    delayed_fn1(error_fn()).compute()
-#
-#    # error_fn().compute()
+
+def test_compute_error(rsds_env):
+    url = rsds_env.start([1])
+    _ = Client(url)
+    with pytest.raises(MyException):
+        delayed_fn1(error_fn(delayed_fn1(10))).compute()

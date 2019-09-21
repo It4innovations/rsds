@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -7,9 +8,9 @@ use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 use crate::messages::aframe::AdditionalFrame;
 use crate::messages::workermsg::ComputeTaskMsg;
+use crate::notifications::Notifications;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
-use crate::worker::WorkerUpdate;
 
 pub type TaskKey = String;
 
@@ -21,24 +22,39 @@ pub struct TaskSpec {
     pub args: Vec<u8>,
 }
 
-#[derive(PartialEq, Debug)]
 pub enum TaskRuntimeState {
     Waiting,
     Scheduled,
     Assigned,
-    Finished,
-    Released,
-    Error,
+    Finished(DataInfo),
+    Released(DataInfo),
+    Error(Rc<ErrorInfo>),
+}
+
+impl fmt::Debug for TaskRuntimeState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let n = match self {
+            Self::Waiting => 'W',
+            Self::Scheduled => 'S',
+            Self::Assigned => 'A',
+            Self::Finished(_) => 'F',
+            Self::Released(_) => 'R',
+            Self::Error(_) => 'E',
+        };
+        write!(f, "{}", n)
+    }
 }
 
 pub struct ErrorInfo {
     pub frames: Vec<AdditionalFrame>,
 }
 
-pub struct ResultInfo {
+#[derive(Debug)]
+pub struct DataInfo {
     pub size: u64,
     pub r#type: Vec<u8>,
 }
+
 
 pub struct Task {
     pub id: TaskId,
@@ -46,10 +62,6 @@ pub struct Task {
     pub unfinished_inputs: u32,
     pub consumers: HashSet<TaskRef>,
     pub worker: Option<WorkerRef>,
-    pub result_info: Option<ResultInfo>,
-
-    pub error: Option<Rc<ErrorInfo>>,
-
     pub key: TaskKey,
     pub spec: TaskSpec,
     pub dependencies: Vec<TaskId>,
@@ -86,18 +98,27 @@ impl Task {
         }
     }
 
-    pub fn check_if_data_cannot_be_removed(&mut self, worker_updates: &mut HashMap<WorkerRef, WorkerUpdate>) {
-        if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.state == TaskRuntimeState::Finished {
+    pub fn check_if_data_cannot_be_removed(&mut self, notifications: &mut Notifications) {
+        if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
+
+            // Hack for changing Finished -> Released while moving DataInfo
+            match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
+                TaskRuntimeState::Finished(data_info) => {
+                    self.state = TaskRuntimeState::Released(data_info);
+                }
+                _ => unreachable!()
+            }
+
             let worker_ref = self.worker.clone().unwrap();
             log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
-            worker_updates.entry(worker_ref).or_default().delete_keys.push(self.key.clone());
+            notifications.delete_key_from_worker(worker_ref, &self.key);
         }
     }
 
     pub fn collect_consumers(&self) -> HashSet<TaskRef>
     {
         let mut stack: Vec<_> = self.consumers.iter().cloned().collect();
-        let mut result : HashSet<TaskRef> = stack.iter().cloned().collect();
+        let mut result: HashSet<TaskRef> = stack.iter().cloned().collect();
 
         while !stack.is_empty() {
             let task_ref = stack.pop().unwrap();
@@ -131,7 +152,7 @@ impl Task {
             .iter()
             .map(|task_ref| {
                 let task = task_ref.get();
-                (task.key.clone(), task.result_info.as_ref().unwrap().size)
+                (task.key.clone(), task.data_info().unwrap().size)
             })
             .collect();
 
@@ -142,6 +163,47 @@ impl Task {
             duration: 0.5, // TODO
             who_has,
             nbytes,
+        }
+    }
+
+    #[inline]
+    pub fn is_waiting(&self) -> bool {
+        match &self.state {
+            TaskRuntimeState::Waiting => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_scheduled(&self) -> bool {
+        match &self.state {
+            TaskRuntimeState::Scheduled => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_assigned(&self) -> bool {
+        match &self.state {
+            TaskRuntimeState::Assigned => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_finished(&self) -> bool {
+        match &self.state {
+            TaskRuntimeState::Finished(_) => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn data_info(&self) -> Option<&DataInfo> {
+        match &self.state {
+            TaskRuntimeState::Finished(data) => Some(data),
+            TaskRuntimeState::Released(data) => Some(data),
+            _ => None,
         }
     }
 }
@@ -163,8 +225,6 @@ impl TaskRef {
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
             worker: None,
-            result_info: None,
-            error: None,
             subscribed_clients: Default::default(),
         })
     }
