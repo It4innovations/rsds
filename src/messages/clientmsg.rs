@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-
-use crate::task::TaskSpec;
-
 /*
 
 [{b'op': b'update-graph',
@@ -41,6 +38,18 @@ use crate::task::TaskSpec;
  b'actors': None}
 
 */
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TaskSpec {
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(with = "serde_bytes")]
+    pub function: Vec<u8>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(with = "serde_bytes")]
+    pub args: Vec<u8>,
+}
 
 #[derive(Deserialize, Debug)]
 pub struct UpdateGraphMsg {

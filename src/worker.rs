@@ -21,7 +21,7 @@ use crate::task::{ErrorInfo, TaskRuntimeState};
 
 pub struct Worker {
     pub id: WorkerId,
-    pub sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    pub sender: tokio::sync::mpsc::UnboundedSender<DaskMessage>,
     pub ncpus: u32,
     pub listen_address: String,
 }
@@ -45,6 +45,11 @@ impl Worker {
         self.sender.try_send(data.into()).unwrap(); // TODO: bail!("Send of worker XYZ failed")
         Ok(())
     }
+
+    pub fn send_dask_message(&mut self, message: DaskMessage) -> crate::Result<()> {
+        self.sender.try_send(message).unwrap(); // TODO: bail!("Send of worker XYZ failed")
+        Ok(())
+    }
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;
@@ -58,7 +63,7 @@ pub async fn start_worker(
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
-    let (mut snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+    let (mut snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskMessage>();
 
     let hb = HeartbeatResponse {
         status: "OK",
@@ -87,7 +92,7 @@ pub async fn start_worker(
     let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
         while let Some(data) = snd_receiver.next().await {
-            if let Err(e) = sender.send(data.into()).await {
+            if let Err(e) = sender.send(data).await {
                 log::error!("Send to worker failed");
                 return Err(e);
             }

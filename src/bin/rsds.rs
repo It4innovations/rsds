@@ -8,6 +8,9 @@ use tokio::runtime::current_thread;
 use rsds::prelude::*;
 use rsds::scheduler::prepare_scheduler_comm;
 
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
 struct Opt {

@@ -11,11 +11,12 @@ use tokio::codec::Framed;
 use tokio::net::TcpStream;
 
 use crate::daskcodec::{DaskCodec, DaskMessage};
-use crate::messages::aframe::AfDescriptor;
+use crate::messages::aframe::{AfDescriptor, AdditionalFrame, parse_aframes, group_aframes, AfKeyElement};
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::notifications::Notifications;
 use crate::prelude::*;
+use std::hash::Hash;
 
 pub type ClientId = u64;
 
@@ -87,18 +88,22 @@ pub async fn start_client(
 
     let recv_loop = receiver.try_for_each(move |data| {
         let msgs: Result<Vec<FromClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data.message));
+
         if let Err(e) = msgs {
             dbg!(data);
             panic!("Invalid message from client ({}): {}", client_id, e);
         }
-        for msg in msgs.unwrap() {
+
+        let mut aframes = parse_aframes(data.additional_frames);
+
+        for (i, msg) in msgs.unwrap().into_iter().enumerate() {
             match msg {
                 FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
                 FromClientMessage::ClientReleasesKeys(msg) => {
                     release_keys(&core_ref, msg.client, msg.keys);
                 }
                 FromClientMessage::UpdateGraph(update) => {
-                    update_graph(&core_ref, client_id, update);
+                    update_graph(&core_ref, client_id, update, aframes.remove(&(i as u64)).unwrap_or_else(Vec::new));
                 }
                 _ => {}
             }
@@ -125,7 +130,7 @@ pub async fn start_client(
     Ok(())
 }
 
-pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg) {
+pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg, aframes: Vec<AdditionalFrame>) {
     log::debug!("Updating graph from client {}", client_id);
 
     /* Validate dependencies */
@@ -137,7 +142,6 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
             }
         }
     }*/
-
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
@@ -180,6 +184,28 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         for task_id in &task_ref.get().dependencies {
             let tr = core.get_task_by_id_or_panic(*task_id);
             tr.get_mut().consumers.insert(task_ref.clone());
+        }
+    }
+
+    let groupped_task_frames = group_aframes(aframes, |key| {
+        if key.len() > 3 && Some("tasks") == key[1].as_str() {
+            key[2].as_str().map(|s| s.to_string())
+        } else {
+            None
+        }
+    });
+
+    for (task_key, aframes) in groupped_task_frames {
+        let task_ref = core.get_task_by_key_or_panic(&task_key);
+        let mut task = task_ref.get_mut();
+        for AdditionalFrame {data, header, key} in aframes {
+            match key.get(3).and_then(|x| x.as_str()) {
+                Some("args") => {
+                    task.args_data = data;
+                    task.args_header = Some(header);
+                },
+                x => { panic!("Invalid key part {:?}", x) }
+            };
         }
     }
 

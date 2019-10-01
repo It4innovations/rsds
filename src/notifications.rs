@@ -5,7 +5,7 @@ use bytes::Bytes;
 use crate::client::ClientId;
 use crate::core::Core;
 use crate::daskcodec::DaskMessage;
-use crate::messages::aframe::{AfDescriptor, AfHeader, AfKeyElement};
+use crate::messages::aframe::{AfDescriptor, AfHeader, AfKeyElement, MessageBuilder};
 use crate::messages::clientmsg::{TaskErredMsg, ToClientMessage};
 use crate::messages::workermsg::{DeleteDataMsg, ToWorkerMessage};
 use crate::task::{TaskKey, TaskRef};
@@ -53,13 +53,18 @@ impl Notifications {
     pub fn send(self, core: &mut Core) {
         /* Send to workers */
         for (worker_ref, w_update) in self.workers {
-            let mut msgs: Vec<_> = w_update.compute_tasks.iter().map(|t| ToWorkerMessage::ComputeTask(t.get().make_compute_task_msg(core))).collect();
-            if !w_update.delete_keys.is_empty() {
-                msgs.push(ToWorkerMessage::DeleteData(DeleteDataMsg { keys: w_update.delete_keys, report: false }));
+            let mut mbuilder = MessageBuilder::new();
+
+            for task in w_update.compute_tasks {
+                task.get().make_compute_task_msg(core, &mut mbuilder);
             }
-            if !msgs.is_empty() {
+
+            if !w_update.delete_keys.is_empty() {
+                mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg { keys: w_update.delete_keys, report: false }));
+            }
+            if !mbuilder.is_empty() {
                 let mut worker = worker_ref.get_mut();
-                worker.send_message(msgs).unwrap_or_else(|_| {
+                worker.send_dask_message(mbuilder.build()).unwrap_or_else(|_| {
                     // !!! Do not propagate error right now, we need to finish sending messages to others
                     // Worker cleanup is done elsewhere (when worker future terminates),
                     // so we can safely ignore this. Since we are nice guys we log (debug) message.
@@ -84,11 +89,11 @@ impl Notifications {
                             key: task.key.clone(),
                         }));
                         for af in &e.frames {
-                            let mut key = af.header_key.clone();
+                            let mut key = af.key.clone();
                             key[0] = AfKeyElement::Index(i as u64);
                             descriptor.keys.push(key.clone());
-                            descriptor.headers.push((key, af.header_value.clone()));
-                            frames.push(af.data.clone());
+                            descriptor.headers.push((key, af.header.clone()));
+                            frames.push(af.data.clone().into());
                         };
                     } else {
                         panic!("Task is not in error state");

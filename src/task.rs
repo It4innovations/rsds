@@ -6,21 +6,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
-use crate::messages::aframe::AdditionalFrame;
+use crate::messages::aframe::{AdditionalFrame, AfHeader, MessageBuilder};
 use crate::messages::workermsg::ComputeTaskMsg;
+use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::notifications::Notifications;
 use crate::prelude::*;
 use crate::scheduler::schedproto::TaskId;
+use crate::messages::clientmsg::TaskSpec;
 
 pub type TaskKey = String;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TaskSpec {
-    #[serde(with = "serde_bytes")]
-    pub function: Vec<u8>,
-    #[serde(with = "serde_bytes")]
-    pub args: Vec<u8>,
-}
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -63,8 +57,11 @@ pub struct Task {
     pub consumers: HashSet<TaskRef>,
     pub worker: Option<WorkerRef>,
     pub key: TaskKey,
-    pub spec: TaskSpec,
     pub dependencies: Vec<TaskId>,
+
+    pub function_data: Vec<u8>,
+    pub args_data: Vec<u8>,
+    pub args_header: Option<AfHeader>,
 
     subscribed_clients: Vec<ClientId>,
 }
@@ -133,7 +130,7 @@ impl Task {
         result
     }
 
-    pub fn make_compute_task_msg(&self, core: &Core) -> ComputeTaskMsg {
+    pub fn make_compute_task_msg(&self, core: &Core, mbuilder: &mut MessageBuilder<ToWorkerMessage>) {
         let task_refs: Vec<_> = self
             .dependencies
             .iter()
@@ -156,14 +153,14 @@ impl Task {
             })
             .collect();
 
-        ComputeTaskMsg {
+        mbuilder.add_message(ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
-            function: self.spec.function.clone(),
-            args: self.spec.args.clone(),
+            function: self.function_data.clone(),
+            args: self.args_data.clone(),
             duration: 0.5, // TODO
             who_has,
             nbytes,
-        }
+        }));
     }
 
     #[inline]
@@ -219,9 +216,11 @@ impl TaskRef {
         WrappedRcRefCell::wrap(Task {
             id,
             key,
-            spec,
             dependencies,
             unfinished_inputs,
+            function_data: spec.function,
+            args_data: spec.args,
+            args_header: None,
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
             worker: None,
