@@ -8,9 +8,11 @@ use crate::daskcodec::DaskMessage;
 use crate::messages::aframe::{AfDescriptor, AfHeader, AfKeyElement, MessageBuilder};
 use crate::messages::clientmsg::{TaskErredMsg, ToClientMessage};
 use crate::messages::workermsg::{DeleteDataMsg, ToWorkerMessage};
-use crate::task::{TaskKey, TaskRef};
+use crate::task::{TaskKey, TaskRef, Task};
 use crate::task::TaskRuntimeState;
-use crate::worker::WorkerRef;
+use crate::worker::{WorkerRef, Worker};
+use crate::scheduler::{ToSchedulerMessage};
+use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
 
 #[derive(Default)]
 pub struct WorkerNotification {
@@ -28,6 +30,7 @@ pub struct ClientNotification {
 pub struct Notifications {
     workers: HashMap<WorkerRef, WorkerNotification>,
     clients: HashMap<ClientId, ClientNotification>,
+    scheduler_messages: Vec<ToSchedulerMessage>,
 }
 
 impl Notifications {
@@ -35,11 +38,34 @@ impl Notifications {
         Notifications {
             workers: HashMap::new(),
             clients: HashMap::new(),
+            scheduler_messages: Default::default(),
         }
     }
 
-    pub fn delete_key_from_worker(&mut self, worker_ref: WorkerRef, key: &str) {
-        self.workers.entry(worker_ref).or_default().delete_keys.push(key.to_string());
+    pub fn new_worker(&mut self, worker: &Worker) {
+        self.scheduler_messages.push(ToSchedulerMessage::NewWorker(worker.make_sched_info()));
+    }
+
+    #[inline]
+    pub fn new_task(&mut self, task: &Task) {
+        self.scheduler_messages.push(ToSchedulerMessage::NewTask(task.make_sched_info()));
+    }
+
+    pub fn delete_key_from_worker(&mut self, worker_ref: WorkerRef, task: &Task) {
+        self.scheduler_messages.push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
+            state: TaskUpdateType::Removed,
+            id: task.id,
+            worker: worker_ref.get().id,
+        }));
+        self.workers.entry(worker_ref).or_default().delete_keys.push(task.key.to_string());
+    }
+
+    pub fn task_placed(&mut self, worker: &Worker, task: &Task) {
+        self.scheduler_messages.push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
+            state: TaskUpdateType::Placed,
+            id: task.id,
+            worker: worker.id,
+        }));
     }
 
     pub fn compute_task_on_worker(&mut self, worker_ref: WorkerRef, task_ref: TaskRef) {
@@ -51,6 +77,11 @@ impl Notifications {
     }
 
     pub fn send(self, core: &mut Core) {
+        /* Send to scheduler */
+        if !self.scheduler_messages.is_empty() {
+            core.send_scheduler_messages(self.scheduler_messages);
+        }
+
         /* Send to workers */
         for (worker_ref, w_update) in self.workers {
             let mut mbuilder = MessageBuilder::new();

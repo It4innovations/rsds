@@ -26,22 +26,30 @@ impl State {
         }
     }
 
-    pub fn update(&mut self, update: Update, sender: &mut UnboundedSender<FromSchedulerMessage>) {
-        for wi in update.new_workers {
-            assert!(self
-                .workers
-                .insert(
-                    wi.id,
-                    Worker {
-                        id: wi.id,
-                        ncpus: wi.ncpus,
-                        free_cpus: wi.ncpus as i32,
-                    },
-                )
-                .is_none());
-        }
-        if let Some(nb) = update.network_bandwidth {
-            self.network_bandwidth = nb;
+    pub fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut UnboundedSender<FromSchedulerMessage>) {
+        for message in messages {
+            match message {
+                ToSchedulerMessage::TaskUpdate(_) => { /* TODO */ }
+                ToSchedulerMessage::NewTask(ti) => {
+                    self._tmp_hack.push(ti.id);
+                },
+                ToSchedulerMessage::NewWorker(wi) => {
+                    assert!(self
+                        .workers
+                        .insert(
+                            wi.id,
+                            Worker {
+                                id: wi.id,
+                                ncpus: wi.ncpus,
+                                free_cpus: wi.ncpus as i32,
+                            },
+                        )
+                        .is_none());
+                },
+                ToSchedulerMessage::NetworkBandwidth(nb) => {
+                    self.network_bandwidth = nb;
+                }
+            }
         }
 
         // HACK, random scheduler
@@ -50,14 +58,6 @@ impl State {
             let mut result = Vec::new();
             let mut rng = rand::thread_rng();
             let ws: Vec<WorkerId> = self.workers.values().map(|w| w.id).collect();
-            for task_info in &update.new_tasks {
-                result.push(TaskAssignment {
-                    task: task_info.id,
-                    worker: *ws.choose(&mut rng).unwrap(),
-                    priority: 0,
-                });
-            }
-
             // TMP HACK
             for task_id in &self._tmp_hack {
                 result.push(TaskAssignment {
@@ -71,8 +71,6 @@ impl State {
             sender
                 .try_send(FromSchedulerMessage::TaskAssignments(result))
                 .unwrap();
-        } else {
-            self._tmp_hack.extend(update.new_tasks.into_iter().map(|ti| ti.id));
         }
     }
 }

@@ -20,12 +20,8 @@ impl BasicScheduler {
             }))
             .expect("Send failed");
 
-        while let Some(msg) = comm.recv.next().await {
-            match msg {
-                ToSchedulerMessage::Update(update) => {
-                    state.update(update, &mut comm.send);
-                }
-            }
+        while let Some(msgs) = comm.recv.next().await {
+            state.update(msgs, &mut comm.send);
         }
         log::debug!("Scheduler closed");
         Ok(())

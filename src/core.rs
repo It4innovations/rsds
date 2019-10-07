@@ -23,9 +23,7 @@ pub struct Core {
     client_key_to_id: HashMap<String, ClientId>,
     workers: HashMap<WorkerId, WorkerRef>,
 
-    update: crate::scheduler::Update,
-    scheduler_sender: UnboundedSender<ToSchedulerMessage>,
-    update_timeout_running: bool,
+    scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>,
 
     id_counter: u64,
     uid: String,
@@ -63,11 +61,10 @@ impl Core {
         self.new_id()
     }
 
-    pub fn register_worker(&mut self, worker_ref: WorkerRef) {
+    pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
         let worker_id = {
             let worker = worker_ref.get();
-            self.update.new_workers.push(worker.make_sched_info());
-            self.send_scheduler_update(false);
+            notifications.new_worker(&worker);
             worker.id()
         };
         assert!(self.workers.insert(worker_id, worker_ref).is_none());
@@ -84,10 +81,12 @@ impl Core {
 
     // ! This function modifies update, but do not triggers, send_update
     // You have to done it manually.
-    pub fn add_task(&mut self, task_ref: TaskRef) {
-        let task_id = task_ref.get().id;
-        let task_key = task_ref.get().key.clone();
-        self.update.new_tasks.push(task_ref.get().make_sched_info());
+    pub fn add_task(&mut self, task_ref: TaskRef, notifications: &mut Notifications) {
+        let (task_id, task_key) = {
+            let task = task_ref.get();
+            notifications.new_task(&task);
+            (task.id, task.key.clone())
+        };
         assert!(self.tasks_by_id.insert(task_id, task_ref.clone()).is_none());
         assert!(self.tasks_by_key.insert(task_key, task_ref).is_none());
     }
@@ -114,6 +113,7 @@ impl Core {
         })
     }
 
+    /*
     fn _send_scheduler_update_now(&mut self) {
         log::debug!("Sending update to scheduler");
         let update = std::mem::replace(&mut self.update, Default::default());
@@ -139,6 +139,10 @@ impl Core {
             core.update_timeout_running = false;
             core._send_scheduler_update_now();
         }));
+    }*/
+
+    pub fn send_scheduler_messages(&mut self, messages: Vec<ToSchedulerMessage>) {
+        self.scheduler_sender.try_send(messages).unwrap();
     }
 
     pub fn new_self_ref(&self) -> CoreRef {
@@ -201,12 +205,22 @@ impl Core {
         }
     }
 
-    pub fn unregister_as_consumer(&self, task: &Task, task_ref: &TaskRef, notifications: &mut Notifications) {
+    pub fn unregister_as_consumer(&mut self, task: &Task, task_ref: &TaskRef, notifications: &mut Notifications) {
         for input_id in &task.dependencies {
             let tr = self.get_task_by_id_or_panic(*input_id);
             let mut t = tr.get_mut();
             assert!(t.consumers.remove(&task_ref));
             t.check_if_data_cannot_be_removed(notifications);
+        }
+    }
+
+    pub fn on_tasks_transferred(&mut self, worker_ref: &WorkerRef, keys: Vec<String>, notifications: &mut Notifications) {
+        let worker = worker_ref.get();
+        for key in keys {
+            let task_ref = self.get_task_by_key_or_panic(&key);
+            let mut task = task_ref.get_mut();
+            notifications.task_placed(&worker, &task);
+            // TODO: Store that task result is on worker
         }
     }
 
@@ -240,7 +254,6 @@ impl Core {
             self.notify_key_in_memory(&task);
             task.check_if_data_cannot_be_removed(notifications);
         }
-        self.send_scheduler_update(true);
     }
 
     fn notify_key_in_memory(&mut self, task: &Task) {
@@ -261,7 +274,7 @@ impl Core {
 }
 
 impl CoreRef {
-    pub fn new(scheduler_sender: UnboundedSender<ToSchedulerMessage>) -> Self {
+    pub fn new(scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
         let core_ref = Self::wrap(Core {
             tasks_by_id: Default::default(),
             tasks_by_key: Default::default(),
@@ -273,8 +286,6 @@ impl CoreRef {
             client_key_to_id: Default::default(),
 
             scheduler_sender,
-            update: Default::default(),
-            update_timeout_running: false,
 
             uid: "123_TODO".into(),
             self_ref: None,
@@ -285,7 +296,7 @@ impl CoreRef {
 
             // Prepare default guess of net bandwidth [MB/s], TODO: better guess,
             // It will be send with the first update message.
-            core.update.network_bandwidth = Some(100.0);
+            core.send_scheduler_messages(vec![ToSchedulerMessage::NetworkBandwidth(100.0)]);
         }
         core_ref
     }

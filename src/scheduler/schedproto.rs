@@ -11,8 +11,6 @@ pub struct WorkerInfo {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum TaskUpdateType {
-    Running,
-    // Task runs at worker
     Placed,
     // Task data are available on worker
     Removed,
@@ -34,17 +32,12 @@ pub struct TaskUpdate {
     pub worker: WorkerId,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Update {
-    pub task_updates: Vec<TaskUpdate>,
-    pub new_tasks: Vec<TaskInfo>,
-    pub new_workers: Vec<WorkerInfo>,
-    pub network_bandwidth: Option<f32>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ToSchedulerMessage {
-    Update(Update),
+    TaskUpdate(TaskUpdate),
+    NewTask(TaskInfo),
+    NewWorker(WorkerInfo),
+    NetworkBandwidth(f32),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

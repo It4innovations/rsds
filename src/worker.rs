@@ -83,7 +83,9 @@ pub async fn start_worker(
             sender: snd_sender,
             listen_address: msg.address,
         });
-        core.register_worker(worker_ref.clone());
+        let mut notifications = Notifications::new();
+        core.register_worker(worker_ref.clone(), &mut notifications);
+        notifications.send(&mut core);
         (worker_id, worker_ref)
     };
 
@@ -120,6 +122,7 @@ pub async fn start_worker(
         /*let mut new_ready_scheduled = Vec::new();
         let mut task_to_delete = HashMap::new();*/
 
+
         let mut notifications = Notifications::new();
 
         for (i, msg) in msgs.unwrap().into_iter().enumerate() {
@@ -129,6 +132,10 @@ pub async fn start_worker(
                     let mut core = core_ref.get_mut();
                     core.on_task_finished(&worker_ref, msg, &mut notifications);
                     // TODO: Inform scheduler
+                }
+                FromWorkerMessage::AddKeys(msg) => {
+                    let mut core = core_ref.get_mut();
+                    core.on_tasks_transferred(&worker_ref, msg.keys, &mut notifications);
                 }
                 FromWorkerMessage::TaskErred(msg) => {
                     assert!(msg.status == Status::Error); // TODO: handle other cases ??

@@ -147,6 +147,11 @@ pub struct TaskErredMsg {
     pub thread: u64,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct AddKeysMsg {
+    pub keys: Vec<String>,
+}
+
 /*#[derive(Deserialize, Debug)]
 pub struct RemoveKeysMsg {
     // It seems that it just informative message, ignoring
@@ -161,6 +166,7 @@ pub struct RemoveKeysMsg {
 pub enum FromWorkerMessage {
     TaskFinished(TaskFinishedMsg),
     TaskErred(TaskErredMsg),
+    AddKeys(AddKeysMsg),
     KeepAlive,
 }
 

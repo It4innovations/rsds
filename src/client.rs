@@ -157,6 +157,8 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         client_id
     );
 
+    let mut notifications = Notifications::new();
+
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
@@ -177,8 +179,10 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
         new_tasks.push(task_ref.clone());
-        core.add_task(task_ref);
+        core.add_task(task_ref, &mut notifications);
     }
+
+    notifications.send(&mut core);
 
     for task_ref in new_tasks {
         for task_id in &task_ref.get().dependencies {
@@ -215,7 +219,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         task.subscribe_client(client_id);
     }
 
-    core.send_scheduler_update(false);
+    //core.send_scheduler_update(false);
 }
 
 fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<String>) {

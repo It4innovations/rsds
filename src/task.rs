@@ -11,7 +11,7 @@ use crate::messages::workermsg::ComputeTaskMsg;
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::notifications::Notifications;
 use crate::prelude::*;
-use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::schedproto::{TaskId, TaskUpdate, TaskUpdateType};
 use crate::messages::clientmsg::TaskSpec;
 
 pub type TaskKey = String;
@@ -108,7 +108,7 @@ impl Task {
 
             let worker_ref = self.worker.clone().unwrap();
             log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
-            notifications.delete_key_from_worker(worker_ref, &self.key);
+            notifications.delete_key_from_worker(worker_ref, &self);
         }
     }
 
