@@ -18,9 +18,9 @@ pub type TaskKey = String;
 
 pub enum TaskRuntimeState {
     Waiting,
-    Scheduled,
-    Assigned,
-    Finished(DataInfo),
+    Scheduled(WorkerRef),
+    Assigned(WorkerRef),
+    Finished(DataInfo, Vec<WorkerRef>),
     Released(DataInfo),
     Error(Rc<ErrorInfo>),
 }
@@ -29,9 +29,9 @@ impl fmt::Debug for TaskRuntimeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let n = match self {
             Self::Waiting => 'W',
-            Self::Scheduled => 'S',
-            Self::Assigned => 'A',
-            Self::Finished(_) => 'F',
+            Self::Scheduled(_) => 'S',
+            Self::Assigned(_) => 'A',
+            Self::Finished(_, _) => 'F',
             Self::Released(_) => 'R',
             Self::Error(_) => 'E',
         };
@@ -55,7 +55,7 @@ pub struct Task {
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
     pub consumers: HashSet<TaskRef>,
-    pub worker: Option<WorkerRef>,
+    //pub worker: Option<WorkerRef>,
     pub key: TaskKey,
     pub dependencies: Vec<TaskId>,
 
@@ -99,16 +99,18 @@ impl Task {
         if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
 
             // Hack for changing Finished -> Released while moving DataInfo
-            match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
-                TaskRuntimeState::Finished(data_info) => {
+            let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
+                TaskRuntimeState::Finished(data_info, ws) => {
                     self.state = TaskRuntimeState::Released(data_info);
+                    ws
                 }
                 _ => unreachable!()
-            }
+            };
 
-            let worker_ref = self.worker.clone().unwrap();
-            log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
-            notifications.delete_key_from_worker(worker_ref, &self);
+            for worker_ref in ws {
+                log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
+                notifications.delete_key_from_worker(worker_ref, &self);
+            }
         }
     }
 
@@ -140,8 +142,8 @@ impl Task {
             .iter()
             .map(|task_ref| {
                 let task = task_ref.get();
-                let worker = task.worker.as_ref().unwrap().get();
-                (task.key.clone(), vec![worker.listen_address.clone()])
+                let addresses = task.get_workers().unwrap().iter().map(|w| w.get().listen_address.clone()).collect();
+                (task.key.clone(), addresses)
             })
             .collect();
 
@@ -174,7 +176,7 @@ impl Task {
     #[inline]
     pub fn is_scheduled(&self) -> bool {
         match &self.state {
-            TaskRuntimeState::Scheduled => true,
+            TaskRuntimeState::Scheduled(_) => true,
             _ => false,
         }
     }
@@ -182,7 +184,15 @@ impl Task {
     #[inline]
     pub fn is_assigned(&self) -> bool {
         match &self.state {
-            TaskRuntimeState::Assigned => true,
+            TaskRuntimeState::Assigned(_) => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_assigned_on(&self, worker_ref: &WorkerRef) -> bool {
+        match &self.state {
+            TaskRuntimeState::Assigned(w) => worker_ref == w,
             _ => false,
         }
     }
@@ -190,7 +200,7 @@ impl Task {
     #[inline]
     pub fn is_finished(&self) -> bool {
         match &self.state {
-            TaskRuntimeState::Finished(_) => true,
+            TaskRuntimeState::Finished(_, _) => true,
             _ => false,
         }
     }
@@ -198,8 +208,16 @@ impl Task {
     #[inline]
     pub fn data_info(&self) -> Option<&DataInfo> {
         match &self.state {
-            TaskRuntimeState::Finished(data) => Some(data),
+            TaskRuntimeState::Finished(data, _) => Some(data),
             TaskRuntimeState::Released(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn get_workers(&self) -> Option<&Vec<WorkerRef>> {
+        match &self.state {
+            TaskRuntimeState::Finished(_, ws) => Some(ws),
             _ => None,
         }
     }
@@ -223,7 +241,6 @@ impl TaskRef {
             args_header: None,
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
-            worker: None,
             subscribed_clients: Default::default(),
         })
     }

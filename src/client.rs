@@ -246,8 +246,10 @@ pub async fn gather(core_ref: &CoreRef,
         let core = core_ref.get();
         for key in &keys {
             let task_ref = core.get_task_by_key_or_panic(key);
-            let worker_ref = task_ref.get().worker.clone().unwrap(); // TODO: Error check if no worker has data
-            worker_map.entry(worker_ref).or_default().push(key);
+            // TODO: Randomize workers
+            task_ref.get().get_workers().map(|ws| ws.get(0).map(|w| {
+                worker_map.entry(w.clone()).or_default().push(key);
+            }));
         }
     }
     let mut descriptors = Vec::new();

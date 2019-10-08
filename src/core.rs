@@ -158,10 +158,8 @@ impl Core {
 
             let mut task = task_ref.get_mut();
             assert!(task.is_waiting());
-            assert!(task.worker.is_none());
-            task.worker = Some(worker_ref.clone());
             if task.is_ready() {
-                task.state = TaskRuntimeState::Assigned;
+                task.state = TaskRuntimeState::Assigned(worker_ref.clone());
                 log::debug!(
                     "Task task={} scheduled & assigned to worker={}",
                     assignment.task,
@@ -169,7 +167,7 @@ impl Core {
                 );
                 notifications.compute_task_on_worker(worker_ref, task_ref.clone());
             } else {
-                task.state = TaskRuntimeState::Scheduled;
+                task.state = TaskRuntimeState::Scheduled(worker_ref);
                 log::debug!(
                     "Task task={} scheduled to worker={}",
                     assignment.task,
@@ -238,16 +236,21 @@ impl Core {
                 task.id,
                 worker.get().id()
             );
-            assert!(task.is_assigned());
-            assert!(task.worker.as_ref().unwrap() == worker);
-            task.state = TaskRuntimeState::Finished(DataInfo { size: msg.nbytes, r#type: msg.r#type });
+            assert!(task.is_assigned_on(worker));
+            task.state = TaskRuntimeState::Finished(DataInfo { size: msg.nbytes, r#type: msg.r#type }, vec![worker.clone()]);
             for consumer in &task.consumers {
                 let mut t = consumer.get_mut();
                 assert!(t.is_waiting() || t.is_scheduled());
                 t.unfinished_inputs -= 1;
-                if t.unfinished_inputs == 0 && t.is_scheduled() {
-                    t.state = TaskRuntimeState::Assigned;
-                    notifications.compute_task_on_worker(t.worker.clone().unwrap(), consumer.clone());
+                if t.unfinished_inputs == 0 {
+                    let wr = match &t.state {
+                         TaskRuntimeState::Scheduled(w) => Some(w.clone()),
+                        _ => None
+                    };
+                    if let Some(w) = wr {
+                        t.state = TaskRuntimeState::Assigned(w.clone());
+                        notifications.compute_task_on_worker(w, consumer.clone());
+                    }
                 }
             }
             self.unregister_as_consumer(&task, &task_ref, &mut notifications);
