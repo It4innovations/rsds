@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 use futures::future::FutureExt;
 use futures::stream::StreamExt;
-use tokio::runtime::current_thread;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::common::WrappedRcRefCell;
 use crate::messages::clientmsg::{KeyInMemoryMsg, ToClientMessage};
-use crate::messages::workermsg::{TaskFinishedMsg, ToWorkerMessage};
+use crate::messages::workermsg::TaskFinishedMsg;
 use crate::notifications::Notifications;
 use crate::prelude::*;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
@@ -186,10 +184,10 @@ impl Core {
         }
     }
 
-    pub fn on_task_error(&mut self, worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo, mut notifications: &mut Notifications) {
+    pub fn on_task_error(&mut self, _worker: &WorkerRef, task_key: TaskKey, error_info: ErrorInfo, mut notifications: &mut Notifications) {
         let task_ref = self.get_task_by_key_or_panic(&task_key).clone();
         let error_info = Rc::new(error_info);
-        let mut task_refs = {
+        let task_refs = {
             let mut task = task_ref.get_mut();
             assert!(task.is_assigned());
             self._on_task_error_helper(&mut task, &task_ref, error_info.clone(), &mut notifications);
@@ -216,7 +214,7 @@ impl Core {
         let worker = worker_ref.get();
         for key in keys {
             let task_ref = self.get_task_by_key_or_panic(&key);
-            let mut task = task_ref.get_mut();
+            let task = task_ref.get_mut();
             notifications.task_placed(&worker, &task);
             // TODO: Store that task result is on worker
         }
@@ -244,7 +242,7 @@ impl Core {
                 t.unfinished_inputs -= 1;
                 if t.unfinished_inputs == 0 {
                     let wr = match &t.state {
-                         TaskRuntimeState::Scheduled(w) => Some(w.clone()),
+                        TaskRuntimeState::Scheduled(w) => Some(w.clone()),
                         _ => None
                     };
                     if let Some(w) = wr {

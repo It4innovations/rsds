@@ -5,14 +5,14 @@ use bytes::Bytes;
 use crate::client::ClientId;
 use crate::core::Core;
 use crate::daskcodec::DaskMessage;
-use crate::messages::aframe::{AfDescriptor, AfHeader, AfKeyElement, MessageBuilder};
+use crate::messages::aframe::{AfDescriptor, AfKeyElement, MessageBuilder};
 use crate::messages::clientmsg::{TaskErredMsg, ToClientMessage};
 use crate::messages::workermsg::{DeleteDataMsg, ToWorkerMessage};
-use crate::task::{TaskKey, TaskRef, Task};
-use crate::task::TaskRuntimeState;
-use crate::worker::{WorkerRef, Worker};
-use crate::scheduler::{ToSchedulerMessage};
 use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
+use crate::scheduler::ToSchedulerMessage;
+use crate::task::{Task, TaskKey, TaskRef};
+use crate::task::TaskRuntimeState;
+use crate::worker::{Worker, WorkerRef};
 
 #[derive(Default)]
 pub struct WorkerNotification {
@@ -132,7 +132,7 @@ impl Notifications {
                 };
                 let message = rmp_serde::encode::to_vec_named(&messages).unwrap();
                 frames[0] = rmp_serde::encode::to_vec_named(&descriptor).unwrap().into();
-                let mut client = core.get_client_by_id_or_panic(client_id);
+                let client = core.get_client_by_id_or_panic(client_id);
                 client.send_dask_message(DaskMessage::new(message.into(), frames));
             }
         }

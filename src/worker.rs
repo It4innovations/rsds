@@ -10,14 +10,13 @@ use tokio::codec::Framed;
 use tokio::net::TcpStream;
 
 use crate::common::WrappedRcRefCell;
-use crate::core::Core;
 use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::AfDescriptor;
 use crate::messages::generic::RegisterWorkerMsg;
-use crate::messages::workermsg::{DeleteDataMsg, FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
+use crate::messages::workermsg::{FromWorkerMessage, GetDataMsg, HeartbeatResponse, Status, ToWorkerMessage};
 use crate::notifications::Notifications;
 use crate::prelude::*;
-use crate::task::{ErrorInfo, TaskRuntimeState};
+use crate::task::ErrorInfo;
 
 pub struct Worker {
     pub id: WorkerId,

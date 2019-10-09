@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::net::SocketAddr;
 
 use rmp_serde as rmps;
 use tokio::codec::Framed;

@@ -1,18 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
-
-use serde::{Deserialize, Serialize};
 
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 use crate::messages::aframe::{AdditionalFrame, AfHeader, MessageBuilder};
+use crate::messages::clientmsg::TaskSpec;
 use crate::messages::workermsg::ComputeTaskMsg;
-use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
+use crate::messages::workermsg::ToWorkerMessage;
 use crate::notifications::Notifications;
 use crate::prelude::*;
-use crate::scheduler::schedproto::{TaskId, TaskUpdate, TaskUpdateType};
-use crate::messages::clientmsg::TaskSpec;
+use crate::scheduler::schedproto::TaskId;
 
 pub type TaskKey = String;
 

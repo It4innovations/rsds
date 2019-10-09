@@ -55,7 +55,6 @@ pub struct AfDescriptor {
 }
 
 impl AfDescriptor {
-
     // TODO: Migrate to parse_aframes
     pub fn split_frames_by_index(self, additional_frames: Vec<Bytes>) -> crate::Result<HashMap<u64, Vec<AdditionalFrame>>> {
         let mut result: HashMap<u64, Vec<AdditionalFrame>> = HashMap::new();
@@ -101,7 +100,7 @@ pub fn parse_aframes(additional_frames: Vec<Bytes>) -> HashMap<u64, Vec<Addition
 }
 
 pub fn group_aframes<T: Hash + Eq, F: Fn(&AfKey) -> Option<T>>(aframes: Vec<AdditionalFrame>, map_filter_fn: F) -> HashMap<T, Vec<AdditionalFrame>> {
-    let mut result : HashMap<T, Vec<_>> = HashMap::new();
+    let mut result: HashMap<T, Vec<_>> = HashMap::new();
     for af in aframes {
         if let Some(key) = map_filter_fn(&af.key) {
             result.entry(key).or_default().push(af);
@@ -123,7 +122,6 @@ pub struct MessageBuilder<T: Serialize> {
 }
 
 impl<T: Serialize> MessageBuilder<T> {
-
     pub fn new() -> Self {
         MessageBuilder {
             messages: Vec::new(),

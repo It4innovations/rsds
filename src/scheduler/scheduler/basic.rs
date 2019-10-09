@@ -1,6 +1,6 @@
 use futures::StreamExt;
 
-use crate::scheduler::{FromSchedulerMessage, SchedulerComm, ToSchedulerMessage};
+use crate::scheduler::{FromSchedulerMessage, SchedulerComm};
 use crate::scheduler::schedproto::SchedulerRegistration;
 use crate::scheduler::state::State;
 

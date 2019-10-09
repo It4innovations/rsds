@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 
 use futures::future;
 use futures::future::FutureExt;
@@ -11,12 +10,11 @@ use tokio::codec::Framed;
 use tokio::net::TcpStream;
 
 use crate::daskcodec::{DaskCodec, DaskMessage};
-use crate::messages::aframe::{AfDescriptor, AdditionalFrame, parse_aframes, group_aframes, AfKeyElement};
+use crate::messages::aframe::{AdditionalFrame, AfDescriptor, group_aframes, parse_aframes};
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
 use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
 use crate::notifications::Notifications;
 use crate::prelude::*;
-use std::hash::Hash;
 
 pub type ClientId = u64;
 
@@ -202,12 +200,12 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     for (task_key, aframes) in groupped_task_frames {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
-        for AdditionalFrame {data, header, key} in aframes {
+        for AdditionalFrame { data, header, key } in aframes {
             match key.get(3).and_then(|x| x.as_str()) {
                 Some("args") => {
                     task.args_data = data;
                     task.args_header = Some(header);
-                },
+                }
                 x => { panic!("Invalid key part {:?}", x) }
             };
         }

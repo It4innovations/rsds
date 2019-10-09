@@ -32,7 +32,7 @@ impl State {
                 ToSchedulerMessage::TaskUpdate(_) => { /* TODO */ }
                 ToSchedulerMessage::NewTask(ti) => {
                     self._tmp_hack.push(ti.id);
-                },
+                }
                 ToSchedulerMessage::NewWorker(wi) => {
                     assert!(self
                         .workers
@@ -45,7 +45,7 @@ impl State {
                             },
                         )
                         .is_none());
-                },
+                }
                 ToSchedulerMessage::NetworkBandwidth(nb) => {
                     self.network_bandwidth = nb;
                 }
