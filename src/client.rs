@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::{AdditionalFrame, AfDescriptor, group_aframes, parse_aframes};
 use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
-use crate::messages::workermsg::{GetDataMsg, GetDataResponse, Status, ToWorkerMessage};
+use crate::messages::workermsg::{GetDataResponse};
 use crate::notifications::Notifications;
 use crate::prelude::*;
 

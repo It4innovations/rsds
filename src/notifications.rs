@@ -133,7 +133,7 @@ impl Notifications {
                 let message = rmp_serde::encode::to_vec_named(&messages).unwrap();
                 frames[0] = rmp_serde::encode::to_vec_named(&descriptor).unwrap().into();
                 let client = core.get_client_by_id_or_panic(client_id);
-                client.send_dask_message(DaskMessage::new(message.into(), frames));
+                client.send_dask_message(DaskMessage::new(message.into(), frames)).unwrap();
             }
         }
     }

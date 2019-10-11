@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use futures::future::FutureExt;
 use futures::stream::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -264,7 +263,7 @@ impl Core {
                     client.send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
                         key: task.key.clone(),
                         r#type: task.data_info().unwrap().r#type.clone(),
-                    }));
+                    })).unwrap();
                 }
                 None => {
                     panic!("Task id={} finished for a dropped client={}", task.id, client_id);
