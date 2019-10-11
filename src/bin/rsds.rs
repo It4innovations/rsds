@@ -29,7 +29,7 @@ async fn main() -> rsds::Result<()> {
 
     log::info!("rsds v0.0 started");
 
-    let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), opt.port);
+    let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), opt.port);
     log::info!("listening on port {}", address);
     let listener = TcpListener::bind(address).await?;
 
