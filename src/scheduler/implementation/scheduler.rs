@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::schedproto::*;
+use crate::scheduler::{ToSchedulerMessage, FromSchedulerMessage};
+use crate::scheduler::schedproto::{WorkerId, TaskAssignment, SchedulerRegistration};
+use crate::scheduler::interface::SchedulerComm;
+use futures::StreamExt;
 
 pub struct Worker {
     pub id: WorkerId,
@@ -10,20 +13,41 @@ pub struct Worker {
     pub free_cpus: i32,
 }
 
-pub struct State {
+pub struct Scheduler {
     network_bandwidth: f32,
     workers: HashMap<WorkerId, Worker>,
+    //tasks: HashMap<TaskId, TaskRef>,
 
     _tmp_hack: Vec<WorkerId>,
 }
 
-impl State {
+impl Scheduler {
     pub fn new() -> Self {
-        State {
+        Scheduler {
             workers: Default::default(),
+            //tasks: Default::default(),
             network_bandwidth: 100.0, // Guess better default
             _tmp_hack: Vec::new(),
         }
+    }
+
+    pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
+            log::debug!("Scheduler initialized");
+
+            comm.send
+                .try_send(FromSchedulerMessage::Register(SchedulerRegistration {
+                    protocol_version: 0,
+                    scheduler_name: "test_scheduler".into(),
+                    scheduler_version: "0.0".into(),
+                    reassigning: false,
+                }))
+                .expect("Send failed");
+
+            while let Some(msgs) = comm.recv.next().await {
+                self.update(msgs, &mut comm.send);
+            }
+            log::debug!("Scheduler closed");
+            Ok(())
     }
 
     pub fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut UnboundedSender<FromSchedulerMessage>) {

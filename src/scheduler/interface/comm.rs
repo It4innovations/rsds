@@ -1,12 +1,6 @@
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-pub use basic::BasicScheduler;
-pub use remote::RemoteScheduler;
-
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-
-mod basic;
-mod remote;
 
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {

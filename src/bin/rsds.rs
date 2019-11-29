@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 use tokio::runtime::current_thread;
 
 use rsds::prelude::*;
-use rsds::scheduler::prepare_scheduler_comm;
+use rsds::scheduler::interface::prepare_scheduler_comm;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -35,9 +35,8 @@ async fn main() -> rsds::Result<()> {
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
-    let scheduler = rsds::scheduler::BasicScheduler;
-
     thread::spawn(move || {
+        let scheduler = rsds::scheduler::implementation::Scheduler::new();
         let mut runtime = current_thread::Runtime::new().expect("Runtime creation failed");
         runtime
             .block_on(scheduler.start(comm))

@@ -2,7 +2,8 @@ use futures::{FutureExt, SinkExt, StreamExt};
 use tokio::codec::{Framed, LengthDelimitedCodec};
 use tokio::net::TcpStream;
 
-use crate::scheduler::{FromSchedulerMessage, SchedulerComm};
+use crate::scheduler::{FromSchedulerMessage};
+use crate::scheduler::interface::SchedulerComm;
 
 pub struct RemoteScheduler;
 
