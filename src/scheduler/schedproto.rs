@@ -6,11 +6,13 @@ pub type TaskId = u64;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerInfo {
     pub id: WorkerId,
-    pub ncpus: u32,
+    pub n_cpus: u32,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum TaskUpdateType {
+    Finished,
+    // Task was computed on a worker
     Placed,
     // Task data are available on worker
     Removed,
@@ -30,6 +32,7 @@ pub struct TaskUpdate {
     pub id: TaskId,
     pub state: TaskUpdateType,
     pub worker: WorkerId,
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

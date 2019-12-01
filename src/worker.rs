@@ -35,7 +35,7 @@ impl Worker {
     pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
         crate::scheduler::schedproto::WorkerInfo {
             id: self.id,
-            ncpus: self.ncpus,
+            n_cpus: self.ncpus,
         }
     }
 
@@ -130,7 +130,6 @@ pub async fn start_worker(
                     assert!(msg.status == Status::Ok); // TODO: handle other cases ??
                     let mut core = core_ref.get_mut();
                     core.on_task_finished(&worker_ref, msg, &mut notifications);
-                    // TODO: Inform scheduler
                 }
                 FromWorkerMessage::AddKeys(msg) => {
                     let mut core = core_ref.get_mut();

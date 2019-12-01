@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use futures::future;
 use futures::future::FutureExt;
@@ -145,6 +145,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
 
     let mut new_task_ids: HashMap<String, TaskId> = Default::default();
 
+    let lowest_id = core.new_task_id();
     for task_key in update.tasks.keys() {
         new_task_ids.insert(task_key.clone(), core.new_task_id());
     }
@@ -154,8 +155,6 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         update.tasks.len(),
         client_id
     );
-
-    let mut notifications = Notifications::new();
 
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
@@ -176,18 +175,44 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         log::debug!("New task id={}, key={}", task_id, task_key);
         let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
-        new_tasks.push(task_ref.clone());
-        core.add_task(task_ref, &mut notifications);
+        core.add_task(task_ref.clone());
+        new_tasks.push(task_ref);
     }
 
-    notifications.send(&mut core);
-
-    for task_ref in new_tasks {
-        for task_id in &task_ref.get().dependencies {
+    for task_ref in &new_tasks {
+        let task = task_ref.get();
+        for task_id in &task.dependencies {
             let tr = core.get_task_by_id_or_panic(*task_id);
             tr.get_mut().consumers.insert(task_ref.clone());
         }
     }
+
+    let mut notifications = Notifications::new();
+
+    /* Send notification in topological ordering of tasks */
+    let mut processed = HashSet::new();
+    let mut stack : Vec<(TaskRef, usize)> = Vec::new();
+    let mut count = new_tasks.len();
+    for task_ref in new_tasks {
+        if task_ref.get().consumers.is_empty() {
+            stack.push((task_ref, 0));
+            while let Some((tr, c)) = stack.pop() {
+                let ii = { let task = tr.get(); task.dependencies.get(c).map(|x| *x) };
+                if let Some(inp) = ii {
+                    stack.push((tr, c + 1));
+                    if inp > lowest_id && !processed.contains(&inp) {
+                        processed.insert(inp);
+                        stack.push((core.get_task_by_id_or_panic(inp).clone(), 0));
+                    }
+                } else {
+                    count -= 1;
+                    notifications.new_task(&tr.get());
+                }
+            }
+        }
+    }
+    assert_eq!(count, 0);
+    notifications.send(&mut core);
 
     let groupped_task_frames = group_aframes(aframes, |key| {
         if key.len() > 3 && Some("tasks") == key[1].as_str() {

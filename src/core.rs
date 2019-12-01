@@ -78,10 +78,9 @@ impl Core {
 
     // ! This function modifies update, but do not triggers, send_update
     // You have to done it manually.
-    pub fn add_task(&mut self, task_ref: TaskRef, notifications: &mut Notifications) {
+    pub fn add_task(&mut self, task_ref: TaskRef) {
         let (task_id, task_key) = {
             let task = task_ref.get();
-            notifications.new_task(&task);
             (task.id, task.key.clone())
         };
         assert!(self.tasks_by_id.insert(task_id, task_ref.clone()).is_none());
@@ -250,6 +249,7 @@ impl Core {
                     }
                 }
             }
+            notifications.task_finished(&worker.get(), &task);
             self.unregister_as_consumer(&task, &task_ref, &mut notifications);
             self.notify_key_in_memory(&task);
             task.check_if_data_cannot_be_removed(notifications);

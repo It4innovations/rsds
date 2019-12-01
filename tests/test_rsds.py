@@ -37,7 +37,6 @@ def error_fn(x):
 def test_submit_gather(rsds_env):
     url = rsds_env.start([1])
     client = Client(url)
-
     f1 = client.submit(comp_fn1, 10)
     f2 = client.submit(comp_fn1, 13)
     r1, r2 = client.gather([f1, f2])

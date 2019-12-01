@@ -56,6 +56,7 @@ impl Notifications {
             state: TaskUpdateType::Removed,
             id: task.id,
             worker: worker_ref.get().id,
+            size: None,
         }));
         self.workers.entry(worker_ref).or_default().delete_keys.push(task.key.to_string());
     }
@@ -65,6 +66,16 @@ impl Notifications {
             state: TaskUpdateType::Placed,
             id: task.id,
             worker: worker.id,
+            size: None,
+        }));
+    }
+
+    pub fn task_finished(&mut self, worker: &Worker, task: &Task) {
+        self.scheduler_messages.push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
+            state: TaskUpdateType::Finished,
+            id: task.id,
+            worker: worker.id,
+            size: Some(task.data_info().unwrap().size),
         }));
     }
 
