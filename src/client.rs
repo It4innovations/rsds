@@ -8,6 +8,7 @@ use futures::stream::TryStreamExt;
 use rmp_serde as rmps;
 use tokio::codec::Framed;
 use tokio::net::TcpStream;
+use rand::seq::SliceRandom;
 
 use crate::daskcodec::{DaskCodec, DaskMessage};
 use crate::messages::aframe::{AdditionalFrame, AfDescriptor, group_aframes, parse_aframes};
@@ -267,10 +268,10 @@ pub async fn gather(core_ref: &CoreRef,
     let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
     {
         let core = core_ref.get();
+        let mut rng = rand::thread_rng();
         for key in &keys {
             let task_ref = core.get_task_by_key_or_panic(key);
-            // TODO: Randomize workers
-            task_ref.get().get_workers().map(|ws| ws.get(0).map(|w| {
+            task_ref.get().get_workers().map(|ws| ws.choose(&mut rng).map(|w| {
                 worker_map.entry(w.clone()).or_default().push(key);
             }));
         }
