@@ -1,6 +1,6 @@
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
-use futures::stream::StreamExt;
+use futures::stream::{FuturesUnordered, StreamExt};
 
 use futures::{future, Sink, Stream};
 
@@ -19,6 +19,7 @@ use crate::common::Map;
 use crate::util::OptionExt;
 use hashbrown::HashSet;
 use rand::seq::SliceRandom;
+use std::iter::FromIterator;
 
 pub type ClientId = u64;
 
@@ -272,15 +273,20 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         }
     }
 
-    let mut result_map: Map<String, SerializedMemory> = Default::default();
-    // TODO: use join to run futures in parallel
-    for (worker, keys) in &worker_map {
-        let data = super::worker::get_data_from_worker(&worker, &keys).await?;
+    let mut result_map: Map<String, SerializedMemory> = Map::with_capacity(keys.len());
+    let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
+        worker_map
+            .iter()
+            .map(|(worker, keys)| super::worker::get_data_from_worker(&worker, &keys)),
+    );
+
+    while let Some(data) = worker_futures.next().await {
+        let data = data?;
         let mut responses: Batch<GetDataResponse> = deserialize_packet(data)?;
         assert_eq!(responses.len(), 1);
 
         let response = responses.pop().ensure();
-        assert_eq!(response.status, "OK".to_owned());
+        assert_eq!(response.status.as_bytes(), b"OK");
         response.data.into_iter().for_each(|(k, v)| {
             debug_assert!(!result_map.contains_key(&k));
             result_map.insert(k, v);
