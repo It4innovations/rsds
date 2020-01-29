@@ -1,17 +1,25 @@
-quick_error! {
-    #[derive(Debug)]
-    pub enum DsError {
-        IOError(err: std::io::Error) {
-            cause(err)
-            description(err.description())
-            from()
-        }
-        SerializationError(err: Box<dyn std::error::Error>) {
-            cause(&**err)
-            description(err.description())
-            from(err: serde_json::error::Error) -> (Box::new(err))
-            from(err: rmp_serde::encode::Error) -> (Box::new(err))
-            from(err: rmp_serde::decode::Error) -> (Box::new(err))
-        }
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum DsError {
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+}
+
+impl From<serde_json::error::Error> for DsError {
+    fn from(e: serde_json::error::Error) -> Self {
+        Self::SerializationError(e.to_string())
+    }
+}
+impl From<rmp_serde::encode::Error> for DsError {
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        Self::SerializationError(e.to_string())
+    }
+}
+impl From<rmp_serde::decode::Error> for DsError {
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        Self::SerializationError(e.to_string())
     }
 }

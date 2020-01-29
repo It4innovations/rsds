@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use crate::scheduler::schedproto::TaskId;
+use crate::common::Map;
 use crate::scheduler::implementation::task::TaskRef;
+use crate::scheduler::schedproto::TaskId;
 
-pub fn compute_b_level(tasks: &HashMap<TaskId, TaskRef>) {
-    let mut n_consumers : HashMap<TaskRef, u32> = HashMap::new();
-    n_consumers.reserve(tasks.len());
+pub fn compute_b_level(tasks: &Map<TaskId, TaskRef>) {
+    let mut n_consumers: Map<TaskRef, u32> = Map::with_capacity(tasks.len());
     let mut stack: Vec<TaskRef> = Vec::new();
-    for (id, tref) in tasks.iter() {
+    for (_, tref) in tasks.iter() {
         let len = tref.get().consumers.len() as u32;
         if len == 0 {
             //tref.get_mut().b_level = 0.0;
@@ -15,11 +14,7 @@ pub fn compute_b_level(tasks: &HashMap<TaskId, TaskRef>) {
             n_consumers.insert(tref.clone(), len);
         }
     }
-    loop {
-        let tref = match stack.pop() {
-            Some(tref) => tref,
-            None => break,
-        };
+    while let Some(tref) = stack.pop() {
         let mut task = tref.get_mut();
 
         let mut b_level = 0.0f32;
@@ -29,7 +24,7 @@ pub fn compute_b_level(tasks: &HashMap<TaskId, TaskRef>) {
         task.b_level = b_level + 1.0f32;
 
         for inp in &task.inputs {
-            let v : &mut u32 = n_consumers.get_mut(&inp).unwrap();
+            let v: &mut u32 = n_consumers.get_mut(&inp).unwrap();
             if *v <= 1 {
                 assert_eq!(*v, 1);
                 stack.push(inp.clone());

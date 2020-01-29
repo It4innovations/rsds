@@ -7,7 +7,7 @@ client = Client("tcp://localhost:8786")
 
 
 with timer("Init"):
-    df = dask.datasets.timeseries(start="2019-01-01", end="2020-01-31")
+    df = dask.datasets.timeseries(start="2020-01-30", end="2020-01-31")
     print(len(df))
 
 with timer("Groupby"):

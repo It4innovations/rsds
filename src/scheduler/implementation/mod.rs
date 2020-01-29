@@ -1,7 +1,6 @@
-
 mod scheduler;
 mod task;
-mod worker;
 mod utils;
+mod worker;
 
 pub use scheduler::Scheduler;

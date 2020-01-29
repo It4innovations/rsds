@@ -1,3 +1,9 @@
+use crate::common::Map;
+use crate::protocol::protocol::{
+    Frames, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport,
+    ToDaskTransport,
+};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 /*
@@ -68,22 +74,40 @@ b"\x82\xa6status\xa2OK\xa4data\x80"
 
 */
 
+fn binary_is_empty(transport: &SerializedTransport) -> bool {
+    match transport {
+        SerializedTransport::Indexed { .. } => false,
+        SerializedTransport::Inline(v) => match v {
+            rmpv::Value::Binary(v) => v.is_empty(),
+            _ => false,
+        },
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct ComputeTaskMsg {
     pub key: String,
     pub duration: f32, // estimated duration, [in seconds?]
 
-    #[serde(with = "serde_bytes")]
-    pub function: Vec<u8>,
-
-    #[serde(with = "serde_bytes")]
-    pub args: Vec<u8>,
-
     #[serde(with = "tuple_vec_map")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub who_has: Vec<(String, Vec<String>)>,
 
     #[serde(with = "tuple_vec_map")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub nbytes: Vec<(String, u64)>,
+
+    #[serde(skip_serializing_if = "binary_is_empty")]
+    pub function: SerializedTransport,
+
+    #[serde(skip_serializing_if = "binary_is_empty")]
+    pub args: SerializedTransport,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kwargs: Option<SerializedTransport>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<SerializedTransport>,
 }
 
 #[derive(Serialize, Debug)]
@@ -94,7 +118,7 @@ pub struct DeleteDataMsg {
 
 #[derive(Serialize, Debug)]
 pub struct GetDataMsg<'a> {
-    pub keys: &'a Vec<&'a str>,
+    pub keys: &'a [&'a str],
     pub who: Option<u64>,
     // ?
     pub max_connections: bool,
@@ -112,10 +136,11 @@ pub enum ToWorkerMessage<'a> {
     GetData(GetDataMsg<'a>),
 }
 
+#[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct HeartbeatResponse {
-    pub status: &'static str,
+    pub status: String,
     pub time: f64,
     pub heartbeat_interval: f64,
     pub worker_plugins: Vec<()>, // type of plugins??
@@ -130,6 +155,7 @@ pub enum Status {
     Error,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub status: Status,
@@ -140,13 +166,17 @@ pub struct TaskFinishedMsg {
     pub r#type: Vec<u8>,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
-pub struct TaskErredMsg {
+pub struct TaskErredMsg<T = SerializedMemory> {
     pub status: Status,
     pub key: String,
     pub thread: u64,
+    pub exception: T,
+    pub traceback: T,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct AddKeysMsg {
     pub keys: Vec<String>,
@@ -160,24 +190,73 @@ pub struct RemoveKeysMsg {
     #[serde(rename = "remove_keys")]
     RemoveKeys(RemoveKeysMsg),*/
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum FromWorkerMessage {
+pub enum FromWorkerMessage<T = SerializedMemory> {
     TaskFinished(TaskFinishedMsg),
-    TaskErred(TaskErredMsg),
+    TaskErred(TaskErredMsg<T>),
     AddKeys(AddKeysMsg),
     KeepAlive,
+    Unregister,
+}
+
+impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
+    type Transport = FromWorkerMessage<SerializedTransport>;
+
+    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+        match source {
+            Self::Transport::TaskFinished(msg) => Self::TaskFinished(msg),
+            Self::Transport::TaskErred(msg) => Self::TaskErred(TaskErredMsg {
+                status: msg.status,
+                key: msg.key,
+                thread: msg.thread,
+                exception: msg.exception.to_memory(frames),
+                traceback: msg.traceback.to_memory(frames),
+            }),
+            Self::Transport::AddKeys(msg) => Self::AddKeys(msg),
+            Self::Transport::KeepAlive => Self::KeepAlive,
+            Self::Transport::Unregister => Self::Unregister,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
 pub struct Empty;
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct GetDataResponse {
+pub struct GetDataResponse<T = SerializedMemory> {
     pub status: String, // TODO: Migrate to enum Status
+    pub data: Map<String, T>,
+}
 
-    #[serde(with = "tuple_vec_map")]
-    pub data: Vec<((), ())>, // This should be empty, but we need to create entry when sending
-    // otherwise Python client fails
+impl FromDaskTransport for GetDataResponse<SerializedMemory> {
+    type Transport = GetDataResponse<SerializedTransport>;
+
+    fn to_memory(source: Self::Transport, frames: &mut Vec<Bytes>) -> Self {
+        GetDataResponse {
+            status: source.status,
+            data: source
+                .data
+                .into_iter()
+                .map(|(k, v)| (k, v.to_memory(frames)))
+                .collect(),
+        }
+    }
+}
+impl ToDaskTransport for GetDataResponse<SerializedMemory> {
+    type Transport = GetDataResponse<SerializedTransport>;
+
+    fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
+        let msg = GetDataResponse {
+            status: self.status,
+            data: self
+                .data
+                .into_iter()
+                .map(|(k, v)| (k, v.to_transport(message_builder)))
+                .collect(),
+        };
+        message_builder.add_message(msg);
+    }
 }

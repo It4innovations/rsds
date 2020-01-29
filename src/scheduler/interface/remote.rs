@@ -1,14 +1,10 @@
-use futures::{FutureExt, SinkExt, StreamExt};
-use tokio::codec::{Framed, LengthDelimitedCodec};
-use tokio::net::TcpStream;
-
-use crate::scheduler::{FromSchedulerMessage};
 use crate::scheduler::interface::SchedulerComm;
 
 pub struct RemoteScheduler;
 
 impl RemoteScheduler {
-    pub async fn start(self, comm: SchedulerComm, address: &str) -> crate::Result<()> {
+    pub async fn start(self, _comm: SchedulerComm, _address: &str) -> crate::Result<()> {
+        /*TODO
         let conn = TcpStream::connect(address).await?;
         let conn = Framed::new(conn, LengthDelimitedCodec::new());
         let (mut tx, mut rx) = conn.split();
@@ -38,6 +34,7 @@ impl RemoteScheduler {
         futures::future::select(receiver, sender)
             .await
             .factor_first()
-            .0
+            .0*/
+        Ok(())
     }
 }

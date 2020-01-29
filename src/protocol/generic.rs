@@ -1,22 +1,28 @@
+use crate::scheduler::schedproto::WorkerId;
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct IdentityMsg {
     //pub reply: bool,
 }
 
+#[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 pub struct IdentityResponse {
     #[serde(rename = "type")]
-    pub i_type: &'static str,
+    pub r#type: String,
     pub id: String,
+    pub workers: Vec<WorkerId>,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct RegisterClientMsg {
     pub client: String,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
     pub address: String,
@@ -25,6 +31,7 @@ pub struct RegisterWorkerMsg {
     pub nanny: String,*/
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct HeartbeatWorkerMsg {
@@ -32,12 +39,14 @@ pub struct HeartbeatWorkerMsg {
     // TODO
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct GatherMsg {
-    pub keys: Vec<String>
+    pub keys: Vec<String>,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
@@ -50,23 +59,8 @@ pub enum GenericMessage {
     Gather(GatherMsg),
 }
 
+#[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 pub struct SimpleMessage {
-    pub op: &'static str,
+    pub op: String,
 }
-
-/*#[derive(Serialize, Debug)]
-#[serde(tag = "op")]
-#[serde(rename_all = "kebab-case")]
-pub enum GenericResponse {
-    StreamStart(EmptyStruct),
-    StreamStart2(EmptyStruct),
-}*/
-
-/*
-#[derive(Serialize, Deserialize, Debug)]
-pub struct AdditionalFrameHeaders {
-    #[serde(with = "tuple_vec_map")]
-    headers: Vec<(Value, Value)>,
-    keys: Vec<Value>,
-}*/

@@ -1,3 +1,5 @@
+import sys
+
 from dask import delayed
 from dask.distributed import Client
 from utils import timer
@@ -16,6 +18,6 @@ def merge(*args):
 
 
 with timer("Merge"):
-    xs = [do_something(x) for x in range(20000)]
+    xs = [do_something(x) for x in range(int(sys.argv[1]))]
     result = merge(*xs)
     print(result.compute())

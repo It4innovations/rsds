@@ -2,15 +2,16 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
+use crate::client::ClientId;
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
-use crate::messages::aframe::{AdditionalFrame, AfHeader, MessageBuilder};
-use crate::messages::clientmsg::TaskSpec;
-use crate::messages::workermsg::ComputeTaskMsg;
-use crate::messages::workermsg::ToWorkerMessage;
 use crate::notifications::Notifications;
-use crate::prelude::*;
+use crate::protocol::clientmsg::ClientTaskSpec;
+use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
+
+use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::schedproto::TaskId;
+use crate::worker::WorkerRef;
 
 pub type TaskKey = String;
 
@@ -38,7 +39,8 @@ impl fmt::Debug for TaskRuntimeState {
 }
 
 pub struct ErrorInfo {
-    pub frames: Vec<AdditionalFrame>,
+    pub exception: SerializedMemory,
+    pub traceback: SerializedMemory,
 }
 
 #[derive(Debug)]
@@ -47,7 +49,7 @@ pub struct DataInfo {
     pub r#type: Vec<u8>,
 }
 
-
+#[derive(Debug)]
 pub struct Task {
     pub id: TaskId,
     pub state: TaskRuntimeState,
@@ -57,10 +59,7 @@ pub struct Task {
     pub key: TaskKey,
     pub dependencies: Vec<TaskId>,
 
-    pub function_data: Vec<u8>,
-    pub args_data: Vec<u8>,
-    pub args_header: Option<AfHeader>,
-
+    pub spec: ClientTaskSpec,
     subscribed_clients: Vec<ClientId>,
 }
 
@@ -79,7 +78,10 @@ impl Task {
     }
 
     pub fn unsubscribe_client(&mut self, client_id: ClientId) {
-        self.subscribed_clients.iter().position(|x| *x == client_id).map(|i| self.subscribed_clients.remove(i));
+        self.subscribed_clients
+            .iter()
+            .position(|x| *x == client_id)
+            .map(|i| self.subscribed_clients.remove(i));
     }
 
     pub fn subscribed_clients(&self) -> &Vec<ClientId> {
@@ -93,27 +95,32 @@ impl Task {
         }
     }
 
-    pub fn check_if_data_cannot_be_removed(&mut self, notifications: &mut Notifications) {
+    pub fn check_if_data_cannot_be_removed(&mut self, notifications: &mut Notifications) -> bool {
         if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
-
             // Hack for changing Finished -> Released while moving DataInfo
             let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
                 TaskRuntimeState::Finished(data_info, ws) => {
                     self.state = TaskRuntimeState::Released(data_info);
                     ws
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             };
 
             for worker_ref in ws {
-                log::debug!("Task id={} is no longer needed, deleting from worker={}", self.id, worker_ref.get().id);
+                log::debug!(
+                    "Task id={} is no longer needed, deleting from worker={}",
+                    self.id,
+                    worker_ref.get().id
+                );
                 notifications.delete_key_from_worker(worker_ref, &self);
             }
+            true
+        } else {
+            false
         }
     }
 
-    pub fn collect_consumers(&self) -> HashSet<TaskRef>
-    {
+    pub fn collect_consumers(&self) -> HashSet<TaskRef> {
         let mut stack: Vec<_> = self.consumers.iter().cloned().collect();
         let mut result: HashSet<TaskRef> = stack.iter().cloned().collect();
 
@@ -130,7 +137,11 @@ impl Task {
         result
     }
 
-    pub fn make_compute_task_msg(&self, core: &Core, mbuilder: &mut MessageBuilder<ToWorkerMessage>) {
+    pub fn make_compute_task_msg(
+        &self,
+        core: &Core,
+        mbuilder: &mut MessageBuilder<ToWorkerMessage>,
+    ) {
         let task_refs: Vec<_> = self
             .dependencies
             .iter()
@@ -140,7 +151,12 @@ impl Task {
             .iter()
             .map(|task_ref| {
                 let task = task_ref.get();
-                let addresses = task.get_workers().unwrap().iter().map(|w| w.get().listen_address.clone()).collect();
+                let addresses: Vec<String> = task
+                    .get_workers()
+                    .unwrap()
+                    .iter()
+                    .map(|w| w.get().listen_address.clone())
+                    .collect();
                 (task.key.clone(), addresses)
             })
             .collect();
@@ -153,14 +169,37 @@ impl Task {
             })
             .collect();
 
-        mbuilder.add_message(ToWorkerMessage::ComputeTask(ComputeTaskMsg {
+        let mut msg_function = SerializedTransport::Inline(rmpv::Value::Binary(vec![]));
+        let mut msg_args = SerializedTransport::Inline(rmpv::Value::Binary(vec![]));
+        let mut msg_kwargs = None;
+        let mut msg_task = None;
+
+        match &self.spec {
+            ClientTaskSpec::Direct {
+                function,
+                args,
+                kwargs,
+            } => {
+                msg_function = function.to_transport(mbuilder);
+                msg_args = args.to_transport(mbuilder);
+                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport(mbuilder));
+            }
+            ClientTaskSpec::Serialized(v) => {
+                msg_task = Some(v.to_transport(mbuilder));
+            }
+        }
+
+        let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
-            function: self.function_data.clone(),
-            args: self.args_data.clone(),
             duration: 0.5, // TODO
             who_has,
             nbytes,
-        }));
+            task: msg_task,
+            function: msg_function,
+            kwargs: msg_kwargs,
+            args: msg_args,
+        });
+        mbuilder.add_message(msg);
     }
 
     #[inline]
@@ -225,7 +264,7 @@ impl TaskRef {
     pub fn new(
         id: TaskId,
         key: String,
-        spec: TaskSpec,
+        spec: ClientTaskSpec,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
     ) -> Self {
@@ -234,9 +273,7 @@ impl TaskRef {
             key,
             dependencies,
             unfinished_inputs,
-            function_data: spec.function,
-            args_data: spec.args,
-            args_header: None,
+            spec,
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
             subscribed_clients: Default::default(),

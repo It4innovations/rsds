@@ -15,7 +15,7 @@ use std::rc::Rc;
 /// Note that you can add methods to the wrapper with
 /// `impl WrappedRcRefCell<MyType> { fn foo(&self) {} }`
 /// or even `type WrapType = WrappedRcRefCell<MyType>; impl WrapType { ... }`.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct WrappedRcRefCell<T> {
     inner: Rc<RefCell<T>>,
 }

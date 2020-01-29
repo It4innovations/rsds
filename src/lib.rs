@@ -1,19 +1,20 @@
-#[macro_use]
-extern crate quick_error;
-
 pub use crate::error::DsError;
+
+#[macro_use]
+pub mod protocol;
 
 mod client;
 mod common;
 pub mod connection;
-mod core;
-mod daskcodec;
+pub mod core;
 mod error;
-mod messages;
-pub mod prelude;
+mod notifications;
 pub mod scheduler;
 mod task;
+mod util;
 mod worker;
-mod notifications;
+
+#[cfg(test)]
+mod test_util;
 
 pub type Result<T> = std::result::Result<T, DsError>;

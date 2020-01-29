@@ -1,41 +1,43 @@
-use std::collections::{HashMap, HashSet};
-
-use futures::future;
 use futures::future::FutureExt;
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
-use futures::stream::TryStreamExt;
-use rmp_serde as rmps;
-use tokio::codec::Framed;
-use tokio::net::TcpStream;
-use rand::seq::SliceRandom;
 
-use crate::daskcodec::{DaskCodec, DaskMessage};
-use crate::messages::aframe::{AdditionalFrame, AfDescriptor, group_aframes, parse_aframes};
-use crate::messages::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
-use crate::messages::workermsg::{GetDataResponse};
+use futures::{future, Sink, Stream};
+
+use crate::core::CoreRef;
 use crate::notifications::Notifications;
-use crate::prelude::*;
+use crate::protocol::clientmsg::{FromClientMessage, ToClientMessage, UpdateGraphMsg};
+use crate::protocol::protocol::{
+    deserialize_packet, serialize_single_packet, Batch, DaskPacket, SerializedMemory,
+};
+use crate::protocol::workermsg::GetDataResponse;
+use crate::scheduler::schedproto::TaskId;
+use crate::task::TaskRef;
+use crate::worker::WorkerRef;
+
+use crate::common::Map;
+use crate::util::OptionExt;
+use hashbrown::HashSet;
+use rand::seq::SliceRandom;
 
 pub type ClientId = u64;
 
 pub struct Client {
     id: ClientId,
     key: String,
-    sender: tokio::sync::mpsc::UnboundedSender<DaskMessage>,
+    sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
 }
 
 impl Client {
     pub fn send_message(&mut self, message: ToClientMessage) -> crate::Result<()> {
-        let data = rmp_serde::encode::to_vec_named(&message).unwrap();
-        self.send_dask_message(data.into())
+        log::debug!("Client send message {:?}", message);
+        self.send_dask_message(serialize_single_packet(message)?)
     }
 
-    pub fn send_dask_message(&mut self, dask_message: DaskMessage) -> crate::Result<()> {
-        self.sender.try_send(dask_message).unwrap(); // TODO: bail!("Send to client XXX failed")
+    pub fn send_dask_message(&mut self, packet: DaskPacket) -> crate::Result<()> {
+        self.sender.send(packet).expect("Send to client failed");
         Ok(())
     }
-
 
     #[inline]
     pub fn id(&self) -> ClientId {
@@ -48,16 +50,20 @@ impl Client {
     }
 }
 
-pub async fn start_client(
+pub async fn start_client<
+    Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
+    Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
+>(
     core_ref: &CoreRef,
     address: std::net::SocketAddr,
-    framed: Framed<TcpStream, DaskCodec>,
+    mut receiver: Reader,
+    mut sender: Writer,
     client_key: String,
 ) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
-    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskMessage>();
+    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
     let client_id = {
         let mut core = core_ref.get_mut();
@@ -71,46 +77,44 @@ pub async fn start_client(
         client_id
     };
 
-    log::info!("New client registered as {} from {}", client_id, address);
+    log::info!("Client {} registered from {}", client_id, address);
 
-    let (mut sender, receiver) = framed.split();
     let snd_loop = async move {
         while let Some(data) = snd_receiver.next().await {
             if let Err(e) = sender.send(data).await {
-                log::error!("Send to worker failed");
                 return Err(e);
             }
         }
         Ok(())
-    }
-        .boxed_local();
+    };
 
-    let recv_loop = receiver.try_for_each(move |data| {
-        let msgs: Result<Vec<FromClientMessage>, _> = rmps::from_read(std::io::Cursor::new(&data.message));
-
-        if let Err(e) = msgs {
-            dbg!(data);
-            panic!("Invalid message from client ({}): {}", client_id, e);
-        }
-
-        let mut aframes = parse_aframes(data.additional_frames);
-
-        for (i, msg) in msgs.unwrap().into_iter().enumerate() {
-            match msg {
-                FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
-                FromClientMessage::ClientReleasesKeys(msg) => {
-                    release_keys(&core_ref, msg.client, msg.keys);
+    let recv_loop = async move {
+        'outer: while let Some(messages) = receiver.next().await {
+            let messages = messages?;
+            for message in messages {
+                log::debug!("Client recv message {:?}", message);
+                match message {
+                    FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
+                    FromClientMessage::ClientReleasesKeys(msg) => {
+                        release_keys(&core_ref, msg.client, msg.keys);
+                    }
+                    FromClientMessage::UpdateGraph(update) => {
+                        update_graph(&core_ref, client_id, update);
+                    }
+                    FromClientMessage::CloseClient => {
+                        log::debug!("CloseClient message received");
+                        break 'outer;
+                    }
+                    _ => {
+                        log::warn!("Unhandled client message: {:?}", message);
+                    }
                 }
-                FromClientMessage::UpdateGraph(update) => {
-                    update_graph(&core_ref, client_id, update, aframes.remove(&(i as u64)).unwrap_or_else(Vec::new));
-                }
-                _ => {}
             }
         }
-        future::ready(Ok(()))
-    });
+        Ok(())
+    };
 
-    let result = future::select(recv_loop, snd_loop).await;
+    let result = future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
     if let Err(e) = result.factor_first().0 {
         log::error!(
             "Error in client connection (id={}, connection={}): {}",
@@ -129,10 +133,9 @@ pub async fn start_client(
     Ok(())
 }
 
-pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg, aframes: Vec<AdditionalFrame>) {
+pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraphMsg) {
     log::debug!("Updating graph from client {}", client_id);
 
-    /* Validate dependencies */
     /*for vals in update.dependencies.values() {
         for key in vals {
             if !update.tasks.contains_key(key) {
@@ -144,7 +147,7 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
-    let mut new_task_ids: HashMap<String, TaskId> = Default::default();
+    let mut new_task_ids: Map<String, TaskId> = Default::default();
 
     let lowest_id = core.new_task_id();
     for task_key in update.tasks.keys() {
@@ -160,10 +163,14 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
-            let mut inputs: Vec<_> = deps.iter()
-                .map(|key| new_task_ids.get(key).map(|v| *v).unwrap_or_else(|| {
-                    core.get_task_by_key_or_panic(key).get().id
-                }))
+            let mut inputs: Vec<_> = deps
+                .iter()
+                .map(|key| {
+                    new_task_ids
+                        .get(key)
+                        .copied()
+                        .unwrap_or_else(|| core.get_task_by_key_or_panic(key).get().id)
+                })
                 .collect();
             inputs.sort();
             inputs.dedup();
@@ -188,17 +195,20 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         }
     }
 
-    let mut notifications = Notifications::new();
+    let mut notifications = Notifications::default();
 
     /* Send notification in topological ordering of tasks */
     let mut processed = HashSet::new();
-    let mut stack : Vec<(TaskRef, usize)> = Vec::new();
+    let mut stack: Vec<(TaskRef, usize)> = Vec::new();
     let mut count = new_tasks.len();
     for task_ref in new_tasks {
         if task_ref.get().consumers.is_empty() {
             stack.push((task_ref, 0));
             while let Some((tr, c)) = stack.pop() {
-                let ii = { let task = tr.get(); task.dependencies.get(c).map(|x| *x) };
+                let ii = {
+                    let task = tr.get();
+                    task.dependencies.get(c).copied()
+                };
                 if let Some(inp) = ii {
                     stack.push((tr, c + 1));
                     if inp > lowest_id && !processed.contains(&inp) {
@@ -213,105 +223,76 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         }
     }
     assert_eq!(count, 0);
-    notifications.send(&mut core);
-
-    let groupped_task_frames = group_aframes(aframes, |key| {
-        if key.len() > 3 && Some("tasks") == key[1].as_str() {
-            key[2].as_str().map(|s| s.to_string())
-        } else {
-            None
-        }
-    });
-
-    for (task_key, aframes) in groupped_task_frames {
-        let task_ref = core.get_task_by_key_or_panic(&task_key);
-        let mut task = task_ref.get_mut();
-        for AdditionalFrame { data, header, key } in aframes {
-            match key.get(3).and_then(|x| x.as_str()) {
-                Some("args") => {
-                    task.args_data = data;
-                    task.args_header = Some(header);
-                }
-                x => { panic!("Invalid key part {:?}", x) }
-            };
-        }
-    }
+    notifications
+        .send(&mut core)
+        .expect("Couldn't send notifications");
 
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
         task.subscribe_client(client_id);
     }
-
-    //core.send_scheduler_update(false);
 }
 
 fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<String>) {
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
-    let tasks = task_keys.into_iter().map(|key| core.get_task_by_key_or_panic(&key));
-    let mut notifications = Notifications::new();
-    for task_ref in tasks {
+    let mut notifications = Notifications::default();
+    for key in task_keys {
+        let task_ref = core.get_task_by_key_or_panic(&key).clone();
         let mut task = task_ref.get_mut();
+
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
-        task.check_if_data_cannot_be_removed(&mut notifications);
+
+        if task.check_if_data_cannot_be_removed(&mut notifications) {
+            core.remove_task(&task); // TODO: recursively remove dependencies
+        }
     }
-    notifications.send(&mut core);
+    notifications.send(&mut core).unwrap();
 }
 
-
-pub async fn gather(core_ref: &CoreRef,
-                    address: std::net::SocketAddr,
-                    framed: &mut Framed<TcpStream, DaskCodec>,
-                    keys: Vec<String>) -> crate::Result<()> {
-    let mut worker_map: HashMap<WorkerRef, Vec<&str>> = Default::default();
+pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+    core_ref: &CoreRef,
+    address: std::net::SocketAddr,
+    sink: &mut W,
+    keys: Vec<String>,
+) -> crate::Result<()> {
+    let mut worker_map: Map<WorkerRef, Vec<&str>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
         for key in &keys {
             let task_ref = core.get_task_by_key_or_panic(key);
-            task_ref.get().get_workers().map(|ws| ws.choose(&mut rng).map(|w| {
-                worker_map.entry(w.clone()).or_default().push(key);
-            }));
+            task_ref.get().get_workers().map(|ws| {
+                ws.choose(&mut rng).map(|w| {
+                    worker_map.entry(w.clone()).or_default().push(key);
+                })
+            });
         }
     }
-    let mut descriptors = Vec::new();
-    let mut frames = vec![Default::default()];
 
+    let mut result_map: Map<String, SerializedMemory> = Default::default();
     // TODO: use join to run futures in parallel
     for (worker, keys) in &worker_map {
         let data = super::worker::get_data_from_worker(&worker, &keys).await?;
-        let _response: GetDataResponse = rmp_serde::from_slice(&data.message).unwrap_or_else(|e| {
-            dbg!(&data.message);
-            panic!("Get data response error {:?}", e);
-        });
-        //assert_eq!(response.status, Status::Ok);
-        // TODO: Error when additional frames are empty
-        let descriptor: AfDescriptor = rmps::from_slice(&data.additional_frames[0]).unwrap_or_else(|e| {
-            dbg!(&data.additional_frames[0]);
-            panic!("Get data response af descriptor error {:?}", e);
-        });
-        descriptors.push(descriptor);
-        frames.extend_from_slice(&data.additional_frames[1..]);
-    }
+        let mut responses: Batch<GetDataResponse> = deserialize_packet(data)?;
+        assert_eq!(responses.len(), 1);
 
-    let mut descriptor: AfDescriptor = Default::default();
-    for d in descriptors {
-        descriptor.headers.extend(d.headers);
-        descriptor.keys.extend(d.keys);
+        let response = responses.pop().ensure();
+        assert_eq!(response.status, "OK".to_owned());
+        response.data.into_iter().for_each(|(k, v)| {
+            debug_assert!(!result_map.contains_key(&k));
+            result_map.insert(k, v);
+        });
     }
-    frames[0] = rmps::to_vec_named(&descriptor)?.into();
-
-    let message = rmps::to_vec_named(&GetDataResponse {
-        status: "OK".into(), // Status::Ok,
-        data: Default::default(),
-    })?.into();
 
     log::debug!("Sending gathered data {}", address);
 
-    framed.send(DaskMessage {
-        message,
-        additional_frames: frames,
-    }).await
+    let msg = GetDataResponse {
+        status: "OK".to_owned(),
+        data: result_map,
+    };
+    sink.send(serialize_single_packet(msg)?).await?;
+    Ok(())
 }

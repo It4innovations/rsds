@@ -18,7 +18,7 @@ pub enum TaskUpdateType {
     Removed,
     // Task data are no available on worker (or running state is cancelled)
     Discard, // Task is removed from system, do not schedule it
-    // & it is no longer available on on any worker
+             // & it is no longer available on on any worker
 }
 
 #[derive(Debug, Serialize, Deserialize)]

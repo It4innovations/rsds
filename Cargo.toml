@@ -5,20 +5,32 @@ authors = ["Stanislav Bohm <spirali@kreatrix.org>"]
 edition = "2018"
 
 [dependencies]
-futures-preview = "=0.3.0-alpha.18"
-tokio = "0.2.0-alpha.1"
-bytes = "0.4"
+futures = "0.3"
+tokio = { version= "0.2.9", features = ["full"] }
+tokio-util = { version = "0.2", features = ["codec"] }
+bytes = "0.5"
 byteorder = "1.3"
-smallvec = "0.6"
+smallvec = { version = "1.0", features = ["serde"] }
 rmp-serde = "0.13.7"
-#rmpv = "*"
+rmpv = { version = "0.4", features = ["with-serde"] }
 log = "0.4"
 pretty_env_logger="0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
 serde-tuple-vec-map = "0.2"
 serde_json = "1.0"
-quick-error = "1.2"
+thiserror = "1"
 rand = "0.7.0"
 structopt = "0.3"
 jemallocator = "0.3.2"
+async-stream = "0.2"
+hashbrown = { version = "0.6", features = ["serde"] }
+
+[dev-dependencies]
+maplit = "1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+debug = false

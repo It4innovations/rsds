@@ -1,6 +1,6 @@
-use crate::scheduler::schedproto::{WorkerId, WorkerInfo, TaskId};
-use std::collections::HashSet;
 use crate::scheduler::implementation::task::TaskRef;
+use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
+use std::collections::HashSet;
 
 pub struct Worker {
     pub id: WorkerId,

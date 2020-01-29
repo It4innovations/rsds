@@ -1,36 +1,32 @@
-use std::collections::{HashMap, HashSet};
-
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::scheduler::{ToSchedulerMessage, FromSchedulerMessage};
-use crate::scheduler::schedproto::{WorkerId, TaskAssignment, SchedulerRegistration, TaskId, TaskUpdateType, TaskUpdate};
-use crate::scheduler::interface::SchedulerComm;
-use futures::{StreamExt, SinkExt, TryStream};
-use crate::scheduler::implementation::task::{TaskRef, Task, SchedulerTaskState};
-use crate::scheduler::implementation::worker::{WorkerRef, Worker};
+use crate::common::{Map, Set};
+use crate::scheduler::implementation::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::implementation::utils::compute_b_level;
-use std::time::{Instant, Duration};
-use tokio::sync::oneshot;
-use tokio::timer::{delay, Delay};
-use futures::{future};
-use rand::seq::SliceRandom;
+use crate::scheduler::implementation::worker::{Worker, WorkerRef};
+use crate::scheduler::interface::SchedulerComm;
+use crate::scheduler::schedproto::{
+    SchedulerRegistration, TaskAssignment, TaskId, TaskUpdate, TaskUpdateType, WorkerId,
+};
+use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+use futures::StreamExt;
 use rand::rngs::ThreadRng;
+use rand::seq::SliceRandom;
 use rand::thread_rng;
-use smallvec::SmallVec;
-
+use std::time::Duration;
 
 pub struct Scheduler {
     network_bandwidth: f32,
-    workers: HashMap<WorkerId, WorkerRef>,
-    tasks: HashMap<TaskId, TaskRef>,
+    workers: Map<WorkerId, WorkerRef>,
+    tasks: Map<TaskId, TaskRef>,
     ready_to_assign: Vec<TaskRef>,
     new_tasks: Vec<TaskRef>,
     rng: ThreadRng,
 }
 
-type Notifications = HashSet<TaskRef>;
+type Notifications = Set<TaskRef>;
 
-const MIN_SCHEDULING_DELAY : Duration = Duration::from_millis(15);
+const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
 
 impl Scheduler {
     pub fn new() -> Self {
@@ -40,59 +36,78 @@ impl Scheduler {
             ready_to_assign: Default::default(),
             new_tasks: Default::default(),
             network_bandwidth: 100.0, // Guess better default
-            rng: thread_rng()
+            rng: thread_rng(),
         }
     }
 
     fn get_task(&self, task_id: TaskId) -> &TaskRef {
-        self.tasks.get(&task_id).unwrap_or_else(|| panic!("Task {} not found", task_id))
+        self.tasks
+            .get(&task_id)
+            .unwrap_or_else(|| panic!("Task {} not found", task_id))
     }
 
     fn get_worker(&self, worker_id: WorkerId) -> &WorkerRef {
-        self.workers.get(&worker_id).unwrap_or_else(|| panic!("Worker {} not found", worker_id))
+        self.workers
+            .get(&worker_id)
+            .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
     }
 
-    pub fn send_notifications(&self, notifications: Notifications, sender: &mut UnboundedSender<FromSchedulerMessage>) {
-        let assignments : Vec<_> = notifications.into_iter().map(|tr| {
-            let task = tr.get();
-            let worker_ref = task.assigned_worker.clone().unwrap();
-            let worker = worker_ref.get();
-            TaskAssignment {
-                task: task.id,
-                worker: worker.id,
-                priority: 0,
-                // TODO derive priority from b-level
-            }
-        }).collect();
-        sender.try_send(FromSchedulerMessage::TaskAssignments(assignments)).expect("Send failed");
+    pub fn send_notifications(
+        &self,
+        notifications: Notifications,
+        sender: &mut UnboundedSender<FromSchedulerMessage>,
+    ) {
+        let assignments: Vec<_> = notifications
+            .into_iter()
+            .map(|tr| {
+                let task = tr.get();
+                let worker_ref = task.assigned_worker.clone().unwrap();
+                let worker = worker_ref.get();
+                TaskAssignment {
+                    task: task.id,
+                    worker: worker.id,
+                    priority: 0,
+                    // TODO derive priority from b-level
+                }
+            })
+            .collect();
+        sender
+            .send(FromSchedulerMessage::TaskAssignments(assignments))
+            .expect("Send failed");
     }
 
     pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
-            log::debug!("Scheduler initialized");
+        log::debug!("Scheduler initialized");
 
-            comm.send
-                .try_send(FromSchedulerMessage::Register(SchedulerRegistration {
-                    protocol_version: 0,
-                    scheduler_name: "test_scheduler".into(),
-                    scheduler_version: "0.0".into(),
-                    reassigning: false,
-                }))
-                .expect("Send failed");
+        comm.send
+            .send(FromSchedulerMessage::Register(SchedulerRegistration {
+                protocol_version: 0,
+                scheduler_name: "test_scheduler".into(),
+                scheduler_version: "0.0".into(),
+                reassigning: false,
+            }))
+            .expect("Scheduler start send failed");
 
-
-            while let Some(msgs) = comm.recv.next().await {
-                /* TODO: Add delay that prevents calling scheduler too often */
-                if self.update(msgs) {
-                    let mut notifications = Notifications::new();
-                    self.schedule(&mut notifications);
-                    self.send_notifications(notifications, &mut comm.send);
-                }
+        while let Some(msgs) = comm.recv.next().await {
+            /* TODO: Add delay that prevents calling scheduler too often */
+            if self.update(msgs) {
+                let mut notifications = Notifications::new();
+                self.schedule(&mut notifications);
+                self.send_notifications(notifications, &mut comm.send);
             }
-            log::debug!("Scheduler closed");
-            Ok(())
+        }
+        log::debug!("Scheduler closed");
+        Ok(())
     }
 
-    fn assign_task_to_worker(&mut self, task: &mut Task, task_ref: TaskRef, worker: &mut Worker, worker_ref: WorkerRef, notifications: &mut Notifications) {
+    fn assign_task_to_worker(
+        &mut self,
+        task: &mut Task,
+        task_ref: TaskRef,
+        worker: &mut Worker,
+        worker_ref: WorkerRef,
+        notifications: &mut Notifications,
+    ) {
         notifications.insert(task_ref.clone());
         if let Some(wr) = &task.assigned_worker {
             assert!(!wr.eq(&worker_ref));
@@ -116,19 +131,25 @@ impl Scheduler {
 
         for tr in std::mem::replace(&mut self.ready_to_assign, Default::default()).into_iter() {
             let mut task = tr.get_mut();
-            let worker_ref = self.choose_worker_for_task(&mut task);
+            let worker_ref = self.choose_worker_for_task(&task);
             let mut worker = worker_ref.get_mut();
             log::debug!("Task {} initially assigned to {}", task.id, worker.id);
             assert!(task.assigned_worker.is_none());
-            self.assign_task_to_worker(&mut task, tr.clone(), &mut worker, worker_ref.clone(), &mut notifications);
+            self.assign_task_to_worker(
+                &mut task,
+                tr.clone(),
+                &mut worker,
+                worker_ref.clone(),
+                &mut notifications,
+            );
         }
 
         let mut balanced_tasks = Vec::new();
-        let has_underload_workers = self.workers.values().filter(|wr| {
+        let has_underload_workers = self.workers.values().any(|wr| {
             let worker = wr.get();
             let len = worker.tasks.len() as u32;
             len < worker.ncpus
-        }).next().is_some();
+        });
 
         if !has_underload_workers {
             return; // Terminate as soon possible when there is nothing to balance
@@ -186,14 +207,25 @@ impl Scheduler {
                         }
                         worker2.id
                     };
-                    log::debug!("Changing assignment of task={} from worker={} to worker={}", task.id, wid, worker.id);
-                    self.assign_task_to_worker(&mut task, tr.clone(), &mut worker, wr.clone(), &mut notifications);
+                    log::debug!(
+                        "Changing assignment of task={} from worker={} to worker={}",
+                        task.id,
+                        wid,
+                        worker.id
+                    );
+                    self.assign_task_to_worker(
+                        &mut task,
+                        tr.clone(),
+                        &mut worker,
+                        wr.clone(),
+                        &mut notifications,
+                    );
                     break;
                 }
                 change = true;
             }
             if !change {
-                break
+                break;
             }
             n_tasks += 1;
         }
@@ -201,7 +233,7 @@ impl Scheduler {
     }
 
     fn task_update(&mut self, tu: TaskUpdate) -> bool {
-        let mut tref = self.get_task(tu.id).clone();
+        let tref = self.get_task(tu.id).clone();
         let mut task = tref.get_mut();
         match tu.state {
             TaskUpdateType::Finished => {
@@ -228,27 +260,31 @@ impl Scheduler {
                 }
                 task.placement.insert(worker);
                 return invoke_scheduling;
-            },
+            }
             TaskUpdateType::Placed => {
                 let worker = self.get_worker(tu.worker).clone();
                 assert!(task.is_finished());
                 task.placement.insert(worker);
-            },
+            }
             TaskUpdateType::Removed => {
                 let worker = self.get_worker(tu.worker);
                 //task.placement.remove(worker);
                 if !task.placement.remove(worker) {
-                    panic!("Worker {} removes task {}, but it was not there.", worker.get().id, task.id);
+                    panic!(
+                        "Worker {} removes task {}, but it was not there.",
+                        worker.get().id,
+                        task.id
+                    );
                 }
                 /*let index = task.placement.iter().position(|x| x == worker).unwrap();
                 task.placement.remove(index);*/
-            },
+            }
             TaskUpdateType::Discard => {
                 log::debug!("Discarding task {}", task.id);
                 task.placement.clear();
             }
         }
-        return false;
+        false
     }
 
     pub fn update(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
@@ -261,7 +297,11 @@ impl Scheduler {
                 ToSchedulerMessage::NewTask(ti) => {
                     log::debug!("New task {} #inputs={}", ti.id, ti.inputs.len());
                     let task_id = ti.id;
-                    let inputs: Vec<_> = ti.inputs.iter().map(|id| self.tasks.get(id).unwrap().clone()).collect();
+                    let inputs: Vec<_> = ti
+                        .inputs
+                        .iter()
+                        .map(|id| self.tasks.get(id).unwrap().clone())
+                        .collect();
                     let task = TaskRef::new(ti, inputs);
                     if task.get().is_ready() {
                         log::debug!("Task {} is ready", task_id);
@@ -272,13 +312,7 @@ impl Scheduler {
                     invoke_scheduling = true;
                 }
                 ToSchedulerMessage::NewWorker(wi) => {
-                    assert!(self
-                        .workers
-                        .insert(
-                            wi.id,
-                            WorkerRef::new(wi),
-                        )
-                        .is_none());
+                    assert!(self.workers.insert(wi.id, WorkerRef::new(wi),).is_none());
                     invoke_scheduling = true;
                 }
                 ToSchedulerMessage::NetworkBandwidth(nb) => {
@@ -286,7 +320,7 @@ impl Scheduler {
                 }
             }
         }
-        return invoke_scheduling;
+        invoke_scheduling
 
         // HACK, random scheduler
         /*if !self.workers.is_empty() {
@@ -305,7 +339,7 @@ impl Scheduler {
             self._tmp_hack.clear();
 
             sender
-                .try_send(FromSchedulerMessage::TaskAssignments(result))
+                .send(FromSchedulerMessage::TaskAssignments(result))
                 .unwrap();
         }*/
     }
@@ -349,17 +383,23 @@ impl Scheduler {
 
 fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
     // TODO: For large number of inputs, only sample inputs
-    task.inputs.iter().take(512).map(|tr| {
-        let t = tr.get();
-        if t.placement.contains(worker_ref) { 0u64 } else { t.size }
-    }).sum()
+    task.inputs
+        .iter()
+        .take(512)
+        .map(|tr| {
+            let t = tr.get();
+            if t.placement.contains(worker_ref) {
+                0u64
+            } else {
+                t.size
+            }
+        })
+        .sum()
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc::unbounded_channel;
     use crate::scheduler::schedproto::{TaskInfo, WorkerInfo};
 
     fn init() {
@@ -371,10 +411,7 @@ mod tests {
     }
 
     fn new_task(id: TaskId, inputs: Vec<TaskId>) -> ToSchedulerMessage {
-        ToSchedulerMessage::NewTask(TaskInfo {
-                id: id,
-                inputs: inputs
-        })
+        ToSchedulerMessage::NewTask(TaskInfo { id, inputs })
     }
 
     /* Graph simple
@@ -389,17 +426,16 @@ mod tests {
 
     */
     fn submit_graph_simple(scheduler: &mut Scheduler) {
-       scheduler.update(vec![
-           new_task(1, vec![]),
-           new_task(2, vec![1]),
-           new_task(3, vec![1]),
-           new_task(4, vec![2, 3]),
-           new_task(5, vec![4]),
-           new_task(6, vec![3]),
-           new_task(7, vec![6]),
+        scheduler.update(vec![
+            new_task(1, vec![]),
+            new_task(2, vec![1]),
+            new_task(3, vec![1]),
+            new_task(4, vec![2, 3]),
+            new_task(5, vec![4]),
+            new_task(6, vec![3]),
+            new_task(7, vec![6]),
         ]);
     }
-
 
     /* Graph reduce
 
@@ -410,9 +446,11 @@ mod tests {
                 n
     */
     fn submit_graph_reduce(scheduler: &mut Scheduler, size: usize) {
-       let mut tasks : Vec<_> = (0..size).map(|t| new_task(t as TaskId, Vec::new())).collect();
-       tasks.push(new_task(size as TaskId, (0..size as TaskId).collect()));
-       scheduler.update(tasks);
+        let mut tasks: Vec<_> = (0..size)
+            .map(|t| new_task(t as TaskId, Vec::new()))
+            .collect();
+        tasks.push(new_task(size as TaskId, (0..size as TaskId).collect()));
+        scheduler.update(tasks);
     }
 
     /* Graph split
@@ -423,15 +461,14 @@ mod tests {
         1  2   3   4  .. n-1
     */
     fn submit_graph_split(scheduler: &mut Scheduler, size: usize) {
-       let mut tasks = vec![new_task(0, Vec::new())];
-       tasks.extend((1..=size).map(|t| new_task(t as TaskId, vec![0])));
-       scheduler.update(tasks);
+        let mut tasks = vec![new_task(0, Vec::new())];
+        tasks.extend((1..=size).map(|t| new_task(t as TaskId, vec![0])));
+        scheduler.update(tasks);
     }
 
     fn connect_workers(scheduler: &mut Scheduler, count: u32, n_cpus: u32) {
         for i in 0..count {
-            scheduler.update(vec![
-            ToSchedulerMessage::NewWorker(WorkerInfo {
+            scheduler.update(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
                 id: 100 + i as WorkerId,
                 n_cpus,
             })]);
@@ -439,24 +476,31 @@ mod tests {
     }
 
     fn finish_task(scheduler: &mut Scheduler, task_id: TaskId, worker_id: WorkerId, size: u64) {
-        scheduler.update(vec![
-            ToSchedulerMessage::TaskUpdate(TaskUpdate {
-                state: TaskUpdateType::Finished,
-                id: task_id,
-                worker: worker_id,
-                size: Some(size)
-            })
-        ]);
+        scheduler.update(vec![ToSchedulerMessage::TaskUpdate(TaskUpdate {
+            state: TaskUpdateType::Finished,
+            id: task_id,
+            worker: worker_id,
+            size: Some(size),
+        })]);
     }
 
-    fn run_schedule(scheduler: &mut Scheduler) -> HashSet<TaskId> {
+    fn run_schedule(scheduler: &mut Scheduler) -> Set<TaskId> {
         let mut notifications = Notifications::new();
         scheduler.schedule(&mut notifications);
         notifications.iter().map(|tr| tr.get().id).collect()
     }
 
     fn assigned_worker(scheduler: &mut Scheduler, task_id: TaskId) -> WorkerId {
-        scheduler.tasks.get(&task_id).expect("Unknown task").get().assigned_worker.as_ref().expect("Worker not assigned").get().id
+        scheduler
+            .tasks
+            .get(&task_id)
+            .expect("Unknown task")
+            .get()
+            .assigned_worker
+            .as_ref()
+            .expect("Worker not assigned")
+            .get()
+            .id
     }
 
     #[test]
@@ -522,7 +566,10 @@ mod tests {
         assert!(n.contains(&3));
         let t2 = scheduler.tasks.get(&2).unwrap();
         let t3 = scheduler.tasks.get(&3).unwrap();
-        assert_ne!(assigned_worker(&mut scheduler, 2), assigned_worker(&mut scheduler, 3));
+        assert_ne!(
+            assigned_worker(&mut scheduler, 2),
+            assigned_worker(&mut scheduler, 3)
+        );
         scheduler.sanity_check();
     }
 
@@ -538,7 +585,7 @@ mod tests {
         assert_eq!(n.len(), 5000);
         scheduler.sanity_check();
 
-        let mut wcount = HashMap::new();
+        let mut wcount = Map::default();
         for t in 0..5000 {
             assert!(n.contains(&t));
             let wid = assigned_worker(&mut scheduler, t);
@@ -570,7 +617,7 @@ mod tests {
         assert_eq!(n.len(), 5000);
         scheduler.sanity_check();
 
-        let mut wcount = HashMap::new();
+        let mut wcount = Map::default();
         for t in 1..=5000 {
             assert!(n.contains(&t));
             let wid = assigned_worker(&mut scheduler, t);
@@ -604,4 +651,3 @@ mod tests {
         scheduler.sanity_check();
     }
 }
-

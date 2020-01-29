@@ -1,7 +1,6 @@
-use std::collections::{HashSet, HashMap};
-
-use crate::scheduler::schedproto::{TaskId, TaskInfo};
+use crate::common::Set;
 use crate::scheduler::implementation::worker::WorkerRef;
+use crate::scheduler::schedproto::{TaskId, TaskInfo};
 
 pub enum SchedulerTaskState {
     Waiting,
@@ -12,24 +11,23 @@ pub struct Task {
     pub id: TaskId,
     pub state: SchedulerTaskState,
     pub inputs: Vec<TaskRef>,
-    pub consumers: HashSet<TaskRef>,
+    pub consumers: Set<TaskRef>,
     pub b_level: f32,
     pub unfinished_deps: u32,
     pub assigned_worker: Option<WorkerRef>,
-    pub placement: HashSet<WorkerRef>,
+    pub placement: Set<WorkerRef>,
     pub size: u64,
-    pub take_flag: bool  // Used in algorithms, no meaning between calls
+    pub take_flag: bool, // Used in algorithms, no meaning between calls
 }
 
 pub type TaskRef = crate::common::WrappedRcRefCell<Task>;
 
 impl Task {
-
     #[inline]
     pub fn is_waiting(&self) -> bool {
         match self.state {
             SchedulerTaskState::Waiting => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -37,7 +35,7 @@ impl Task {
     pub fn is_finished(&self) -> bool {
         match self.state {
             SchedulerTaskState::Finished => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -54,7 +52,6 @@ impl Task {
                 unfinished += 1;
             }
             assert!(ti.consumers.contains(task_ref));
-
         }
         assert_eq!(unfinished, self.unfinished_deps);
 
@@ -63,12 +60,12 @@ impl Task {
                 for c in &self.consumers {
                     assert!(c.get().is_waiting());
                 }
-            },
+            }
             SchedulerTaskState::Finished => {
                 for inp in &self.inputs {
                     assert!(inp.get().is_finished());
                 }
-            },
+            }
         };
     }
 }
