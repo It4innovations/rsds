@@ -277,3 +277,7 @@ type WorkerTaskErredMsg = {
 type KeepAliveMsg = {
     "op": "keep-alive",
 };
+type CloseGracefullyMsg = {
+    "op": "close_gracefully",
+    "reply": boolean
+};

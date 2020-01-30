@@ -1,6 +1,8 @@
+from operator import add
+
 import pytest
 from dask import delayed
-from distributed.client import Client
+from distributed.client import Client, Future
 
 
 # Function for submitting in testing pipelines ----
@@ -15,6 +17,10 @@ def comp_fn2(x, y):
 
 def comp_fn3(x):
     return [v + 1 for v in x]
+
+
+def inc(x):
+    return x + 1
 
 
 @delayed
@@ -123,3 +129,24 @@ def test_scatter(rsds_env):
     futures = client.scatter(range(10), workers=[worker])
     fut = client.submit(comp_fn3, futures)
     assert client.gather(fut) == list(range(1, 11))
+
+
+def test_gather_already_finished(rsds_env):
+    url = rsds_env.start([1])
+
+    client = Client(url)
+    x = client.submit(inc, 10)
+    assert not x.done()
+
+    assert isinstance(x, Future)
+    assert x.client is client
+
+    result = client.gather(x)
+    assert result == 11
+    assert x.done()
+
+    y = client.submit(inc, 20)
+    z = client.submit(add, x, y)
+
+    result = client.gather(z)
+    assert result == 11 + 21
