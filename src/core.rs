@@ -118,15 +118,18 @@ impl Core {
         })
     }
 
-    pub fn list_workers(&self) -> Vec<WorkerId> {
-        self.workers.keys().copied().collect()
+    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
+        &self.workers
     }
 
     pub fn get_worker_cores(&self) -> Map<String, u64> {
-        self.workers.values().map(|w| {
-            let w = w.get();
-            (w.listen_address.clone(), w.ncpus as u64)
-        }).collect()
+        self.workers
+            .values()
+            .map(|w| {
+                let w = w.get();
+                (w.listen_address.clone(), w.ncpus as u64)
+            })
+            .collect()
     }
 
     /*

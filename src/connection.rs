@@ -1,5 +1,5 @@
-use futures::{SinkExt, Sink};
 use futures::StreamExt;
+use futures::{Sink, SinkExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use tokio::net::TcpListener;
@@ -9,8 +9,11 @@ use smallvec::smallvec;
 use crate::client::{gather, start_client};
 use crate::core::CoreRef;
 
-use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage};
-use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet, serialize_single_packet, DaskPacket};
+use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
+use crate::protocol::protocol::{
+    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
+    serialize_single_packet, DaskPacket,
+};
 use crate::protocol::workermsg::RegisterWorkerResponseMsg;
 use crate::worker::start_worker;
 
@@ -88,10 +91,36 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::Identity(_) => {
                     log::debug!("Identity request from {}", address);
+                    // TODO: get actual values
                     let rsp = IdentityResponse {
                         r#type: "Scheduler".to_owned(),
                         id: core_ref.uid(),
-                        workers: core_ref.get().list_workers(),
+                        workers: core_ref
+                            .get()
+                            .get_workers()
+                            .values()
+                            .map(|w| {
+                                let worker = w.get();
+                                let address = worker.listen_address.clone();
+                                (
+                                    address.clone(),
+                                    WorkerInfo {
+                                        r#type: "worker".to_string(),
+                                        host: address,
+                                        id: worker.id.to_string(),
+                                        last_seen: 0.0,
+                                        local_directory: Default::default(),
+                                        memory_limit: 0,
+                                        metrics: Default::default(),
+                                        name: "".to_string(),
+                                        nanny: "".to_string(),
+                                        nthreads: 0,
+                                        resources: Default::default(),
+                                        services: Default::default(),
+                                    },
+                                )
+                            })
+                            .collect(),
                     };
                     writer.send(serialize_single_packet(rsp)?).await?;
                 }
@@ -111,7 +140,10 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
-async fn get_ncores<W: Sink<DaskPacket, Error=crate::DsError> + Unpin>(core_ref: &CoreRef, writer: &mut W) -> crate::Result<()> {
+async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+    core_ref: &CoreRef,
+    writer: &mut W,
+) -> crate::Result<()> {
     let core = core_ref.get();
     let cores = core.get_worker_cores();
     writer.send(serialize_single_packet(cores)?).await?;
