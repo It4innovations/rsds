@@ -4,7 +4,7 @@ use futures::stream::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::client::{Client, ClientId};
-use crate::common::{Map, WrappedRcRefCell};
+use crate::common::{Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
 use crate::protocol::workermsg::TaskFinishedMsg;
@@ -13,13 +13,40 @@ use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
 
+impl Identifiable for Client {
+    type Id = ClientId;
+    type Key = String;
+
+    #[inline]
+    fn get_id(&self) -> Self::Id {
+        self.id()
+    }
+
+    #[inline]
+    fn get_key(&self) -> Self::Key {
+        self.key().to_owned()
+    }
+}
+impl Identifiable for WorkerRef {
+    type Id = WorkerId;
+    type Key = String;
+
+    #[inline]
+    fn get_id(&self) -> Self::Id {
+        self.get().id()
+    }
+
+    #[inline]
+    fn get_key(&self) -> Self::Key {
+        self.get().key().to_owned()
+    }
+}
+
 pub struct Core {
     tasks_by_id: Map<TaskId, TaskRef>,
     tasks_by_key: Map<TaskKey, TaskRef>,
-    clients: Map<ClientId, Client>,
-    client_key_to_id: Map<String, ClientId>,
-    workers: Map<WorkerId, WorkerRef>,
-    worker_key_to_id: Map<String, ClientId>,
+    clients: KeyIdMap<ClientId, Client>,
+    workers: KeyIdMap<WorkerId, WorkerRef>,
 
     scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>,
 
@@ -36,12 +63,7 @@ pub type CoreRef = WrappedRcRefCell<Core>;
 
 impl Core {
     pub fn register_client(&mut self, client: Client) {
-        let client_id = client.id();
-        assert!(self
-            .client_key_to_id
-            .insert(client.key().to_string(), client_id)
-            .is_none());
-        assert!(self.clients.insert(client_id, client).is_none());
+        self.clients.insert(client);
     }
 
     #[inline]
@@ -63,24 +85,17 @@ impl Core {
     }
 
     pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
-        let worker_id = {
-            let worker = worker_ref.get();
-            notifications.new_worker(&worker);
-            worker.id()
-        };
-        assert!(self.workers.insert(worker_id, worker_ref.clone()).is_none());
-        assert!(self.worker_key_to_id.insert(worker_ref.get().key().to_owned(), worker_id).is_none());
+        notifications.new_worker(&worker_ref.get());
+        self.workers.insert(worker_ref);
     }
 
+    #[inline]
     pub fn unregister_client(&mut self, client_id: ClientId) {
-        let client = self.clients.remove(&client_id).unwrap();
-        assert!(self.client_key_to_id.remove(client.key()).is_some());
+        self.clients.remove_by_id(client_id);
     }
 
     pub fn unregister_worker(&mut self, worker_id: WorkerId) {
-        let worker = self.workers.remove(&worker_id);
-        assert!(worker.is_some());
-        assert!(self.worker_key_to_id.remove(worker.unwrap().get().key()).is_some());
+        self.workers.remove_by_id(worker_id);
     }
 
     // ! This function modifies update, but do not triggers, send_update
@@ -111,34 +126,39 @@ impl Core {
     }
 
     pub fn get_client_by_id_or_panic(&mut self, id: ClientId) -> &mut Client {
-        self.clients.get_mut(&id).unwrap_or_else(|| {
+        self.clients.get_mut_by_id(id).unwrap_or_else(|| {
             panic!("Asking for invalid client id={}", id);
         })
     }
 
     pub fn get_client_id_by_key(&self, key: &str) -> ClientId {
-        self.client_key_to_id.get(key).copied().unwrap_or_else(|| {
+        self.clients.get_id_by_key(key).unwrap_or_else(|| {
             panic!("Asking for invalid client key={}", key);
         })
     }
 
     pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &WorkerRef {
-        self.workers.get(&id).unwrap_or_else(|| {
+        self.workers.get_by_id(id).unwrap_or_else(|| {
             panic!("Asking for invalid worker id={}", id);
         })
     }
 
+    pub fn get_worker_by_key_or_panic(&self, key: &str) -> &WorkerRef {
+        self.workers.get_by_key(key).unwrap_or_else(|| {
+            panic!("Asking for invalid worker key={}", key);
+        })
+    }
+
     pub fn get_worker_id_by_key(&self, key: &str) -> WorkerId {
-        self.worker_key_to_id.get(key).copied().unwrap_or_else(|| {
+        self.workers.get_id_by_key(key).unwrap_or_else(|| {
             panic!("Asking for invalid worker key={}", key);
         })
     }
 
     #[inline]
-    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
-        &self.workers
+    pub fn get_workers(&self) -> Vec<WorkerRef> {
+        self.workers.values().cloned().collect()
     }
-
 
     pub fn get_worker_cores(&self) -> Map<String, u64> {
         self.workers
@@ -192,7 +212,7 @@ impl Core {
         for assignment in assignments {
             let worker_ref = self
                 .workers
-                .get(&assignment.worker)
+                .get_by_id(assignment.worker)
                 .expect("Worker from assignment not found")
                 .clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
@@ -341,7 +361,7 @@ impl Core {
 
     fn notify_key_in_memory(&mut self, task: &Task) {
         for client_id in task.subscribed_clients() {
-            match self.clients.get_mut(client_id) {
+            match self.clients.get_mut_by_id(*client_id) {
                 Some(client) => {
                     client
                         .send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
@@ -369,10 +389,8 @@ impl CoreRef {
 
             id_counter: 0,
 
-            workers: Default::default(),
-            worker_key_to_id: Default::default(),
-            clients: Default::default(),
-            client_key_to_id: Default::default(),
+            workers: KeyIdMap::new(),
+            clients: KeyIdMap::new(),
 
             scheduler_sender,
 

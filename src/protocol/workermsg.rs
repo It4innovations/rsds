@@ -196,5 +196,5 @@ impl ToDaskTransport for GetDataResponse<SerializedMemory> {
 #[derive(Deserialize, Debug)]
 pub struct UpdateDataResponse {
     pub status: String,
-    pub nbytes: Map<String, u64>
+    pub nbytes: Map<String, u64>,
 }

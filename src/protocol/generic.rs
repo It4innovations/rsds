@@ -1,6 +1,7 @@
 use crate::common::Map;
 use crate::protocol::protocol::{
-    map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
+    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
+    SerializedMemory, SerializedTransport, ToDaskTransport,
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +87,7 @@ pub struct GatherMsg {
     pub keys: Vec<String>,
 }
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct ScatterMsg<T = SerializedMemory> {
@@ -99,12 +101,13 @@ pub struct ScatterMsg<T = SerializedMemory> {
 
 pub type ScatterResponse = Vec<String>;
 
+#[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct CancelKeysMsg {
     keys: Vec<String>,
     client: String,
     force: bool,
-    reply: bool
+    reply: bool,
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -144,6 +147,31 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
             Self::Transport::Cancel(msg) => Self::Cancel(msg),
             Self::Transport::Ncores => Self::Ncores,
         }
+    }
+}
+
+#[cfg(test)]
+impl ToDaskTransport for GenericMessage<SerializedMemory> {
+    type Transport = GenericMessage<SerializedTransport>;
+
+    fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
+        match self {
+            Self::Identity(msg) => Self::Transport::Identity(msg),
+            Self::HeartbeatWorker(msg) => Self::Transport::HeartbeatWorker(msg),
+            Self::RegisterClient(msg) => Self::Transport::RegisterClient(msg),
+            Self::RegisterWorker(msg) => Self::Transport::RegisterWorker(msg),
+            Self::Gather(msg) => Self::Transport::Gather(msg),
+            Self::Scatter(msg) => Self::Transport::Scatter(ScatterMsg {
+                client: msg.client,
+                broadcast: msg.broadcast,
+                data: map_to_transport(msg.data, message_builder),
+                reply: msg.reply,
+                timeout: msg.timeout,
+                workers: msg.workers,
+            }),
+            Self::Cancel(msg) => Self::Transport::Cancel(msg),
+            Self::Ncores => Self::Transport::Ncores,
+        };
     }
 }
 

@@ -10,8 +10,14 @@ use crate::common::{Map, WrappedRcRefCell};
 use crate::core::CoreRef;
 use crate::notifications::Notifications;
 use crate::protocol::generic::RegisterWorkerMsg;
-use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, map_ref_to_transport, serialize_batch_packet, serialize_single_packet, Batch, DaskPacket, MessageBuilder, SerializedMemory, dask_parse_stream};
-use crate::protocol::workermsg::{FromWorkerMessage, GetDataMsg, Status, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse};
+use crate::protocol::protocol::{
+    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, map_ref_to_transport,
+    serialize_batch_packet, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
+    SerializedMemory,
+};
+use crate::protocol::workermsg::{
+    FromWorkerMessage, GetDataMsg, Status, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
+};
 use crate::task::ErrorInfo;
 
 pub type WorkerId = u64;
@@ -57,7 +63,12 @@ pub type WorkerRef = WrappedRcRefCell<Worker>;
 impl WorkerRef {
     pub async fn connect(&self) -> crate::Result<tokio::net::TcpStream> {
         // a copy is needed to avoid runtime Borrow errors
-        let address: String = { self.get().listen_address.trim_start_matches("tcp://").to_owned() };
+        let address: String = {
+            self.get()
+                .listen_address
+                .trim_start_matches("tcp://")
+                .to_owned()
+        };
         Ok(TcpStream::connect(address).await?)
     }
 }
@@ -204,7 +215,7 @@ pub async fn get_data_from_worker(worker: &WorkerRef, keys: &[&str]) -> crate::R
 }
 
 pub async fn update_data_on_worker(
-    worker: &WorkerRef,
+    worker: WorkerRef,
     data: &Map<String, SerializedMemory>,
 ) -> crate::Result<()> {
     let mut connection = worker.connect().await?;
