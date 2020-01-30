@@ -9,6 +9,7 @@ pub mod connection;
 pub mod core;
 mod error;
 mod notifications;
+mod reactor;
 pub mod scheduler;
 mod task;
 mod util;

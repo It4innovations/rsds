@@ -1,28 +1,22 @@
+use futures::SinkExt;
 use futures::StreamExt;
-use futures::{Sink, SinkExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use tokio::net::TcpListener;
 
 use smallvec::smallvec;
 
-use crate::client::{gather, start_client};
 use crate::core::CoreRef;
+use crate::reactor::{gather, get_ncores, scatter};
 
-use crate::notifications::Notifications;
-use crate::protocol::clientmsg::ClientTaskSpec;
-use crate::protocol::generic::{
-    GenericMessage, IdentityResponse, ScatterMsg, ScatterResponse, SimpleMessage, WorkerInfo,
-};
+use crate::client::execute_client;
+use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
-    serialize_single_packet, DaskPacket,
+    serialize_single_packet,
 };
 use crate::protocol::workermsg::RegisterWorkerResponseMsg;
-use crate::task::TaskRef;
-use crate::worker::start_worker;
-use futures::stream::FuturesUnordered;
-use std::iter::FromIterator;
+use crate::worker::execute_worker;
 
 /// Must be called within a LocalTaskSet
 pub async fn connection_initiator(
@@ -67,7 +61,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                         worker_plugins: Vec::new(),
                     };
                     writer.send(serialize_single_packet(hb)?).await?;
-                    start_worker(
+                    execute_worker(
                         &core_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
@@ -86,7 +80,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     // this has to be a list
                     writer.send(serialize_batch_packet(smallvec!(rsp))?).await?;
 
-                    start_client(
+                    execute_client(
                         &core_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
@@ -148,82 +142,6 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
             }
         }
     }
-    Ok(())
-}
-
-async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
-    core_ref: &CoreRef,
-    writer: &mut W,
-) -> crate::Result<()> {
-    let core = core_ref.get();
-    let cores = core.get_worker_cores();
-    writer.send(serialize_single_packet(cores)?).await?;
-    Ok(())
-}
-
-async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
-    core_ref: &CoreRef,
-    writer: &mut W,
-    mut message: ScatterMsg,
-) -> crate::Result<()> {
-    assert!(!message.broadcast); // TODO: implement broadcast
-
-    // TODO: implement scatter
-
-    let workers = match message.workers.take() {
-        Some(workers) => {
-            let core = core_ref.get();
-            workers
-                .into_iter()
-                .map(|worker_key| core.get_worker_by_key_or_panic(&worker_key).clone())
-                .collect()
-        }
-        None => core_ref.get().get_workers(),
-    };
-    if workers.is_empty() {
-        return Ok(());
-    }
-
-    {
-        // TODO: round-robin
-        let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
-            workers
-                .into_iter()
-                .map(|worker| super::worker::update_data_on_worker(worker, &message.data)),
-        );
-
-        while let Some(data) = worker_futures.next().await {
-            data.unwrap();
-            // TODO: read/send response?
-        }
-    }
-
-    let mut notifications: Notifications = Default::default();
-    let response: ScatterResponse = message.data.keys().cloned().collect();
-
-    {
-        let mut core = core_ref.get_mut();
-        let client_id = core.get_client_id_by_key(&message.client);
-        for (key, spec) in message.data.into_iter() {
-            let task_ref = TaskRef::new(
-                core.new_task_id(),
-                key,
-                ClientTaskSpec::Serialized(spec),
-                Default::default(),
-                0,
-            );
-            {
-                let mut task = task_ref.get_mut();
-                task.subscribe_client(client_id);
-                notifications.new_task(&task);
-            }
-            core.add_task(task_ref);
-            // TODO: notify key-in-memory
-        }
-        notifications.send(&mut core).unwrap();
-    }
-
-    writer.send(serialize_single_packet(response)?).await?;
     Ok(())
 }
 

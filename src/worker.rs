@@ -1,24 +1,16 @@
-use futures::future::FutureExt;
-use futures::{future, Sink, Stream};
-
 use futures::sink::SinkExt;
-use futures::stream::StreamExt;
 
 use tokio::net::TcpStream;
 
-use crate::common::{Map, WrappedRcRefCell};
+use crate::common::WrappedRcRefCell;
 use crate::core::CoreRef;
 use crate::notifications::Notifications;
 use crate::protocol::generic::RegisterWorkerMsg;
-use crate::protocol::protocol::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, map_ref_to_transport,
-    serialize_batch_packet, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
-    SerializedMemory,
-};
-use crate::protocol::workermsg::{
-    FromWorkerMessage, GetDataMsg, Status, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
-};
+use crate::protocol::protocol::{serialize_batch_packet, Batch, DaskPacket};
+use crate::protocol::workermsg::Status;
+use crate::protocol::workermsg::{FromWorkerMessage, ToWorkerMessage};
 use crate::task::ErrorInfo;
+use futures::{FutureExt, Sink, Stream, StreamExt};
 
 pub type WorkerId = u64;
 
@@ -73,7 +65,7 @@ impl WorkerRef {
     }
 }
 
-fn create_worker(
+pub(crate) fn create_worker(
     msg: RegisterWorkerMsg,
     core_ref: &CoreRef,
     sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
@@ -92,7 +84,7 @@ fn create_worker(
     (worker_id, worker_ref)
 }
 
-pub async fn start_worker<
+pub async fn execute_worker<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
     Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
 >(
@@ -173,7 +165,7 @@ pub async fn start_worker<
         send_tasks_to_workers(&core, tasks_per_worker);
     }*/
 
-    let result = future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
+    let result = futures::future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
     if let Err(e) = result.factor_first().0 {
         log::error!(
             "Error in worker connection (id={}, connection={}): {}",
@@ -189,52 +181,5 @@ pub async fn start_worker<
     );
     let mut core = core_ref2.get_mut();
     core.unregister_worker(worker_id);
-    Ok(())
-}
-
-pub async fn get_data_from_worker(worker: &WorkerRef, keys: &[&str]) -> crate::Result<DaskPacket> {
-    let mut connection = worker.connect().await?;
-    let msg = ToWorkerMessage::GetData(GetDataMsg {
-        keys,
-        who: None,
-        max_connections: false,
-        reply: true,
-    });
-
-    let (reader, writer) = connection.split();
-    let mut writer = asyncwrite_to_sink(writer);
-    writer.send(serialize_single_packet(msg)?).await?;
-
-    let mut reader = asyncread_to_stream(reader);
-    // TODO: Error propagation
-    // TODO: Storing worker connection?
-    let response = reader.next().await.unwrap()?;
-    writer.send(serialize_single_packet("OK")?).await?;
-
-    Ok(response)
-}
-
-pub async fn update_data_on_worker(
-    worker: WorkerRef,
-    data: &Map<String, SerializedMemory>,
-) -> crate::Result<()> {
-    let mut connection = worker.connect().await?;
-
-    let mut builder = MessageBuilder::<ToWorkerMessage>::new();
-    let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
-        data: map_ref_to_transport(data, &mut builder),
-        reply: true,
-        report: false,
-    });
-    builder.add_message(msg);
-
-    let (reader, writer) = connection.split();
-    let mut writer = asyncwrite_to_sink(writer);
-    writer.send(builder.build_single()?).await?;
-
-    let mut reader = dask_parse_stream::<UpdateDataResponse, _>(asyncread_to_stream(reader));
-    let response: Batch<UpdateDataResponse> = reader.next().await.unwrap()?;
-    assert_eq!(response[0].status.as_bytes(), b"OK");
-
     Ok(())
 }
