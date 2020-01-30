@@ -107,7 +107,7 @@ pub async fn start_client<
                         break 'outer;
                     }
                     _ => {
-                        log::warn!("Unhandled client message: {:?}", message);
+                        panic!("Unhandled client message: {:?}", message);
                     }
                 }
             }

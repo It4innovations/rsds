@@ -122,6 +122,13 @@ impl Core {
         self.workers.keys().copied().collect()
     }
 
+    pub fn get_worker_cores(&self) -> Map<String, u64> {
+        self.workers.values().map(|w| {
+            let w = w.get();
+            (w.listen_address.clone(), w.ncpus as u64)
+        }).collect()
+    }
+
     /*
     fn _send_scheduler_update_now(&mut self) {
         log::debug!("Sending update to scheduler");

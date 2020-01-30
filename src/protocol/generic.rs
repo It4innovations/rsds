@@ -57,6 +57,7 @@ pub enum GenericMessage {
     RegisterClient(RegisterClientMsg),
     RegisterWorker(RegisterWorkerMsg),
     Gather(GatherMsg),
+    Ncores,
 }
 
 #[cfg_attr(test, derive(Deserialize))]

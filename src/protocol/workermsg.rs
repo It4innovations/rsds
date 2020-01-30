@@ -139,7 +139,7 @@ pub enum ToWorkerMessage<'a> {
 #[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct HeartbeatResponse {
+pub struct RegisterWorkerResponseMsg {
     pub status: String,
     pub time: f64,
     pub heartbeat_interval: f64,

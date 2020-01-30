@@ -1,4 +1,4 @@
-use futures::SinkExt;
+use futures::{SinkExt, Sink};
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -10,11 +10,8 @@ use crate::client::{gather, start_client};
 use crate::core::CoreRef;
 
 use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage};
-use crate::protocol::protocol::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
-    serialize_single_packet,
-};
-use crate::protocol::workermsg::HeartbeatResponse;
+use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet, serialize_single_packet, DaskPacket};
+use crate::protocol::workermsg::RegisterWorkerResponseMsg;
 use crate::worker::start_worker;
 
 /// Must be called within a LocalTaskSet
@@ -53,7 +50,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::RegisterWorker(msg) => {
                     log::debug!("Worker registration from {}", address);
-                    let hb = HeartbeatResponse {
+                    let hb = RegisterWorkerResponseMsg {
                         status: "OK".to_owned(),
                         time: 0.0,
                         heartbeat_interval: 1.0,
@@ -102,9 +99,22 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
                     gather(&core_ref, address, &mut writer, msg.keys).await?;
                 }
+                GenericMessage::Ncores => {
+                    get_ncores(&core_ref, &mut writer).await?;
+                }
+                _ => {
+                    panic!("Unhandled generic message: {:?}", message);
+                }
             }
         }
     }
+    Ok(())
+}
+
+async fn get_ncores<W: Sink<DaskPacket, Error=crate::DsError> + Unpin>(core_ref: &CoreRef, writer: &mut W) -> crate::Result<()> {
+    let core = core_ref.get();
+    let cores = core.get_worker_cores();
+    writer.send(serialize_single_packet(cores)?).await?;
     Ok(())
 }
 
@@ -117,7 +127,7 @@ mod tests {
         SimpleMessage,
     };
     use crate::protocol::protocol::{serialize_single_packet, Batch, SerializedTransport};
-    use crate::protocol::workermsg::{FromWorkerMessage, HeartbeatResponse};
+    use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::test_util::{
         bytes_to_msg, dummy_address, dummy_core, msg_to_bytes, packets_to_bytes, MemoryStream,
     };
@@ -164,7 +174,7 @@ mod tests {
         let (stream, msg_rx) = MemoryStream::new(packets_to_bytes(packets)?);
         let (core, _rx) = dummy_core();
         handle_connection(core, stream, dummy_address()).await?;
-        let res: Batch<HeartbeatResponse> = bytes_to_msg(&msg_rx.get())?;
+        let res: Batch<RegisterWorkerResponseMsg> = bytes_to_msg(&msg_rx.get())?;
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].status, "OK".to_owned());
 
