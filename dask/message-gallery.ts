@@ -1,9 +1,46 @@
-// Opaque serialized data (MesagePack header and frames)
+// Opaque serialized data (MessagePack header and frames)
 type Serialized = {};
 
 // Binary MessagePack array
 type Bytes = [number];
 
+
+// Global types
+type WorkerMetrics = {
+    "bandwidth": {
+        "total": number,
+        "types": {},
+        "workers": {}
+    },
+    "cpu": number,
+    "executing": number,
+    "in_flight": number,
+    "in_memory": number,
+    "memory": number,
+    "num_fds": number,
+    "read_bytes": number,
+    "ready": number,
+    "time": number,
+    "write_bytes": number
+};
+
+type TaskDef = Serialized | {
+    "func": Bytes | Serialized,
+    "args": Bytes | Serialized,
+    "kwargs": Bytes | Serialized
+};
+
+type GetDataResponseType = {
+    "data": { [key: string]: Serialized },
+    "status": "OK"
+};
+
+
+/**
+ * UNINITIATED MESSAGES
+ *
+ * The following messages are sent on a connection that was not initiated with RegisterClient/RegisterWorker yet.
+ */
 
 //---------------------//
 // CLIENT -> SCHEDULER //
@@ -12,19 +49,120 @@ type IdentityMsg = {
     "op": "identity",
     "reply": boolean
 };
-type HeartbeatClientMsg = {
-    "op": "heartbeat-client"
-};
 type RegisterClientMsg = {
     "op": "register-client",
     "client": string,
     "reply": boolean
 };
+type GatherMsg = {
+    "op": "gather",
+    "keys": [string],
+    "reply": boolean
+};
+type NcoresMsg = {
+    "op": "ncores",
+    "reply": boolean,
+    "workers": {}
+};
 
-type TaskDef = Serialized | {
-    "func": Bytes | Serialized,
-    "args": Bytes | Serialized,
-    "kwargs": Bytes | Serialized
+
+//---------------------//
+// SCHEDULER -> CLIENT //
+//---------------------//
+type IdentityResponseMsg = {
+    "op": "identity-response",
+    "type": "Scheduler",
+    "id": number,
+    "workers": { [address: string]: {
+        'host': string,
+        'id': string,
+        'last_seen': number,
+        'local_directory': string,
+        'memory_limit': number,
+        'metrics': WorkerMetrics,
+        'name': string,
+        'nanny': string,
+        'nthreads': number,
+        'resources': {},
+        'services': {'dashboard': number},
+        'type': 'Worker'
+    }}
+};
+/**
+ * This message must be inside a message array and the array must have length 1!!!
+ */
+type RegisterClientResponseMsg = {
+    "op": "stream-start"
+};
+type NcoresResponseMsg = {
+    [worker: string]: number
+};
+type SchedulerGetDataResponse = GetDataResponseType;
+
+
+//---------------------//
+// WORKER -> SCHEDULER //
+//---------------------//
+type HeartbeatWorkerMsg = {
+    "op": "heartbeat_worker",
+    "reply": boolean,
+    "now": number,
+    "address": string,
+    "metrics": WorkerMetrics
+};
+type RegisterWorkerMsg = {
+    'op': 'register-worker',
+    'address': string,
+    'extra': {},
+    'keys': [string],
+    'local_directory': string,
+    'memory_limit': number,
+    'metrics': WorkerMetrics,
+    'name': string,
+    'nanny': string,
+    'nbytes': {},
+    'now': number,
+    'nthreads': number,
+    'pid': number,
+    'reply': boolean,
+    'resources': {},
+    'services': {'dashboard': number},
+    'types': {}
+};
+type WorkerGetDataResponse = GetDataResponseType;
+
+
+//---------------------//
+// SCHEDULER -> WORKER //
+//---------------------//
+type RegisterWorkerResponseMsg = {
+    status: String,
+    time: number,
+    heartbeat_interval: number,
+    worker_plugins: [string]
+};
+type GetDataMsg = {
+    "op": "get_data",
+    "keys": [string],
+    "reply?": boolean,
+    "report?": boolean,
+    "who?": string,
+    "max_connections?": number | boolean
+};
+type GetDataResponseConfirm = "OK";
+
+
+/**
+ * INITIATED MESSAGES
+ *
+ * The following messages are sent after RegisterClient/RegisterWorker.
+ */
+
+//---------------------//
+// CLIENT -> SCHEDULER //
+//---------------------//
+type HeartbeatClientMsg = {
+    "op": "heartbeat-client"
 };
 type UpdateGraphMsg = {
     "op": "update-graph",
@@ -39,11 +177,6 @@ type UpdateGraphMsg = {
     "retries": null,
     "submitting_task": null,
     "resources": null
-};
-type GatherMsg = {
-    "op": "gather",
-    "keys": [string],
-    "reply": boolean
 };
 type ReleaseKeysMsg = {
     "op": "client-releases-keys",
@@ -61,14 +194,6 @@ type CloseStreamMsg = {
 //---------------------//
 // SCHEDULER -> CLIENT //
 //---------------------//
-type IdentityResponseMsg = {
-    "op": "identity-response",
-    "type": "Scheduler",
-    "id": number,
-    "workers": { [address: string]: {
-        // TODO (worker info)
-    }}
-};
 type KeyInMemoryMsg = {
     "op": "key-in-memory",
     "key": string,
@@ -79,12 +204,6 @@ type ClientTaskErredMsg = {
     "key": string,
     "exception": Serialized,
     "traceback": Serialized
-};
-/**
- * This message must be inside a message array and the array must have length 1!!!
- */
-type RegisterClientResponseMsg = {
-    "op": "stream-start"
 };
 
 
@@ -105,14 +224,6 @@ type ComputeTaskMsg = {
     "func?": Bytes | Serialized,
     "args?": Bytes | Serialized,
     "kwargs?": Bytes | Serialized
-};
-type GetDataMsg = {
-    "op": "get_data",
-    "keys": [string],
-    "reply?": boolean,
-    "report?": boolean,
-    "who?": string,
-    "max_connections?": number | boolean
 };
 
 
@@ -137,26 +248,6 @@ type WorkerTaskErredMsg = {
     "traceback": Serialized,
     "thread": number
 };
-type GetDataResponse = {
-    "data": { [key: string]: Serialized },
-    "status": "OK"
-};
-type HeartbeatWorkerMsg = {
-    "op": "heartbeat_worker",
-    "reply": boolean,
-    "now": number,
-    "address": string,
-    "metrics": {
-        "bandwidth": {"total": number, "types": {}, "workers": {}},
-        "cpu": number,
-        "executing": number,
-        "in_flight": number,
-        "in_memory": number,
-        "memory": number,
-        "num_fds": number,
-        "read_bytes": number,
-        "ready": number,
-        "time": number,
-        "write_bytes": number
-    }
+type KeepAliveMsg = {
+    "op": "keep-alive",
 };
