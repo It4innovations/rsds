@@ -23,15 +23,14 @@ type WorkerMetrics = {
     "time": number,
     "write_bytes": number
 };
-
 type TaskDef = Serialized | {
     "func": Bytes | Serialized,
     "args": Bytes | Serialized,
     "kwargs": Bytes | Serialized
 };
-
+type DataMap = { [key: string]: Serialized };
 type GetDataResponseType = {
-    "data": { [key: string]: Serialized },
+    "data": DataMap,
     "status": "OK"
 };
 
@@ -59,10 +58,26 @@ type GatherMsg = {
     "keys": [string],
     "reply": boolean
 };
+type ScatterMsg = {
+    "op": "scatter",
+    "client": string,
+    "broadcast": boolean,
+    "data": DataMap,
+    "reply": boolean,
+    "timeout": number,
+    "workers": [string] | null
+};
 type NcoresMsg = {
     "op": "ncores",
     "reply": boolean,
     "workers": {}
+};
+type CancelMsg = {
+    "op": "cancel",
+    "keys": [string],
+    "client": string,
+    "force": boolean,
+    "reply": boolean
 };
 
 
@@ -98,6 +113,7 @@ type NcoresResponseMsg = {
     [worker: string]: number
 };
 type SchedulerGetDataResponse = GetDataResponseType;
+type ScatterResponseMsg = [string];
 
 
 //---------------------//
@@ -130,6 +146,10 @@ type RegisterWorkerMsg = {
     'types': {}
 };
 type WorkerGetDataResponse = GetDataResponseType;
+type UpdateDataResponseMsg = {
+    "status": "OK",
+    "nbytes": { [key: string]: number },
+};
 
 
 //---------------------//
@@ -150,6 +170,12 @@ type GetDataMsg = {
     "max_connections?": number | boolean
 };
 type GetDataResponseConfirm = "OK";
+type UpdateDataMsg = {
+    "op": "update_data",
+    "data": DataMap,
+    "reply": boolean,
+    "report": boolean,
+};
 
 
 /**

@@ -1,9 +1,8 @@
 use crate::common::Map;
 use crate::protocol::protocol::{
-    Frames, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport,
-    ToDaskTransport,
+    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
+    SerializedMemory, SerializedTransport, ToDaskTransport,
 };
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 /*
@@ -127,6 +126,13 @@ pub struct GetDataMsg<'a> {
 }
 
 #[derive(Serialize, Debug)]
+pub struct UpdateDataMsg {
+    pub data: Map<String, SerializedTransport>,
+    pub reply: bool,
+    pub report: bool,
+}
+
+#[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum ToWorkerMessage<'a> {
@@ -134,6 +140,8 @@ pub enum ToWorkerMessage<'a> {
     DeleteData(DeleteDataMsg),
     #[serde(rename = "get_data")]
     GetData(GetDataMsg<'a>),
+    #[serde(rename = "update_data")]
+    UpdateData(UpdateDataMsg),
 }
 
 #[cfg_attr(test, derive(Deserialize))]
@@ -234,14 +242,10 @@ pub struct GetDataResponse<T = SerializedMemory> {
 impl FromDaskTransport for GetDataResponse<SerializedMemory> {
     type Transport = GetDataResponse<SerializedTransport>;
 
-    fn to_memory(source: Self::Transport, frames: &mut Vec<Bytes>) -> Self {
+    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
         GetDataResponse {
             status: source.status,
-            data: source
-                .data
-                .into_iter()
-                .map(|(k, v)| (k, v.to_memory(frames)))
-                .collect(),
+            data: map_from_transport(source.data, frames),
         }
     }
 }
@@ -251,12 +255,14 @@ impl ToDaskTransport for GetDataResponse<SerializedMemory> {
     fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
         let msg = GetDataResponse {
             status: self.status,
-            data: self
-                .data
-                .into_iter()
-                .map(|(k, v)| (k, v.to_transport(message_builder)))
-                .collect(),
+            data: map_to_transport(self.data, message_builder),
         };
         message_builder.add_message(msg);
     }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UpdateDataResponse {
+    pub status: String,
+    pub nbytes: Map<String, u64>
 }

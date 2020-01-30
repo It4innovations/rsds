@@ -13,6 +13,10 @@ def comp_fn2(x, y):
     return x - y
 
 
+def comp_fn3(x):
+    return [v + 1 for v in x]
+
+
 @delayed
 def delayed_fn1(x):
     return x * 10
@@ -106,3 +110,16 @@ def test_compute_error(rsds_env):
     _ = Client(url)
     with pytest.raises(MyException):
         delayed_fn1(error_fn(delayed_fn1(10))).compute()
+
+
+def test_scatter(rsds_env):
+    url = rsds_env.start([1])
+
+    client = Client(url)
+    client.wait_for_workers(1)
+
+    metadata = client.scheduler_info()
+    worker = list(metadata["workers"].keys())[0]
+    futures = client.scatter(range(10), workers=[worker])
+    fut = client.submit(comp_fn3, futures)
+    assert client.gather(fut) == list(range(1, 11))

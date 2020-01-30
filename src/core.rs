@@ -61,6 +61,11 @@ impl Core {
         self.new_id()
     }
 
+    #[inline]
+    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
+        &self.workers
+    }
+
     pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
         let worker_id = {
             let worker = worker_ref.get();
@@ -116,10 +121,6 @@ impl Core {
         self.client_key_to_id.get(key).copied().unwrap_or_else(|| {
             panic!("Asking for invalid client key={}", key);
         })
-    }
-
-    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
-        &self.workers
     }
 
     pub fn get_worker_cores(&self) -> Map<String, u64> {

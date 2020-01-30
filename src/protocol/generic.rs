@@ -1,4 +1,7 @@
 use crate::common::Map;
+use crate::protocol::protocol::{
+    map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
+};
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(test, derive(Serialize))]
@@ -83,18 +86,65 @@ pub struct GatherMsg {
     pub keys: Vec<String>,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub struct ScatterMsg<T = SerializedMemory> {
+    pub client: String,
+    pub broadcast: bool,
+    pub data: Map<String, T>,
+    pub reply: bool,
+    pub timeout: u64,
+    pub workers: Option<Vec<String>>,
+}
+
+pub type ScatterResponse = Vec<String>;
+
+#[derive(Deserialize, Debug)]
+pub struct CancelKeysMsg {
+    keys: Vec<String>,
+    client: String,
+    force: bool,
+    reply: bool
+}
+
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum GenericMessage {
+pub enum GenericMessage<T = SerializedMemory> {
     Identity(IdentityMsg),
     #[serde(rename = "heartbeat_worker")]
     HeartbeatWorker(HeartbeatWorkerMsg),
     RegisterClient(RegisterClientMsg),
     RegisterWorker(RegisterWorkerMsg),
     Gather(GatherMsg),
+    Scatter(ScatterMsg<T>),
+    Cancel(CancelKeysMsg),
     Ncores,
+}
+
+impl FromDaskTransport for GenericMessage<SerializedMemory> {
+    type Transport = GenericMessage<SerializedTransport>;
+
+    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+        match source {
+            Self::Transport::Identity(msg) => Self::Identity(msg),
+            Self::Transport::HeartbeatWorker(msg) => Self::HeartbeatWorker(msg),
+            Self::Transport::RegisterClient(msg) => Self::RegisterClient(msg),
+            Self::Transport::RegisterWorker(msg) => Self::RegisterWorker(msg),
+            Self::Transport::Gather(msg) => Self::Gather(msg),
+            Self::Transport::Scatter(msg) => Self::Scatter(ScatterMsg {
+                client: msg.client,
+                broadcast: msg.broadcast,
+                data: map_from_transport(msg.data, frames),
+                reply: msg.reply,
+                timeout: msg.timeout,
+                workers: msg.workers,
+            }),
+            Self::Transport::Cancel(msg) => Self::Cancel(msg),
+            Self::Transport::Ncores => Self::Ncores,
+        }
+    }
 }
 
 #[cfg_attr(test, derive(Deserialize))]

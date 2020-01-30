@@ -7,6 +7,9 @@ use smallvec::{smallvec, SmallVec};
 use crate::util::{OptionExt, ResultExt};
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::stream::Map;
+use std::fs::File;
+use std::hash::Hash;
+use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
@@ -232,6 +235,33 @@ impl<T: DeserializeOwned> FromDaskTransport for T {
     }
 }
 
+#[inline]
+pub fn map_from_transport<K: Eq + Hash>(
+    map: crate::common::Map<K, SerializedTransport>,
+    frames: &mut Frames,
+) -> crate::common::Map<K, SerializedMemory> {
+    map.into_iter()
+        .map(|(k, v)| (k, v.to_memory(frames)))
+        .collect()
+}
+#[inline]
+pub fn map_to_transport<K: Eq + Hash, T: Serialize>(
+    map: crate::common::Map<K, SerializedMemory>,
+    message_builder: &mut MessageBuilder<T>,
+) -> crate::common::Map<K, SerializedTransport> {
+    map.into_iter()
+        .map(|(k, v)| (k, v.to_transport(message_builder)))
+        .collect()
+}
+pub fn map_ref_to_transport<K: Eq + Hash + Clone, T: Serialize>(
+    map: &crate::common::Map<K, SerializedMemory>,
+    message_builder: &mut MessageBuilder<T>,
+) -> crate::common::Map<K, SerializedTransport> {
+    map.iter()
+        .map(|(k, v)| (k.clone(), v.to_transport(message_builder)))
+        .collect()
+}
+
 /// Message building
 /// Trait which can convert itself into an associated serializable type.
 pub trait ToDaskTransport {
@@ -312,7 +342,16 @@ fn parse_packet<T: FromDaskTransport>(
     packet: crate::Result<DaskPacket>,
 ) -> crate::Result<Batch<T>> {
     let mut packet = packet?;
-    let message: MessageWrapper<T::Transport> = rmp_serde::from_slice(&packet.main_frame)?;
+    let message: MessageWrapper<T::Transport> = match rmp_serde::from_slice(&packet.main_frame) {
+        Ok(r) => r,
+        Err(e) => {
+            File::create("error-packet.bin")
+                .unwrap()
+                .write_all(&packet.main_frame)
+                .unwrap();
+            return Err(e.into());
+        }
+    };
     match message {
         MessageWrapper::Message(p) => Ok(smallvec!(T::to_memory(p, &mut packet.additional_frames))),
         MessageWrapper::MessageList(v) => Ok(v

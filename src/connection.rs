@@ -9,13 +9,18 @@ use smallvec::smallvec;
 use crate::client::{gather, start_client};
 use crate::core::CoreRef;
 
-use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
+use crate::protocol::generic::{GenericMessage, ScatterMsg, ScatterResponse, IdentityResponse, SimpleMessage, WorkerInfo};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, DaskPacket,
 };
-use crate::protocol::workermsg::RegisterWorkerResponseMsg;
+use crate::protocol::workermsg::{RegisterWorkerResponseMsg};
 use crate::worker::start_worker;
+use futures::stream::FuturesUnordered;
+use std::iter::FromIterator;
+use crate::task::TaskRef;
+use crate::protocol::clientmsg::ClientTaskSpec;
+use crate::notifications::Notifications;
 
 /// Must be called within a LocalTaskSet
 pub async fn connection_initiator(
@@ -128,6 +133,10 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
                     gather(&core_ref, address, &mut writer, msg.keys).await?;
                 }
+                GenericMessage::Scatter(msg) => {
+                    log::debug!("Scatter request from {}", &address);
+                    scatter(&core_ref, &mut writer, msg).await?;
+                }
                 GenericMessage::Ncores => {
                     get_ncores(&core_ref, &mut writer).await?;
                 }
@@ -147,6 +156,52 @@ async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     let core = core_ref.get();
     let cores = core.get_worker_cores();
     writer.send(serialize_single_packet(cores)?).await?;
+    Ok(())
+}
+
+async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+    core_ref: &CoreRef,
+    writer: &mut W,
+    message: ScatterMsg,
+) -> crate::Result<()> {
+    assert!(!message.broadcast); // TODO: implement broadcast
+
+    // TODO: implement scatter
+
+    {
+        let workers = core_ref.get().get_workers().clone();
+        let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
+            workers
+                .values()
+                .map(|worker| super::worker::update_data_on_worker(&worker, &message.data)),
+        );
+
+        while let Some(data) = worker_futures.next().await {
+            data.unwrap();
+            // TODO: read/send response?
+        }
+    }
+
+    let mut notifications: Notifications = Default::default();
+    let response: ScatterResponse = message.data.keys().cloned().collect();
+
+    {
+        let mut core = core_ref.get_mut();
+        let client_id = core.get_client_id_by_key(&message.client);
+        for (key, spec) in message.data.into_iter() {
+            let task_ref = TaskRef::new(core.new_task_id(), key, ClientTaskSpec::Serialized(spec), Default::default(), 0);
+            {
+                let mut task = task_ref.get_mut();
+                task.subscribe_client(client_id);
+                notifications.new_task(&task);
+            }
+            core.add_task(task_ref);
+            // TODO: notify key-in-memory
+        }
+        notifications.send(&mut core).unwrap();
+    }
+
+    writer.send(serialize_single_packet(response)?).await?;
     Ok(())
 }
 
