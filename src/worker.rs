@@ -29,6 +29,11 @@ impl Worker {
         self.id
     }
 
+    #[inline]
+    pub fn key(&self) -> &str {
+        &self.listen_address
+    }
+
     pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
         crate::scheduler::schedproto::WorkerInfo {
             id: self.id,

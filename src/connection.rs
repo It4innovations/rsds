@@ -162,14 +162,28 @@ async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
     writer: &mut W,
-    message: ScatterMsg,
+    mut message: ScatterMsg,
 ) -> crate::Result<()> {
     assert!(!message.broadcast); // TODO: implement broadcast
 
     // TODO: implement scatter
 
+    let workers = match message.workers.take() {
+        Some(workers) => {
+            let core = core_ref.get();
+            workers.into_iter().map(|w| {
+                let id = core.get_worker_id_by_key(&w);
+                (id, core.get_worker_by_id_or_panic(id).clone())
+            }).collect()
+        },
+        None => core_ref.get().get_workers().clone()
+    };
+    if workers.is_empty() {
+        return Ok(());
+    }
+
     {
-        let workers = core_ref.get().get_workers().clone();
+        // TODO: round-robin
         let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
             workers
                 .values()

@@ -19,6 +19,7 @@ pub struct Core {
     clients: Map<ClientId, Client>,
     client_key_to_id: Map<String, ClientId>,
     workers: Map<WorkerId, WorkerRef>,
+    worker_key_to_id: Map<String, ClientId>,
 
     scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>,
 
@@ -61,18 +62,14 @@ impl Core {
         self.new_id()
     }
 
-    #[inline]
-    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
-        &self.workers
-    }
-
     pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
         let worker_id = {
             let worker = worker_ref.get();
             notifications.new_worker(&worker);
             worker.id()
         };
-        assert!(self.workers.insert(worker_id, worker_ref).is_none());
+        assert!(self.workers.insert(worker_id, worker_ref.clone()).is_none());
+        assert!(self.worker_key_to_id.insert(worker_ref.get().key().to_owned(), worker_id).is_none());
     }
 
     pub fn unregister_client(&mut self, client_id: ClientId) {
@@ -81,7 +78,9 @@ impl Core {
     }
 
     pub fn unregister_worker(&mut self, worker_id: WorkerId) {
-        assert!(self.workers.remove(&worker_id).is_some());
+        let worker = self.workers.remove(&worker_id);
+        assert!(worker.is_some());
+        assert!(self.worker_key_to_id.remove(worker.unwrap().get().key()).is_some());
     }
 
     // ! This function modifies update, but do not triggers, send_update
@@ -122,6 +121,24 @@ impl Core {
             panic!("Asking for invalid client key={}", key);
         })
     }
+
+    pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &WorkerRef {
+        self.workers.get(&id).unwrap_or_else(|| {
+            panic!("Asking for invalid worker id={}", id);
+        })
+    }
+
+    pub fn get_worker_id_by_key(&self, key: &str) -> WorkerId {
+        self.worker_key_to_id.get(key).copied().unwrap_or_else(|| {
+            panic!("Asking for invalid worker key={}", key);
+        })
+    }
+
+    #[inline]
+    pub fn get_workers(&self) -> &Map<WorkerId, WorkerRef> {
+        &self.workers
+    }
+
 
     pub fn get_worker_cores(&self) -> Map<String, u64> {
         self.workers
@@ -353,6 +370,7 @@ impl CoreRef {
             id_counter: 0,
 
             workers: Default::default(),
+            worker_key_to_id: Default::default(),
             clients: Default::default(),
             client_key_to_id: Default::default(),
 

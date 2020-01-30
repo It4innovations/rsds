@@ -345,6 +345,7 @@ fn parse_packet<T: FromDaskTransport>(
     let message: MessageWrapper<T::Transport> = match rmp_serde::from_slice(&packet.main_frame) {
         Ok(r) => r,
         Err(e) => {
+            // TODO: remove
             File::create("error-packet.bin")
                 .unwrap()
                 .write_all(&packet.main_frame)
