@@ -1,0 +1,40 @@
+{
+  "clusters": {
+    "$product": {
+      "scheduler": ["$BUILD/target/release/rsds"],
+      "workers": {
+        "$product": {
+          "count": [1, 7],
+          "cores": [24]
+        }
+      }
+    }
+  },
+  "repeat": 5,
+  "usecases": [{
+    "$product": {
+      "usecase": ["xarray"],
+      "args": [5, 25]
+    }
+  }, {
+    "$product": {
+      "usecase": ["tree"],
+      "args": [10, 15]
+    }
+  }, {
+    "$product": {
+      "usecase": ["numpy"],
+      "args": [5000, 10000, 20000]
+    }
+  }, {
+    "$product": {
+      "usecase": ["merge"],
+      "args": [5000, 10000, 15000, 25000]
+    }
+  }, {
+    "$product": {
+      "usecase": ["dataframe"],
+      "args": [1, 5, 10, 30]
+    }
+  }]
+}

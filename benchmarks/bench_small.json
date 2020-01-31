@@ -1,0 +1,20 @@
+{
+  "clusters": {
+    "$product": {
+      "scheduler": ["$BUILD/target/release/rsds"],
+      "workers": {
+        "$product": {
+          "count": [1],
+          "cores": [24]
+        }
+      }
+    }
+  },
+  "repeat": 5,
+  "usecases": [{
+    "$product": {
+      "usecase": ["merge"],
+      "args": [2000]
+    }
+  }]
+}
