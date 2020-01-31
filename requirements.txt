@@ -1,0 +1,12 @@
+git+https://github.com/kobzol/distributed.git@simple-frame
+orco
+pytest
+seaborn
+pandas
+click
+tqdm
+joblib
+xarray
+scikit-learn
+dask[dataframe]
+psutil
