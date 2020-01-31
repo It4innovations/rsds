@@ -66,8 +66,13 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         } else {
             Vec::new()
         };
-        let unfinished_deps = inputs.len() as u32;
-
+        let unfinished_deps = inputs.iter().map(|task_id| {
+            if *task_id >= lowest_id {
+                1
+            } else {
+                if core.get_task_by_id_or_panic(*task_id).get().is_finished() { 0 } else { 1 }
+            }
+        }).sum();
         log::debug!("New task id={}, key={}", task_id, task_key);
         let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
