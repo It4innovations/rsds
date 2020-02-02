@@ -112,6 +112,14 @@ pub struct CancelKeysMsg {
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
+pub struct WhoHasMsg {
+    pub keys: Vec<String>
+}
+
+pub type WhoHasMsgResponse = Map<String, Vec<String>>; // key -> [worker address]
+
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum GenericMessage<T = SerializedMemory> {
@@ -120,6 +128,8 @@ pub enum GenericMessage<T = SerializedMemory> {
     HeartbeatWorker(HeartbeatWorkerMsg),
     RegisterClient(RegisterClientMsg),
     RegisterWorker(RegisterWorkerMsg),
+    #[serde(rename = "who_has")]
+    WhoHas(WhoHasMsg),
     Gather(GatherMsg),
     Scatter(ScatterMsg<T>),
     Cancel(CancelKeysMsg),
@@ -135,6 +145,7 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
             Self::Transport::HeartbeatWorker(msg) => Self::HeartbeatWorker(msg),
             Self::Transport::RegisterClient(msg) => Self::RegisterClient(msg),
             Self::Transport::RegisterWorker(msg) => Self::RegisterWorker(msg),
+            Self::Transport::WhoHas(msg) => Self::WhoHas(msg),
             Self::Transport::Gather(msg) => Self::Gather(msg),
             Self::Transport::Scatter(msg) => Self::Scatter(ScatterMsg {
                 client: msg.client,
@@ -160,6 +171,7 @@ impl ToDaskTransport for GenericMessage<SerializedMemory> {
             Self::HeartbeatWorker(msg) => Self::Transport::HeartbeatWorker(msg),
             Self::RegisterClient(msg) => Self::Transport::RegisterClient(msg),
             Self::RegisterWorker(msg) => Self::Transport::RegisterWorker(msg),
+            Self::WhoHas(msg) => Self::Transport::WhoHas(msg),
             Self::Gather(msg) => Self::Transport::Gather(msg),
             Self::Scatter(msg) => Self::Transport::Scatter(ScatterMsg {
                 client: msg.client,
