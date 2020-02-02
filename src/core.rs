@@ -4,7 +4,7 @@ use futures::stream::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::client::{Client, ClientId};
-use crate::common::{Identifiable, KeyIdMap, Map, WrappedRcRefCell};
+use crate::common::{Identifiable, KeyIdMap, Map, WrappedRcRefCell, IdCounter};
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
 use crate::protocol::workermsg::{TaskFinishedMsg, StealResponseMsg, WorkerState};
@@ -51,7 +51,9 @@ pub struct Core {
 
     scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>,
 
-    id_counter: u64,
+    task_id_counter: IdCounter,
+    worker_id_counter: IdCounter,
+    client_id_counter: IdCounter,
     uid: String,
 
     // This is reference to itself
@@ -67,22 +69,16 @@ impl Core {
         self.clients.insert(client);
     }
 
-    #[inline]
-    fn new_id(&mut self) -> u64 {
-        self.id_counter += 1;
-        self.id_counter
-    }
-
     pub fn new_client_id(&mut self) -> ClientId {
-        self.new_id()
+        self.client_id_counter.next()
     }
 
     pub fn new_worker_id(&mut self) -> WorkerId {
-        self.new_id()
+        self.worker_id_counter.next()
     }
 
     pub fn new_task_id(&mut self) -> TaskId {
-        self.new_id()
+        self.task_id_counter.next()
     }
 
     pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
@@ -434,7 +430,9 @@ impl CoreRef {
             tasks_by_id: Default::default(),
             tasks_by_key: Default::default(),
 
-            id_counter: 0,
+            task_id_counter: Default::default(),
+            worker_id_counter: Default::default(),
+            client_id_counter: Default::default(),
 
             workers: KeyIdMap::new(),
             clients: KeyIdMap::new(),
