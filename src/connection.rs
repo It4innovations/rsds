@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use smallvec::smallvec;
 
 use crate::core::CoreRef;
-use crate::reactor::{gather, get_ncores, scatter};
+use crate::reactor::{gather, get_ncores, scatter, who_has};
 
 use crate::client::execute_client;
 use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
@@ -124,6 +124,9 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                             .collect(),
                     };
                     writer.send(serialize_single_packet(rsp)?).await?;
+                }
+                GenericMessage::WhoHas(msg) => {
+                    who_has(&core_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);

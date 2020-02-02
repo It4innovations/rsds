@@ -79,6 +79,11 @@ type CancelMsg = {
     "force": boolean,
     "reply": boolean
 };
+type WhoHasMsg = {
+    "op": "who_has",
+    "keys": [string],
+    "reply": boolean
+};
 
 
 //---------------------//
@@ -114,6 +119,9 @@ type NcoresResponseMsg = {
 };
 type SchedulerGetDataResponse = GetDataResponseType;
 type ScatterResponseMsg = [string];
+type WhoHasMsgResponse = {
+    [key: string]: [string]
+};
 
 
 //---------------------//

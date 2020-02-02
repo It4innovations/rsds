@@ -3,7 +3,7 @@ use crate::common::{Map, Set};
 use crate::core::CoreRef;
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{ClientTaskSpec, UpdateGraphMsg};
-use crate::protocol::generic::{ScatterMsg, ScatterResponse};
+use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
     map_ref_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
@@ -316,4 +316,18 @@ pub async fn update_data_on_worker(
     assert_eq!(response[0].status.as_bytes(), b"OK");
 
     Ok(())
+}
+
+pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(core_ref: &CoreRef, sink: &mut W, keys: Vec<String>) -> crate::Result<()> {
+    let core = core_ref.get();
+    let mut response: WhoHasMsgResponse = keys.into_iter().map(|key| {
+        let task = core.get_task_by_key_or_panic(&key);
+        let workers = match task.get().get_workers() {
+            Some(ws) => ws.iter().map(|w| w.get().key().to_owned()).collect(),
+            None => vec!()
+        };
+        (key, workers)
+    }).collect();
+
+    sink.send(serialize_single_packet(response)?).await
 }
