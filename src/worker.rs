@@ -7,7 +7,7 @@ use crate::core::CoreRef;
 use crate::notifications::Notifications;
 use crate::protocol::generic::RegisterWorkerMsg;
 use crate::protocol::protocol::{serialize_batch_packet, Batch, DaskPacket};
-use crate::protocol::workermsg::Status;
+use crate::protocol::workermsg::{Status, WorkerState};
 use crate::protocol::workermsg::{FromWorkerMessage, ToWorkerMessage};
 use crate::task::ErrorInfo;
 use futures::{FutureExt, Sink, Stream, StreamExt};
@@ -137,6 +137,10 @@ pub async fn execute_worker<
                         let mut core = core_ref.get_mut();
                         core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
                         // TODO: Inform scheduler
+                    },
+                    FromWorkerMessage::StealResponse(msg) => {
+                        let mut core = core_ref.get_mut();
+                        core.on_steal_response(&worker_ref, msg, &mut notifications);
                     }
                     FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
                     FromWorkerMessage::Unregister => break 'outer,

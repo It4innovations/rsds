@@ -65,6 +65,11 @@ pub struct UpdateDataMsg {
 }
 
 #[derive(Serialize, Debug)]
+pub struct StealRequestMsg {
+    pub key: String,
+}
+
+#[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum ToWorkerMessage<'a> {
@@ -74,6 +79,7 @@ pub enum ToWorkerMessage<'a> {
     GetData(GetDataMsg<'a>),
     #[serde(rename = "update_data")]
     UpdateData(UpdateDataMsg),
+    StealRequest(StealRequestMsg)
 }
 
 #[cfg_attr(test, derive(Deserialize))]
@@ -122,6 +128,27 @@ pub struct AddKeysMsg {
     pub keys: Vec<String>,
 }
 
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkerState {
+    Waiting,
+    Ready,
+    Executing,
+    Memory,
+    Error,
+    Rescheduled,
+    Constrained,
+    LongRunning,
+}
+
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
+pub struct StealResponseMsg {
+    pub key: String,
+    pub state: WorkerState,
+}
+
 /*#[derive(Deserialize, Debug)]
 pub struct RemoveKeysMsg {
     // It seems that it just informative message, ignoring
@@ -140,6 +167,7 @@ pub enum FromWorkerMessage<T = SerializedMemory> {
     AddKeys(AddKeysMsg),
     KeepAlive,
     Unregister,
+    StealResponse(StealResponseMsg),
 }
 
 impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
@@ -158,6 +186,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
             Self::Transport::AddKeys(msg) => Self::AddKeys(msg),
             Self::Transport::KeepAlive => Self::KeepAlive,
             Self::Transport::Unregister => Self::Unregister,
+            Self::Transport::StealResponse(msg) => Self::StealResponse(msg),
         }
     }
 }

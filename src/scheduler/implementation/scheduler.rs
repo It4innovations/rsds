@@ -28,6 +28,7 @@ type Notifications = Set<TaskRef>;
 
 const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
 
+
 impl Scheduler {
     pub fn new() -> Self {
         Scheduler {
@@ -147,8 +148,7 @@ impl Scheduler {
         let mut balanced_tasks = Vec::new();
         let has_underload_workers = self.workers.values().any(|wr| {
             let worker = wr.get();
-            let len = worker.tasks.len() as u32;
-            len < worker.ncpus
+            worker.is_underloaded()
         });
 
         if !has_underload_workers {
@@ -243,8 +243,11 @@ impl Scheduler {
                 task.state = SchedulerTaskState::Finished;
                 task.size = tu.size.unwrap();
                 let wr = task.assigned_worker.take().unwrap();
-                assert!(wr.get_mut().tasks.remove(&tref));
-                let mut invoke_scheduling = false;
+                let mut invoke_scheduling = {
+                    let mut worker = wr.get_mut();
+                    assert!(worker.tasks.remove(&tref));
+                    worker.is_underloaded()
+                };
                 for tref in &task.consumers {
                     let mut t = tref.get_mut();
                     if t.unfinished_deps <= 1 {

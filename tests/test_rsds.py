@@ -1,6 +1,7 @@
 from operator import add
 
 import pytest
+import time
 from dask import delayed
 from distributed.client import Client, Future
 
@@ -31,6 +32,11 @@ def delayed_fn1(x):
 @delayed
 def delayed_fn2(x, y):
     return x + y
+
+
+@delayed
+def delayed_merge(*x):
+    return x
 
 
 class MyException(Exception):
@@ -150,3 +156,42 @@ def test_gather_already_finished(rsds_env):
 
     result = client.gather(z)
     assert result == 11 + 21
+
+
+def test_stealing(rsds_env):
+    client = Client(rsds_env.start([1, 1]))
+    client.wait_for_workers(2)
+
+    @delayed
+    def delayed_sleep(x):
+        time.sleep(x)
+        return x
+
+    @delayed
+    def delayed_const(x):
+        return x
+
+    c1 = delayed_const(0.1)
+    c2 = delayed_const(0.5)
+
+    sleeps = []
+    for i in range(4):
+        sleeps.append(delayed_sleep(c1))
+        sleeps.append(delayed_sleep(c2))
+
+    rs = delayed_merge(*sleeps).compute()
+    assert rs == (0.1, 0.5) * 4
+
+"""
+def test_resubmit(rsds_env):
+    url = rsds_env.start([1])
+    import numpy as np
+    import dask.array as da
+    client = Client(url)
+    size = 1000
+    for i in range(2):
+        da.random.seed(0)
+        x = da.random.random((size, size), chunks=(1000, 1000))
+        y = x + x.T
+        res = np.sum(y[::2, size / 2:].mean(axis=1).compute())
+"""

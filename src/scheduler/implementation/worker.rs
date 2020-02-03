@@ -17,6 +17,12 @@ impl Worker {
             assert!(wr.eq(worker_ref));
         }
     }
+
+    #[inline]
+    pub fn is_underloaded(&self) -> bool {
+        let len = self.tasks.len() as u32;
+        len < self.ncpus
+    }
 }
 
 pub type WorkerRef = crate::common::WrappedRcRefCell<Worker>;

@@ -19,6 +19,7 @@ pub enum TaskRuntimeState {
     Waiting,
     Scheduled(WorkerRef),
     Assigned(WorkerRef),
+    Stealing(WorkerRef, WorkerRef),      // (from, to)
     Finished(DataInfo, Vec<WorkerRef>),
     Released(DataInfo),
     Error(Rc<ErrorInfo>),
@@ -30,6 +31,7 @@ impl fmt::Debug for TaskRuntimeState {
             Self::Waiting => 'W',
             Self::Scheduled(_) => 'S',
             Self::Assigned(_) => 'A',
+            Self::Stealing(_, _) => 'T',
             Self::Finished(_, _) => 'F',
             Self::Released(_) => 'R',
             Self::Error(_) => 'E',
@@ -227,9 +229,9 @@ impl Task {
     }
 
     #[inline]
-    pub fn is_assigned_on(&self, worker_ref: &WorkerRef) -> bool {
+    pub fn is_assigned_or_stealed_from(&self, worker_ref: &WorkerRef) -> bool {
         match &self.state {
-            TaskRuntimeState::Assigned(w) => worker_ref == w,
+            TaskRuntimeState::Assigned(w) | TaskRuntimeState::Stealing(w, _) => worker_ref == w,
             _ => false,
         }
     }

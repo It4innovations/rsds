@@ -7,7 +7,7 @@ use crate::scheduler::ToSchedulerMessage;
 use crate::common::Map;
 use crate::protocol::clientmsg::{TaskErredMsg, ToClientMessage};
 use crate::protocol::protocol::MessageBuilder;
-use crate::protocol::workermsg::{DeleteDataMsg, ToWorkerMessage};
+use crate::protocol::workermsg::{DeleteDataMsg, ToWorkerMessage, StealRequestMsg};
 use crate::task::{Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::{Worker, WorkerRef};
 
@@ -15,6 +15,7 @@ use crate::worker::{Worker, WorkerRef};
 pub struct WorkerNotification {
     pub compute_tasks: Vec<TaskRef>,
     pub delete_keys: Vec<TaskKey>,
+    pub steal_tasks: Vec<TaskRef>,
 }
 
 #[derive(Default)]
@@ -84,6 +85,14 @@ impl Notifications {
             .push(task_ref);
     }
 
+    pub fn steal_task_from_worker(&mut self, worker_ref: WorkerRef, task_ref: TaskRef) {
+        self.workers
+            .entry(worker_ref)
+            .or_default()
+            .steal_tasks
+            .push(task_ref);
+    }
+
     pub fn notify_client_about_task_error(&mut self, client_id: ClientId, task_ref: TaskRef) {
         self.clients
             .entry(client_id)
@@ -112,6 +121,14 @@ impl Notifications {
                     report: false,
                 }));
             }
+
+            for tref in w_update.steal_tasks {
+                let task = tref.get();
+                mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
+                    key: task.key.clone()
+                }));
+            }
+
             if !mbuilder.is_empty() {
                 let mut worker = worker_ref.get_mut();
                 worker

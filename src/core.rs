@@ -7,11 +7,12 @@ use crate::client::{Client, ClientId};
 use crate::common::{Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
-use crate::protocol::workermsg::TaskFinishedMsg;
+use crate::protocol::workermsg::{TaskFinishedMsg, StealResponseMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
+use crate::task::TaskRuntimeState::Scheduled;
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -106,7 +107,7 @@ impl Core {
             (task.id, task.key.clone())
         };
         self.tasks_by_id.insert(task_id, task_ref.clone());
-        self.tasks_by_key.insert(task_key, task_ref);
+        assert!(self.tasks_by_key.insert(task_key, task_ref).is_none());
     }
 
     pub fn remove_task(&mut self, task: &Task) {
@@ -218,23 +219,39 @@ impl Core {
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
 
             let mut task = task_ref.get_mut();
-            assert!(task.is_waiting());
-            if task.is_ready() {
-                task.state = TaskRuntimeState::Assigned(worker_ref.clone());
-                log::debug!(
-                    "Task task={} scheduled & assigned to worker={}",
-                    assignment.task,
-                    assignment.worker
-                );
-                notifications.compute_task_on_worker(worker_ref, task_ref.clone());
-            } else {
-                task.state = TaskRuntimeState::Scheduled(worker_ref);
-                log::debug!(
-                    "Task task={} scheduled to worker={}",
-                    assignment.task,
-                    assignment.worker
-                );
-            }
+            let state = match &task.state {
+                TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled(_) => {
+                    if task.is_ready() {
+                        log::debug!(
+                            "Task task={} scheduled & assigned to worker={}",
+                            assignment.task,
+                            assignment.worker
+                        );
+                        notifications.compute_task_on_worker(worker_ref.clone(), task_ref.clone());
+                        TaskRuntimeState::Assigned(worker_ref)
+                    } else {
+                        log::debug!(
+                            "Task task={} scheduled to worker={}",
+                            assignment.task,
+                            assignment.worker
+                        );
+                        TaskRuntimeState::Scheduled(worker_ref)
+                    }
+                },
+                TaskRuntimeState::Assigned(wref) => {
+                    log::debug!("Task task={} scheduled to worker={}; stealing (1) from worker={}", assignment.task, assignment.worker, wref.get().id);
+                    notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
+                    TaskRuntimeState::Stealing(wref.clone(), worker_ref)
+                },
+                TaskRuntimeState::Stealing(wref1, _) => {
+                    log::debug!("Task task={} scheduled to worker={}; stealing (2) from worker={}", assignment.task, assignment.worker, wref1.get().id);
+                    TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
+                },
+                TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released(_) | TaskRuntimeState::Error(_) => {
+                    panic!("Scheduling invalid task={}", assignment.task);
+                }
+            };
+            task.state = state;
         }
         notifications.send(self).unwrap();
     }
@@ -251,6 +268,34 @@ impl Core {
         for client_id in task.subscribed_clients() {
             notifications.notify_client_about_task_error(*client_id, task_ref.clone());
         }
+    }
+
+    pub fn on_steal_response(&mut self, worker_ref: &WorkerRef, msg: StealResponseMsg, mut notifications: &mut Notifications) {
+        let task_ref = self.get_task_by_key_or_panic(&msg.key);
+        let mut task = task_ref.get_mut();
+        let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
+            assert!(from_w == worker_ref);
+            to_w.clone()
+        } else {
+            panic!("Invalid state of task when steal response occured");
+        };
+
+        // This needs to correspond with behavior in worker!
+        let success = match msg.state {
+            WorkerState::Waiting | WorkerState::Ready => true,
+            _ => false
+        };
+
+        if success {
+            log::debug!("Task stealing was successful task={}", task.id);
+            notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());
+            TaskRuntimeState::Assigned(to_w);
+            task.state = TaskRuntimeState::Waiting
+        } else {
+            log::debug!("Task stealing was not successful task={}", task.id);
+            task.state = TaskRuntimeState::Assigned(worker_ref.clone())
+        }
+        // TODO: Notify scheduler
     }
 
     pub fn on_task_error(
@@ -329,7 +374,7 @@ impl Core {
                 task.id,
                 worker.get().id()
             );
-            assert!(task.is_assigned_on(worker));
+            assert!(task.is_assigned_or_stealed_from(worker));
             task.state = TaskRuntimeState::Finished(
                 DataInfo {
                     size: msg.nbytes,
