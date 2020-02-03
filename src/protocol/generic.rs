@@ -1,7 +1,6 @@
 use crate::common::Map;
 use crate::protocol::protocol::{
-    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
-    SerializedMemory, SerializedTransport, ToDaskTransport,
+    map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,7 +112,7 @@ pub struct CancelKeysMsg {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct WhoHasMsg {
-    pub keys: Vec<String>
+    pub keys: Vec<String>,
 }
 
 pub type WhoHasMsgResponse = Map<String, Vec<String>>; // key -> [worker address]
@@ -161,34 +160,41 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
     }
 }
 
-#[cfg(test)]
-impl ToDaskTransport for GenericMessage<SerializedMemory> {
-    type Transport = GenericMessage<SerializedTransport>;
-
-    fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
-        match self {
-            Self::Identity(msg) => Self::Transport::Identity(msg),
-            Self::HeartbeatWorker(msg) => Self::Transport::HeartbeatWorker(msg),
-            Self::RegisterClient(msg) => Self::Transport::RegisterClient(msg),
-            Self::RegisterWorker(msg) => Self::Transport::RegisterWorker(msg),
-            Self::WhoHas(msg) => Self::Transport::WhoHas(msg),
-            Self::Gather(msg) => Self::Transport::Gather(msg),
-            Self::Scatter(msg) => Self::Transport::Scatter(ScatterMsg {
-                client: msg.client,
-                broadcast: msg.broadcast,
-                data: map_to_transport(msg.data, message_builder),
-                reply: msg.reply,
-                timeout: msg.timeout,
-                workers: msg.workers,
-            }),
-            Self::Cancel(msg) => Self::Transport::Cancel(msg),
-            Self::Ncores => Self::Transport::Ncores,
-        };
-    }
-}
-
 #[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 pub struct SimpleMessage {
     pub op: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::protocol::generic::{GenericMessage, ScatterMsg};
+    use crate::protocol::protocol::{
+        map_to_transport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport,
+    };
+
+    impl ToDaskTransport for GenericMessage<SerializedMemory> {
+        type Transport = GenericMessage<SerializedTransport>;
+
+        fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
+            match self {
+                Self::Identity(msg) => Self::Transport::Identity(msg),
+                Self::HeartbeatWorker(msg) => Self::Transport::HeartbeatWorker(msg),
+                Self::RegisterClient(msg) => Self::Transport::RegisterClient(msg),
+                Self::RegisterWorker(msg) => Self::Transport::RegisterWorker(msg),
+                Self::WhoHas(msg) => Self::Transport::WhoHas(msg),
+                Self::Gather(msg) => Self::Transport::Gather(msg),
+                Self::Scatter(msg) => Self::Transport::Scatter(ScatterMsg {
+                    client: msg.client,
+                    broadcast: msg.broadcast,
+                    data: map_to_transport(msg.data, message_builder),
+                    reply: msg.reply,
+                    timeout: msg.timeout,
+                    workers: msg.workers,
+                }),
+                Self::Cancel(msg) => Self::Transport::Cancel(msg),
+                Self::Ncores => Self::Transport::Ncores,
+            };
+        }
+    }
 }

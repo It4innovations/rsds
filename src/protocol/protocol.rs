@@ -402,15 +402,14 @@ mod tests {
         ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };
     use crate::protocol::protocol::{
-        asyncread_to_stream, dask_parse_stream, serialize_single_packet, Batch, DaskCodec,
-        DaskPacket, FromDaskTransport, SerializedMemory,
+        serialize_single_packet, Batch, DaskCodec, DaskPacket, SerializedMemory,
     };
     use crate::Result;
     use bytes::{BufMut, BytesMut};
-    use futures::{SinkExt, StreamExt};
+    use futures::SinkExt;
     use maplit::hashmap;
 
-    use crate::test_util::load_bin_test_data;
+    use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
     use std::io::Cursor;
@@ -522,7 +521,7 @@ mod tests {
     #[tokio::test]
     async fn parse_update_graph_1() -> Result<()> {
         let main: Batch<FromClientMessage> =
-            parse_bytes(load_bin_test_data("data/pandas-update-graph-1.bin")).await;
+            bytes_to_msg(&load_bin_test_data("data/pandas-update-graph-1.bin"))?;
         assert_eq!(main.len(), 1);
         match &main[0] {
             FromClientMessage::UpdateGraph(msg) => {
@@ -557,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn parse_update_graph_2() -> Result<()> {
         let main: Batch<FromClientMessage> =
-            parse_bytes(load_bin_test_data("data/pandas-update-graph-2.bin")).await;
+            bytes_to_msg(&load_bin_test_data("data/pandas-update-graph-2.bin"))?;
         assert_eq!(main.len(), 2);
         match &main[0] {
             FromClientMessage::UpdateGraph(msg) => {
@@ -588,24 +587,6 @@ mod tests {
         Ok(())
     }
 
-    fn get_binary(serialized: &SerializedMemory) -> Vec<u8> {
-        match serialized {
-            SerializedMemory::Inline(v) => match v {
-                rmpv::Value::Binary(v) => v.clone(),
-                _ => panic!("Wrong MessagePack value"),
-            },
-            _ => panic!("Wrong SerializedMemory type"),
-        }
-    }
-
-    async fn parse_bytes<T: FromDaskTransport>(data: Vec<u8>) -> Batch<T> {
-        dask_parse_stream(asyncread_to_stream(data.as_slice()))
-            .next()
-            .await
-            .unwrap()
-            .unwrap()
-    }
-
     #[tokio::test]
     async fn serialize_key_in_memory() -> Result<()> {
         let msg = ToClientMessage::KeyInMemory(KeyInMemoryMsg {
@@ -629,6 +610,16 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    fn get_binary(serialized: &SerializedMemory) -> Vec<u8> {
+        match serialized {
+            SerializedMemory::Inline(v) => match v {
+                rmpv::Value::Binary(v) => v.clone(),
+                _ => panic!("Wrong MessagePack value"),
+            },
+            _ => panic!("Wrong SerializedMemory type"),
+        }
     }
 
     fn hash(data: &[u8]) -> u64 {

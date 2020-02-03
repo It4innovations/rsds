@@ -152,23 +152,6 @@ pub async fn execute_worker<
         Ok(())
     };
 
-    /*if !new_ready_scheduled.is_empty() {
-        let mut tasks_per_worker: Map<WorkerRef, Vec<TaskRef>> = Default::default();
-        for task_ref in new_ready_scheduled {
-            let worker = {
-                let mut task = task_ref.get_mut();
-                let worker_ref = task.worker.clone().unwrap();
-                task.state = TaskRuntimeState::Assigned;
-                log::debug!("Task id={} assigned to worker={}", task.id, worker_ref.get().id);
-                worker_ref
-            };
-            let v = tasks_per_worker.entry(worker).or_insert_with(Vec::new);
-            v.push(task_ref);
-        }
-        let core = core_ref.get();
-        send_tasks_to_workers(&core, tasks_per_worker);
-    }*/
-
     let result = futures::future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
     if let Err(e) = result.factor_first().0 {
         log::error!(

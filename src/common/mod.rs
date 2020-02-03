@@ -3,9 +3,9 @@ pub type Set<T> = hashbrown::HashSet<T>;
 
 pub use wrapped::{RcEqWrapper, WrappedRcRefCell};
 
-pub use key_id_map::{Identifiable, KeyIdMap};
 pub use id_counter::IdCounter;
+pub use key_id_map::{Identifiable, KeyIdMap};
 
+mod id_counter;
 mod key_id_map;
 mod wrapped;
-mod id_counter;
