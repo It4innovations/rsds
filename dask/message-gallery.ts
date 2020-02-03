@@ -308,3 +308,8 @@ type StealResponseMsg = {
     "key": string,
     "state": WorkerTaskState
 };
+type ReleaseMsg = {
+    "op": "release",
+    "key": string,
+    "cause": null
+};

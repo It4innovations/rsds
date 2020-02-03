@@ -149,6 +149,12 @@ pub struct StealResponseMsg {
     pub state: WorkerState,
 }
 
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
+pub struct ReleaseMsg {
+    pub key: String,
+}
+
 /*#[derive(Deserialize, Debug)]
 pub struct RemoveKeysMsg {
     // It seems that it just informative message, ignoring
@@ -168,6 +174,7 @@ pub enum FromWorkerMessage<T = SerializedMemory> {
     KeepAlive,
     Unregister,
     StealResponse(StealResponseMsg),
+    Release(ReleaseMsg)
 }
 
 impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
@@ -187,6 +194,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
             Self::Transport::KeepAlive => Self::KeepAlive,
             Self::Transport::Unregister => Self::Unregister,
             Self::Transport::StealResponse(msg) => Self::StealResponse(msg),
+            Self::Transport::Release(msg) => Self::Release(msg)
         }
     }
 }
