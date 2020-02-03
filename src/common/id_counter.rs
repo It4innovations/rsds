@@ -1,6 +1,6 @@
 #[derive(Default, Debug)]
 pub struct IdCounter {
-    value: u64
+    value: u64,
 }
 
 impl IdCounter {

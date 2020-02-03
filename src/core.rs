@@ -4,7 +4,7 @@ use futures::stream::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::client::{Client, ClientId};
-use crate::common::{Identifiable, KeyIdMap, Map, WrappedRcRefCell, IdCounter};
+use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
 use crate::protocol::workermsg::{TaskFinishedMsg, StealResponseMsg, WorkerState};
@@ -167,34 +167,6 @@ impl Core {
             .collect()
     }
 
-    /*
-    fn _send_scheduler_update_now(&mut self) {
-        log::debug!("Sending update to scheduler");
-        let update = std::mem::take(&mut self.update);
-        let msg = ToSchedulerMessage::Update(update);
-        self.scheduler_sender.try_send(msg).unwrap();
-    }
-
-    pub fn send_scheduler_update(&mut self, aggregate: bool) {
-        if self.update_timeout_running {
-            return;
-        }
-        if !aggregate {
-            self._send_scheduler_update_now();
-            return;
-        }
-        self.update_timeout_running = true;
-        let core_ref = self.new_self_ref();
-        let deadline = Instant::now()
-            .checked_add(Duration::from_millis(25))
-            .unwrap();
-        current_thread::spawn(tokio::timer::delay(deadline).map(move |()| {
-            let mut core = core_ref.get_mut();
-            core.update_timeout_running = false;
-            core._send_scheduler_update_now();
-        }));
-    }*/
-
     pub fn send_scheduler_messages(&mut self, messages: Vec<ToSchedulerMessage>) {
         self.scheduler_sender.send(messages).unwrap();
     }
@@ -339,7 +311,7 @@ impl Core {
             let tr = self.get_task_by_id_or_panic(*input_id);
             let mut t = tr.get_mut();
             assert!(t.consumers.remove(&task_ref));
-            t.check_if_data_cannot_be_removed(notifications);
+            t.check_if_data_can_be_removed(notifications);
         }
     }
 
@@ -398,7 +370,7 @@ impl Core {
             notifications.task_finished(&worker.get(), &task);
             self.unregister_as_consumer(&task, &task_ref, &mut notifications);
             self.notify_key_in_memory(&task);
-            task.check_if_data_cannot_be_removed(notifications);
+            task.check_if_data_can_be_removed(notifications);
         }
     }
 

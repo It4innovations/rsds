@@ -126,6 +126,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     writer.send(serialize_single_packet(rsp)?).await?;
                 }
                 GenericMessage::WhoHas(msg) => {
+                    log::debug!("WhoHas request from {} (keys={:?})", &address, msg.keys);
                     who_has(&core_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
@@ -137,11 +138,10 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     scatter(&core_ref, &mut writer, msg).await?;
                 }
                 GenericMessage::Ncores => {
+                    log::debug!("Ncores request from {}", &address);
                     get_ncores(&core_ref, &mut writer).await?;
                 }
-                _ => {
-                    panic!("Unhandled generic message: {:?}", message);
-                }
+                _ => panic!("Unhandled generic message: {:?}", message),
             }
         }
     }

@@ -66,13 +66,18 @@ pub fn update_graph(core_ref: &CoreRef, client_id: ClientId, update: UpdateGraph
         } else {
             Vec::new()
         };
-        let unfinished_deps = inputs.iter().map(|task_id| {
-            if *task_id >= lowest_id {
-                1
-            } else {
-                if core.get_task_by_id_or_panic(*task_id).get().is_finished() { 0 } else { 1 }
-            }
-        }).sum();
+        let unfinished_deps = inputs
+            .iter()
+            .map(|task_id| {
+                if *task_id >= lowest_id {
+                    1
+                } else if core.get_task_by_id_or_panic(*task_id).get().is_finished() {
+                    0
+                } else {
+                    1
+                }
+            })
+            .sum();
         log::debug!("New task id={}, key={}", task_id, task_key);
         let task_ref = TaskRef::new(task_id, task_key, task_spec, inputs, unfinished_deps);
 
@@ -138,7 +143,7 @@ pub fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<Strin
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
 
-        if task.check_if_data_cannot_be_removed(&mut notifications) {
+        if task.check_if_data_can_be_removed(&mut notifications) {
             core.remove_task(&task); // TODO: recursively remove dependencies
         }
     }
@@ -318,16 +323,23 @@ pub async fn update_data_on_worker(
     Ok(())
 }
 
-pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(core_ref: &CoreRef, sink: &mut W, keys: Vec<String>) -> crate::Result<()> {
+pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+    core_ref: &CoreRef,
+    sink: &mut W,
+    keys: Vec<String>,
+) -> crate::Result<()> {
     let core = core_ref.get();
-    let mut response: WhoHasMsgResponse = keys.into_iter().map(|key| {
-        let task = core.get_task_by_key_or_panic(&key);
-        let workers = match task.get().get_workers() {
-            Some(ws) => ws.iter().map(|w| w.get().key().to_owned()).collect(),
-            None => vec!()
-        };
-        (key, workers)
-    }).collect();
+    let response: WhoHasMsgResponse = keys
+        .into_iter()
+        .map(|key| {
+            let task = core.get_task_by_key_or_panic(&key);
+            let workers = match task.get().get_workers() {
+                Some(ws) => ws.iter().map(|w| w.get().key().to_owned()).collect(),
+                None => vec![],
+            };
+            (key, workers)
+        })
+        .collect();
 
     sink.send(serialize_single_packet(response)?).await
 }

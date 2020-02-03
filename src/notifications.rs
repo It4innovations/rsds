@@ -54,7 +54,7 @@ impl Notifications {
             .entry(worker_ref)
             .or_default()
             .delete_keys
-            .push(task.key.to_string());
+            .push(task.key.clone());
     }
 
     pub fn task_placed(&mut self, worker: &Worker, task: &Task) {
@@ -142,7 +142,11 @@ impl Notifications {
             if !mbuilder.is_empty() {
                 let mut worker = worker_ref.get_mut();
                 worker
-                    .send_dask_message(mbuilder.build_batch().expect("AAA"))
+                    .send_dask_message(
+                        mbuilder
+                            .build_batch()
+                            .expect("Could not build worker notification messages"),
+                    )
                     .unwrap_or_else(|_| {
                         // !!! Do not propagate error right now, we need to finish sending protocol to others
                         // Worker cleanup is done elsewhere (when worker future terminates),

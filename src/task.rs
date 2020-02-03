@@ -97,7 +97,7 @@ impl Task {
         }
     }
 
-    pub fn check_if_data_cannot_be_removed(&mut self, notifications: &mut Notifications) -> bool {
+    pub fn check_if_data_can_be_removed(&mut self, notifications: &mut Notifications) -> bool {
         if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
             // Hack for changing Finished -> Released while moving DataInfo
             let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
@@ -126,12 +126,10 @@ impl Task {
         let mut stack: Vec<_> = self.consumers.iter().cloned().collect();
         let mut result: HashSet<TaskRef> = stack.iter().cloned().collect();
 
-        while !stack.is_empty() {
-            let task_ref = stack.pop().unwrap();
+        while let Some(task_ref) = stack.pop() {
             let task = task_ref.get();
             for t in &task.consumers {
-                if !result.contains(&t) {
-                    result.insert(t.clone());
+                if result.insert(t.clone()) {
                     stack.push(t.clone());
                 }
             }
@@ -288,5 +286,58 @@ impl TaskRef {
             consumers: Default::default(),
             subscribed_clients: Default::default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::protocol::clientmsg::ClientTaskSpec;
+    use crate::protocol::protocol::SerializedMemory;
+    use crate::scheduler::schedproto::TaskId;
+    use crate::task::TaskRef;
+    use std::default::Default;
+
+    #[test]
+    fn task_consumers_empty() {
+        let a = make(0);
+        assert_eq!(a.get().collect_consumers(), Default::default());
+    }
+
+    #[test]
+    fn task_recursive_consumers() {
+        let a = make(0);
+        let b = make_deps(1, vec![&a]);
+        let c = make_deps(2, vec![&b]);
+        let d = make_deps(3, vec![&b]);
+        let e = make_deps(4, vec![&c, &d]);
+
+        assert_eq!(
+            a.get().collect_consumers(),
+            vec!(b, c, d, e).into_iter().collect()
+        );
+    }
+
+    fn make(id: TaskId) -> TaskRef {
+        TaskRef::new(
+            id,
+            id.to_string(),
+            ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
+            vec![],
+            0,
+        )
+    }
+    fn make_deps(id: TaskId, dependencies: Vec<&TaskRef>) -> TaskRef {
+        let task = TaskRef::new(
+            id,
+            id.to_string(),
+            ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
+            dependencies.iter().map(|t| t.get().id).collect(),
+            dependencies.len() as u32,
+        );
+
+        for dep in dependencies {
+            dep.get_mut().consumers.insert(task.clone());
+        }
+        task
     }
 }
