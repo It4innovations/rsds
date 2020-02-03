@@ -285,7 +285,7 @@ impl Core {
             WorkerState::Waiting | WorkerState::Ready => true,
             _ => false
         };
-
+        notifications.task_steal_response(&worker_ref.get(), &to_w.get(), &task, success);
         if success {
             log::debug!("Task stealing was successful task={}", task.id);
             notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());

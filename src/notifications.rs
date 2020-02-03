@@ -1,7 +1,7 @@
 use crate::client::ClientId;
 use crate::core::Core;
 
-use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
+use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType, TaskStealResponse};
 use crate::scheduler::ToSchedulerMessage;
 
 use crate::common::Map;
@@ -74,6 +74,16 @@ impl Notifications {
                 id: task.id,
                 worker: worker.id,
                 size: Some(task.data_info().unwrap().size),
+            }));
+    }
+
+    pub fn task_steal_response(&mut self, from_worker: &Worker, to_worker: &Worker, task: &Task, success: bool) {
+        self.scheduler_messages
+            .push(ToSchedulerMessage::TaskStealResponse(TaskStealResponse {
+                id: task.id,
+                from_worker: from_worker.id,
+                to_worker: to_worker.id,
+                success,
             }));
     }
 

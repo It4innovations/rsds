@@ -5,9 +5,7 @@ use crate::scheduler::implementation::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::implementation::utils::compute_b_level;
 use crate::scheduler::implementation::worker::{Worker, WorkerRef};
 use crate::scheduler::interface::SchedulerComm;
-use crate::scheduler::schedproto::{
-    SchedulerRegistration, TaskAssignment, TaskId, TaskUpdate, TaskUpdateType, WorkerId,
-};
+use crate::scheduler::schedproto::{SchedulerRegistration, TaskAssignment, TaskId, TaskUpdate, TaskUpdateType, WorkerId, TaskStealResponse};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use futures::StreamExt;
 use rand::rngs::ThreadRng;
@@ -290,13 +288,38 @@ impl Scheduler {
         false
     }
 
+    pub fn rollback_steal(&mut self, response: TaskStealResponse) -> bool {
+        let tref = self.get_task(response.id);
+        let mut task = tref.get_mut();
+        let new_wref = self.get_worker(response.to_worker);
+
+        let need_balancing = {
+            let wref = task.assigned_worker.as_ref().unwrap();
+            if &wref == &new_wref {
+                return false;
+            }
+            let mut worker = wref.get_mut();
+            worker.tasks.remove(&tref);
+            worker.is_underloaded()
+        };
+        task.assigned_worker = Some(new_wref.clone());
+        let mut new_worker = new_wref.get_mut();
+        new_worker.tasks.insert(tref.clone());
+        need_balancing
+    }
+
     pub fn update(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
         let mut invoke_scheduling = false;
         for message in messages {
             match message {
                 ToSchedulerMessage::TaskUpdate(tu) => {
                     invoke_scheduling |= self.task_update(tu);
-                }
+                },
+                ToSchedulerMessage::TaskStealResponse(sr) => {
+                    if !sr.success {
+                        invoke_scheduling |= self.rollback_steal(sr);
+                    }
+                },
                 ToSchedulerMessage::NewTask(ti) => {
                     log::debug!("New task {} #inputs={}", ti.id, ti.inputs.len());
                     let task_id = ti.id;

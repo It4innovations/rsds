@@ -36,8 +36,17 @@ pub struct TaskUpdate {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct TaskStealResponse {
+    pub id: TaskId,
+    pub success: bool,
+    pub from_worker: WorkerId,
+    pub to_worker: WorkerId,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ToSchedulerMessage {
     TaskUpdate(TaskUpdate),
+    TaskStealResponse(TaskStealResponse),
     NewTask(TaskInfo),
     NewWorker(WorkerInfo),
     NetworkBandwidth(f32),
