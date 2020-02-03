@@ -33,7 +33,15 @@ type GetDataResponseType = {
     "data": DataMap,
     "status": "OK"
 };
-
+type WorkerTaskState =
+    "waiting"
+    | "ready"
+    | "executing"
+    | "memory"
+    | "error"
+    | "rescheduled"
+    | "constrained"
+    | "long-running";
 
 /**
  * UNINITIATED MESSAGES
@@ -93,20 +101,22 @@ type IdentityResponseMsg = {
     "op": "identity-response",
     "type": "Scheduler",
     "id": number,
-    "workers": { [address: string]: {
-        'host': string,
-        'id': string,
-        'last_seen': number,
-        'local_directory': string,
-        'memory_limit': number,
-        'metrics': WorkerMetrics,
-        'name': string,
-        'nanny': string,
-        'nthreads': number,
-        'resources': {},
-        'services': {'dashboard': number},
-        'type': 'Worker'
-    }}
+    "workers": {
+        [address: string]: {
+            'host': string,
+            'id': string,
+            'last_seen': number,
+            'local_directory': string,
+            'memory_limit': number,
+            'metrics': WorkerMetrics,
+            'name': string,
+            'nanny': string,
+            'nthreads': number,
+            'resources': {},
+            'services': { 'dashboard': number },
+            'type': 'Worker'
+        }
+    }
 };
 /**
  * This message must be inside a message array and the array must have length 1!!!
@@ -150,7 +160,7 @@ type RegisterWorkerMsg = {
     'pid': number,
     'reply': boolean,
     'resources': {},
-    'services': {'dashboard': number},
+    'services': { 'dashboard': number },
     'types': {}
 };
 type WorkerGetDataResponse = GetDataResponseType;
@@ -259,6 +269,10 @@ type ComputeTaskMsg = {
     "args?": Bytes | Serialized,
     "kwargs?": Bytes | Serialized
 };
+type StealRequestMsg = {
+    "op": "steal-request",
+    "key": string
+};
 
 
 //---------------------//
@@ -269,7 +283,7 @@ type TaskFinishedMsg = {
     "key": string,
     "nbytes": number,
     "status": "OK",
-    "startstops": [{"action": string, "start": number, "stop": number}],
+    "startstops": [{ "action": string, "start": number, "stop": number }],
     "thread": number,
     "type": Bytes,
     "typename": string
@@ -288,4 +302,9 @@ type KeepAliveMsg = {
 type CloseGracefullyMsg = {
     "op": "close_gracefully",
     "reply": boolean
+};
+type StealResponseMsg = {
+    "op": "steal-response",
+    "key": string,
+    "state": WorkerTaskState
 };
