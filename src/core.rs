@@ -12,7 +12,6 @@ use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
-use crate::task::TaskRuntimeState::Scheduled;
 
 impl Identifiable for Client {
     type Id = ClientId;
