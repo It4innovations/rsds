@@ -66,7 +66,7 @@ ps -ho pgid $!
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
                                         env=environment,
-                                        cwd="/tmp")
+                                        cwd=workdir)
         out, err = self.process.communicate(self.command.encode())
         self.pid = int(out.decode().strip())
         if not self.pid:
