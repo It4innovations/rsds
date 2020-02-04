@@ -19,7 +19,7 @@ pub enum TaskRuntimeState {
     Waiting,
     Scheduled(WorkerRef),
     Assigned(WorkerRef),
-    Stealing(WorkerRef, WorkerRef),      // (from, to)
+    Stealing(WorkerRef, WorkerRef), // (from, to)
     Finished(DataInfo, Vec<WorkerRef>),
     Released(DataInfo),
     Error(Rc<ErrorInfo>),
@@ -180,12 +180,12 @@ impl Task {
                 args,
                 kwargs,
             } => {
-                msg_function = function.to_transport(mbuilder);
-                msg_args = args.to_transport(mbuilder);
-                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport(mbuilder));
+                msg_function = function.to_transport_clone(mbuilder);
+                msg_args = args.to_transport_clone(mbuilder);
+                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
             }
             ClientTaskSpec::Serialized(v) => {
-                msg_task = Some(v.to_transport(mbuilder));
+                msg_task = Some(v.to_transport_clone(mbuilder));
             }
         }
 

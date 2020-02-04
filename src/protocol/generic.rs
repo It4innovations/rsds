@@ -138,7 +138,7 @@ pub enum GenericMessage<T = SerializedMemory> {
 impl FromDaskTransport for GenericMessage<SerializedMemory> {
     type Transport = GenericMessage<SerializedTransport>;
 
-    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
         match source {
             Self::Transport::Identity(msg) => Self::Identity(msg),
             Self::Transport::HeartbeatWorker(msg) => Self::HeartbeatWorker(msg),

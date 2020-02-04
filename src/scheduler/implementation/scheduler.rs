@@ -5,7 +5,10 @@ use crate::scheduler::implementation::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::implementation::utils::compute_b_level;
 use crate::scheduler::implementation::worker::{Worker, WorkerRef};
 use crate::scheduler::interface::SchedulerComm;
-use crate::scheduler::schedproto::{SchedulerRegistration, TaskAssignment, TaskId, TaskUpdate, TaskUpdateType, WorkerId, TaskStealResponse};
+use crate::scheduler::schedproto::{
+    SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
+    WorkerId,
+};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use futures::StreamExt;
 use rand::rngs::ThreadRng;
@@ -25,7 +28,6 @@ pub struct Scheduler {
 type Notifications = Set<TaskRef>;
 
 const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
-
 
 impl Scheduler {
     pub fn new() -> Self {
@@ -314,12 +316,12 @@ impl Scheduler {
             match message {
                 ToSchedulerMessage::TaskUpdate(tu) => {
                     invoke_scheduling |= self.task_update(tu);
-                },
+                }
                 ToSchedulerMessage::TaskStealResponse(sr) => {
                     if !sr.success {
                         invoke_scheduling |= self.rollback_steal(sr);
                     }
-                },
+                }
                 ToSchedulerMessage::NewTask(ti) => {
                     log::debug!("New task {} #inputs={}", ti.id, ti.inputs.len());
                     let task_id = ti.id;

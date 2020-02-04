@@ -1,13 +1,13 @@
 use crate::client::ClientId;
 use crate::core::Core;
 
-use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType, TaskStealResponse};
+use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
 use crate::scheduler::ToSchedulerMessage;
 
 use crate::common::Map;
 use crate::protocol::clientmsg::{TaskErredMsg, ToClientMessage};
 use crate::protocol::protocol::MessageBuilder;
-use crate::protocol::workermsg::{DeleteDataMsg, ToWorkerMessage, StealRequestMsg};
+use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 use crate::task::{Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::{Worker, WorkerRef};
 
@@ -77,7 +77,13 @@ impl Notifications {
             }));
     }
 
-    pub fn task_steal_response(&mut self, from_worker: &Worker, to_worker: &Worker, task: &Task, success: bool) {
+    pub fn task_steal_response(
+        &mut self,
+        from_worker: &Worker,
+        to_worker: &Worker,
+        task: &Task,
+        success: bool,
+    ) {
         self.scheduler_messages
             .push(ToSchedulerMessage::TaskStealResponse(TaskStealResponse {
                 id: task.id,
@@ -135,7 +141,7 @@ impl Notifications {
             for tref in w_update.steal_tasks {
                 let task = tref.get();
                 mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key.clone()
+                    key: task.key.clone(),
                 }));
             }
 
@@ -165,8 +171,8 @@ impl Notifications {
                 for task_ref in c_update.error_tasks.iter() {
                     let task = task_ref.get();
                     if let TaskRuntimeState::Error(error_info) = &task.state {
-                        let exception = mbuilder.add_serialized(&error_info.exception);
-                        let traceback = mbuilder.add_serialized(&error_info.traceback);
+                        let exception = mbuilder.copy_serialized(&error_info.exception);
+                        let traceback = mbuilder.copy_serialized(&error_info.traceback);
                         mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
                             key: task.key.clone(),
                             exception,

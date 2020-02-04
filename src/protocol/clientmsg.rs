@@ -45,7 +45,7 @@ pub enum FromClientMessage<T = SerializedMemory> {
 impl FromDaskTransport for FromClientMessage<SerializedMemory> {
     type Transport = FromClientMessage<SerializedTransport>;
 
-    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
         match source {
             Self::Transport::HeartbeatClient => Self::HeartbeatClient,
             Self::Transport::UpdateGraph(data) => Self::UpdateGraph(UpdateGraphMsg {

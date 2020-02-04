@@ -137,13 +137,13 @@ pub async fn execute_worker<
                         let mut core = core_ref.get_mut();
                         core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
                         // TODO: Inform scheduler
-                    },
+                    }
                     FromWorkerMessage::StealResponse(msg) => {
                         let mut core = core_ref.get_mut();
                         core.on_steal_response(&worker_ref, msg, &mut notifications);
                     }
                     FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
-                    FromWorkerMessage::Release(_) => { /* Do nothing TODO */ },
+                    FromWorkerMessage::Release(_) => { /* Do nothing TODO */ }
                     FromWorkerMessage::Unregister => break 'outer,
                 }
             }
