@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use smallvec::smallvec;
 
 use crate::core::CoreRef;
-use crate::reactor::{gather, get_ncores, scatter, who_has};
+use crate::reactor::{gather, get_ncores, scatter, who_has, ReactorRef};
 
 use crate::client::execute_client;
 use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
@@ -22,14 +22,16 @@ use crate::worker::execute_worker;
 pub async fn connection_initiator(
     mut listener: TcpListener,
     core_ref: CoreRef,
+    reactor_ref: ReactorRef,
 ) -> crate::Result<()> {
     loop {
         let (socket, address) = listener.accept().await?;
         socket.set_nodelay(true)?;
         let core_ref = core_ref.clone();
+        let reactor_ref = reactor_ref.clone();
         tokio::task::spawn_local(async move {
             log::debug!("New connection: {}", address);
-            handle_connection(core_ref, socket, address)
+            handle_connection(core_ref, reactor_ref, socket, address)
                 .await
                 .expect("Connection failed");
             log::debug!("Connection ended: {}", address);
@@ -39,6 +41,7 @@ pub async fn connection_initiator(
 
 pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
+    reactor_ref: ReactorRef,
     stream: T,
     address: std::net::SocketAddr,
 ) -> crate::Result<()> {
@@ -63,6 +66,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     writer.send(serialize_single_packet(hb)?).await?;
                     execute_worker(
                         &core_ref,
+                        &reactor_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
                         writer,
@@ -82,6 +86,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
 
                     execute_client(
                         &core_ref,
+                        &reactor_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
                         writer,
@@ -95,7 +100,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     // TODO: get actual values
                     let rsp = IdentityResponse {
                         r#type: "Scheduler".to_owned(),
-                        id: core_ref.uid(),
+                        id: core_ref.get().uid().to_owned(),
                         workers: core_ref
                             .get()
                             .get_workers()
@@ -127,19 +132,19 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::WhoHas(msg) => {
                     log::debug!("WhoHas request from {} (keys={:?})", &address, msg.keys);
-                    who_has(&core_ref, &mut writer, msg.keys).await?;
+                    who_has(&core_ref, &reactor_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
-                    gather(&core_ref, address, &mut writer, msg.keys).await?;
+                    gather(&core_ref, &reactor_ref, address, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Scatter(msg) => {
                     log::debug!("Scatter request from {}", &address);
-                    scatter(&core_ref, &mut writer, msg).await?;
+                    scatter(&core_ref, &reactor_ref, &mut writer, msg).await?;
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
-                    get_ncores(&core_ref, &mut writer).await?;
+                    get_ncores(&core_ref, &reactor_ref, &mut writer).await?;
                 }
                 _ => panic!("Unhandled generic message: {:?}", message),
             }

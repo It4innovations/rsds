@@ -47,8 +47,6 @@ pub struct Core {
     clients: KeyIdMap<ClientId, Client>,
     workers: KeyIdMap<WorkerId, WorkerRef>,
 
-    scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>,
-
     task_id_counter: IdCounter,
     worker_id_counter: IdCounter,
     client_id_counter: IdCounter,
@@ -63,35 +61,46 @@ pub struct Core {
 pub type CoreRef = WrappedRcRefCell<Core>;
 
 impl Core {
-    pub fn register_client(&mut self, client: Client) {
-        self.clients.insert(client);
+    #[inline]
+    pub fn uid(&self) -> &str {
+        &self.uid
     }
 
+    #[inline]
     pub fn new_client_id(&mut self) -> ClientId {
         self.client_id_counter.next()
     }
 
+    #[inline]
     pub fn new_worker_id(&mut self) -> WorkerId {
         self.worker_id_counter.next()
     }
 
+    #[inline]
     pub fn new_task_id(&mut self) -> TaskId {
         self.task_id_counter.next()
     }
 
+    #[inline]
     pub fn register_worker(&mut self, worker_ref: WorkerRef) {
         self.workers.insert(worker_ref);
+    }
+
+    #[inline]
+    pub fn unregister_worker(&mut self, worker_id: WorkerId) {
+        // TODO: send to scheduler
+        self.workers.remove_by_id(worker_id);
+    }
+
+    #[inline]
+    pub fn register_client(&mut self, client: Client) {
+        self.clients.insert(client);
     }
 
     #[inline]
     pub fn unregister_client(&mut self, client_id: ClientId) {
         // TODO: remove tasks of this client
         self.clients.remove_by_id(client_id);
-    }
-
-    pub fn unregister_worker(&mut self, worker_id: WorkerId) {
-        // TODO: send to scheduler
-        self.workers.remove_by_id(worker_id);
     }
 
     pub fn add_task(&mut self, task_ref: TaskRef) {
@@ -109,40 +118,47 @@ impl Core {
         self.tasks_by_key.remove(&task.key);
     }
 
+    #[inline]
     pub fn get_task_by_key_or_panic(&self, key: &str) -> &TaskRef {
         self.tasks_by_key.get(key).unwrap()
     }
 
+    #[inline]
     pub fn get_task_by_id_or_panic(&self, id: TaskId) -> &TaskRef {
         self.tasks_by_id.get(&id).unwrap_or_else(|| {
             panic!("Asking for invalid task id={}", id);
         })
     }
 
+    #[inline]
     pub fn get_client_by_id_or_panic(&mut self, id: ClientId) -> &mut Client {
         self.clients.get_mut_by_id(id).unwrap_or_else(|| {
             panic!("Asking for invalid client id={}", id);
         })
     }
 
+    #[inline]
     pub fn get_client_id_by_key(&self, key: &str) -> ClientId {
         self.clients.get_id_by_key(key).unwrap_or_else(|| {
             panic!("Asking for invalid client key={}", key);
         })
     }
 
+    #[inline]
     pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &WorkerRef {
         self.workers.get_by_id(id).unwrap_or_else(|| {
             panic!("Asking for invalid worker id={}", id);
         })
     }
 
+    #[inline]
     pub fn get_worker_by_key_or_panic(&self, key: &str) -> &WorkerRef {
         self.workers.get_by_key(key).unwrap_or_else(|| {
             panic!("Asking for invalid worker key={}", key);
         })
     }
 
+    #[inline]
     pub fn get_worker_id_by_key(&self, key: &str) -> WorkerId {
         self.workers.get_id_by_key(key).unwrap_or_else(|| {
             panic!("Asking for invalid worker key={}", key);
@@ -162,14 +178,6 @@ impl Core {
                 (w.key().to_owned(), w.ncpus as u64)
             })
             .collect()
-    }
-
-    pub fn send_scheduler_messages(&mut self, messages: Vec<ToSchedulerMessage>) {
-        self.scheduler_sender.send(messages).unwrap();
-    }
-
-    pub fn new_self_ref(&self) -> CoreRef {
-        self.self_ref.clone().unwrap()
     }
 
     pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>, notifications: &mut Notifications) {
@@ -232,21 +240,6 @@ impl Core {
         }
     }
 
-    pub fn _on_task_error_helper(
-        &mut self,
-        task_ref: &TaskRef,
-        error_info: Rc<ErrorInfo>,
-        mut notifications: &mut Notifications,
-    ) {
-        task_ref.get_mut().state = TaskRuntimeState::Error(error_info);
-        self.unregister_as_consumer(task_ref, &mut notifications);
-
-        let task = task_ref.get();
-        for client_id in task.subscribed_clients() {
-            notifications.notify_client_about_task_error(*client_id, task_ref.clone());
-        }
-    }
-
     pub fn on_steal_response(
         &mut self,
         worker_ref: &WorkerRef,
@@ -292,7 +285,7 @@ impl Core {
         let error_info = Rc::new(error_info);
         let task_refs = {
             assert!(task_ref.get().is_assigned());
-            self._on_task_error_helper(
+            self.on_task_error_helper(
                 &task_ref,
                 error_info.clone(),
                 &mut notifications,
@@ -305,7 +298,7 @@ impl Core {
                 let task = task_ref.get();
                 assert!(task.is_waiting() || task.is_scheduled());
             }
-            self._on_task_error_helper(
+            self.on_task_error_helper(
                 &task_ref,
                 error_info.clone(),
                 &mut notifications,
@@ -398,10 +391,25 @@ impl Core {
             notifications.notify_client_key_in_memory(client_id, task_ref.clone());
         }
     }
+
+    fn on_task_error_helper(
+        &mut self,
+        task_ref: &TaskRef,
+        error_info: Rc<ErrorInfo>,
+        mut notifications: &mut Notifications,
+    ) {
+        task_ref.get_mut().state = TaskRuntimeState::Error(error_info);
+        self.unregister_as_consumer(task_ref, &mut notifications);
+
+        let task = task_ref.get();
+        for client_id in task.subscribed_clients() {
+            notifications.notify_client_about_task_error(*client_id, task_ref.clone());
+        }
+    }
 }
 
 impl CoreRef {
-    pub fn new(scheduler_sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
+    pub fn new() -> Self {
         let core_ref = Self::wrap(Core {
             tasks_by_id: Default::default(),
             tasks_by_key: Default::default(),
@@ -413,53 +421,13 @@ impl CoreRef {
             workers: KeyIdMap::new(),
             clients: KeyIdMap::new(),
 
-            scheduler_sender,
-
             uid: "123_TODO".into(),
             self_ref: None,
         });
         {
             let mut core = core_ref.get_mut();
             core.self_ref = Some(core_ref.clone());
-
-            // Prepare default guess of net bandwidth [MB/s], TODO: better guess,
-            // It will be send with the first update message.
-            core.send_scheduler_messages(vec![ToSchedulerMessage::NetworkBandwidth(100.0)]);
         }
         core_ref
-    }
-
-    pub async fn observe_scheduler(self, mut recv: UnboundedReceiver<FromSchedulerMessage>) {
-        log::debug!("Starting scheduler");
-
-        match recv.next().await {
-            Some(crate::scheduler::FromSchedulerMessage::Register(r)) => {
-                log::debug!("Scheduler registered: {:?}", r);
-            }
-            None => {
-                panic!("Scheduler closed connection without registration");
-            }
-            _ => {
-                panic!("First message of scheduler has to be registration");
-            }
-        }
-
-        while let Some(msg) = recv.next().await {
-            match msg {
-                FromSchedulerMessage::TaskAssignments(assignments) => {
-                    let mut core = self.get_mut();
-                    let mut notifications = Default::default();
-                    core.process_assignments(assignments, &mut notifications);
-                    notifications.send(&mut core).unwrap();
-                }
-                FromSchedulerMessage::Register(_) => {
-                    panic!("Double registration of scheduler");
-                }
-            }
-        }
-    }
-
-    pub fn uid(&self) -> String {
-        self.get().uid.clone()
     }
 }
