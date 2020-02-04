@@ -1,5 +1,6 @@
 import datetime
 import functools
+import itertools
 import logging
 import os
 import pathlib
@@ -106,7 +107,7 @@ class Cluster:
         self.scheduler_process.kill()
 
     def name(self):
-        return f"{self.scheduler}/{self.workers}"
+        return f"{self.scheduler}-{self.workers}"
 
     def _start_workers(self, workers, scheduler_address, workdir):
         count = workers["count"]
@@ -136,28 +137,71 @@ class Cluster:
 
 class Benchmark:
     def __init__(self, config, workdir):
-        self.clusters = config.get("clusters", ())
-        self.usecases = tuple(self._gen_usecases(config.get("usecases", ())))
+        self.configurations = tuple(self._gen_configurations(config.get("configurations", ())))
         self.repeat = config.get("repeat", 1)
+        self.reference = config.get("reference")
         self.workdir = os.path.join(workdir, "work")
-        os.makedirs(self.workdir, exist_ok=True)
 
     def run(self):
-        results = [benchmark_cluster(cluster, self.usecases, self.repeat, self.workdir) for cluster in self.clusters]
-        clusters = [format_cluster_info(c) for c in self.clusters]
-        check_results(results, clusters)
-        return create_frame(results, clusters)
+        os.makedirs(self.workdir, exist_ok=True)
 
-    def _gen_usecases(self, usecases):
-        for item in usecases:
-            for variant in item:
-                function = variant["usecase"]
-                args = variant["args"]
-                name = f"{function}/{args}"
-                yield (name, functools.partial(USECASES[function], args))
+        results = benchmark_configurations(self.configurations, self.repeat, self.workdir)
+        check_results(results, self.reference)
+        return results
 
-    def __len__(self):
-        return len(self.usecases)
+    def _gen_configurations(self, configurations):
+        for configuration in configurations:
+            usecase = configuration["usecase"]
+            function = usecase["function"]
+            args = usecase["args"]
+            name = f"{function}-{args}"
+            yield {
+                "name": name,
+                "function": functools.partial(USECASES[function], args),
+                "cluster": configuration["cluster"]
+            }
+
+
+def benchmark_configurations(configurations, repeat, workdir):
+    def repeat_configs():
+        for config in configurations:
+            for i in range(repeat):
+                yield (i, config)
+
+    results = {
+        "cluster": [],
+        "function": [],
+        "result": [],
+        "time": []
+    }
+    for repeat_index, configuration in tqdm.tqdm(repeat_configs(), total=len(configurations) * repeat):
+        logging.info(
+            f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
+
+        try:
+            raise Exception("asd")
+            configuration, result, duration = benchmark_configuration(configuration, workdir)
+
+            results["cluster"].append(format_cluster_info(configuration["cluster"]))
+            results["function"].append(configuration["name"])
+            results["result"].append(result)
+            results["time"].append(duration)
+        except KeyboardInterrupt:
+            break
+        except:
+            error_dir = f"error-{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{repeat_index}"
+            print(f"Error while processing {configuration}, writing into {error_dir}", file=sys.stderr)
+            traceback.print_exc()
+            shutil.copytree(workdir, os.path.join(os.path.dirname(workdir), error_dir))
+    return pd.DataFrame(results)
+
+
+def benchmark_configuration(configuration, workdir):
+    with Cluster(configuration["cluster"], workdir):
+        start = time.time()
+        result = configuration["function"]()
+        duration = time.time() - start
+        return (configuration, result, duration)
 
 
 def check_free_port(port):
@@ -186,70 +230,42 @@ def get_pbs_nodes():
 
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
-    workers = f"{workers['count']}/{workers['cores']}"
+    workers = f"{workers['count']}-{workers['cores']}"
     scheduler = cluster_info['scheduler']
-    return f"{os.path.basename(scheduler)}/{workers}"
+    return f"{os.path.basename(scheduler)}-{workers}"
 
 
-def check_results(results, clusters):
-    reference = 0
+def check_results(frame, reference):
+    clusters = list(frame["cluster"].unique())
+    functions = list(frame["function"].unique())
 
-    for cluster, result in zip(clusters, results):
-        for (fn, data) in result.items():
-            ref = results[reference][fn]
-            if len(set(data["results"])) != 1:
-                raise Exception(f"Inconsistent result for {cluster}/{fn}: {data['results']}")
+    # self consistency
+    for (cluster, function) in itertools.product(clusters, functions):
+        results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])
+        if len(set(results)) > 1:
+            raise Exception(f"Inconsistent result for {cluster}/{function}: {results}")
 
-            if data["results"] != ref["results"]:
-                raise Exception(f"Wrong result for {cluster}/{fn} (expected {ref['results']}, got {data['results']})")
+    # reference equality
+    if reference:
+        for (cluster, function) in itertools.product(clusters, functions):
+            results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])
+            if len(results) == 0:
+                continue
 
-
-def create_frame(results, clusters):
-    frame = {
-        "function": [],
-        "cluster": [],
-        "time": []
-    }
-
-    for cluster, result in zip(clusters, results):
-        for (fn, data) in result.items():
-            frame["cluster"] += [cluster] * len(data["times"])
-            frame["function"] += [fn] * len(data["times"])
-            frame["time"] += data["times"]
-    return pd.DataFrame(frame)
-
-
-def gen_results(cluster_info, usecases, repeat, workdir):
-    for (name, function) in usecases:
-        for i in range(repeat):
-            logging.info(f"Benchmarking {name} ({i})")
-            with Cluster(cluster_info, workdir):
-                start = time.time()
-                result = function()
-                duration = time.time() - start
-                yield (name, result, duration)
-
-
-def benchmark_cluster(cluster_info, usecases, repeat, workdir):
-    logging.info(f"Benchmarking {cluster_info}")
-    results = {name: {
-        "results": [],
-        "times": []
-    } for (name, _) in usecases}
-    try:
-        for (function, result, duration) in tqdm.tqdm(gen_results(cluster_info, usecases, repeat, workdir),
-                                                      total=len(usecases) * repeat):
-            results[function]["results"].append(result)
-            results[function]["times"].append(duration)
-    except:
-        print(f"Error while processing {cluster_info}", file=sys.stderr)
-        traceback.print_exc()
-    return results
+            result = results[0]
+            for cl in clusters:
+                if reference in cl:
+                    ref_results = list(frame[(frame["cluster"] == cl) & (frame["function"] == function)]["result"])
+                    if len(ref_results) == 0:
+                        continue
+                    if ref_results[0] != result:
+                        raise Exception(
+                            f"Wrong result for {cluster}/{function} (expected {ref_results[0]}, got {result})")
 
 
 def create_boxplot(frame):
     def extract(fn):
-        name, variant = fn.split("/")
+        name, variant = fn.split("-")
         return (name, int(variant))
 
     clusters = sorted(set(frame["cluster"]))
@@ -289,6 +305,7 @@ def benchmark(input, output_dir):
     output_dir = os.path.abspath(output_dir)
     benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir)
     frame = benchmark.run()
+    frame.drop(columns=["result"], inplace=True)
     save_results(frame, output_dir)
 
 
