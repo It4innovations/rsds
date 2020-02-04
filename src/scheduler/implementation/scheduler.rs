@@ -566,8 +566,8 @@ mod tests {
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
-        let t2 = scheduler.tasks.get(&2).unwrap();
-        let t3 = scheduler.tasks.get(&3).unwrap();
+        let _t2 = scheduler.tasks.get(&2).unwrap();
+        let _t3 = scheduler.tasks.get(&3).unwrap();
         assert_eq!(assigned_worker(&mut scheduler, 2), 100);
         assert_eq!(assigned_worker(&mut scheduler, 3), 100);
         scheduler.sanity_check();
@@ -592,8 +592,8 @@ mod tests {
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
-        let t2 = scheduler.tasks.get(&2).unwrap();
-        let t3 = scheduler.tasks.get(&3).unwrap();
+        let _t2 = scheduler.tasks.get(&2).unwrap();
+        let _t3 = scheduler.tasks.get(&3).unwrap();
         assert_ne!(
             assigned_worker(&mut scheduler, 2),
             assigned_worker(&mut scheduler, 3)
@@ -636,7 +636,7 @@ mod tests {
         connect_workers(&mut scheduler, 5, 1);
         scheduler.sanity_check();
 
-        let n = run_schedule(&mut scheduler);
+        let _n = run_schedule(&mut scheduler);
         let w = assigned_worker(&mut scheduler, 0);
         finish_task(&mut scheduler, 0, w, 100_000_000);
         scheduler.sanity_check();
