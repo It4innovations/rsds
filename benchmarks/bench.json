@@ -1,7 +1,15 @@
 {
+  "repeat": 5,
+  "reference": "dask-scheduler",
+  "configurations": {
+    "$product": {
+      "cluster": {"$ref": "clusters"},
+      "usecase": {"$ref": "usecases"}
+    }
+  },
   "clusters": {
     "$product": {
-      "scheduler": ["$BUILD/target/release/rsds"],
+      "scheduler": ["$BUILD/target/release/rsds", "dask-scheduler"],
       "workers": {
         "$product": {
           "count": [1, 7],
@@ -10,31 +18,41 @@
       }
     }
   },
-  "repeat": 5,
-  "usecases": [{
+  "usecases": {"$+": [
+    {"$ref": "xarray"},
+    {"$ref": "tree"},
+    {"$ref": "numpy"},
+    {"$ref": "merge"},
+    {"$ref": "dataframe"}
+  ]},
+  "xarray": {
     "$product": {
-      "usecase": ["xarray"],
+      "function": ["xarray"],
       "args": [5, 25]
     }
-  }, {
+  },
+  "tree": {
     "$product": {
-      "usecase": ["tree"],
+      "function": ["tree"],
       "args": [10, 15]
     }
-  }, {
+  },
+  "numpy": {
     "$product": {
-      "usecase": ["numpy"],
+      "function": ["numpy"],
       "args": [5000, 10000, 20000]
     }
-  }, {
+  },
+  "merge": {
     "$product": {
-      "usecase": ["merge"],
+      "function": ["merge"],
       "args": [5000, 10000, 15000, 25000]
     }
-  }, {
+  },
+  "dataframe": {
     "$product": {
-      "usecase": ["dataframe"],
+      "function": ["dataframe"],
       "args": [1, 5, 10, 30]
     }
-  }]
+  }
 }
