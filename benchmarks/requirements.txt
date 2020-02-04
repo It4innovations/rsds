@@ -10,3 +10,4 @@ xarray
 scikit-learn
 dask[dataframe]
 psutil
+mimesis

@@ -41,7 +41,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest git+https://github.com/kobzol/distributed.git@simple-frame
+          pip install -r benchmarks/requirements.txt
 
       - name: Test Python
         run: python -m pytest tests
