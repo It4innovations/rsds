@@ -437,17 +437,17 @@ mod tests {
     use crate::comm::{ClientNotification, Notifications};
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
-    use crate::scheduler::schedproto::{TaskAssignment, TaskId, TaskUpdate, TaskUpdateType};
+    use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
-    use crate::task::{ErrorInfo, TaskRef, TaskRuntimeState};
-    use crate::test_util::{client, dummy_serialized, task, task_deps, worker};
-    use crate::worker::WorkerRef;
+    use crate::task::{ErrorInfo, TaskRuntimeState};
+    use crate::test_util::{
+        client, dummy_serialized, task_add, task_add_deps, task_assign, worker,
+    };
 
     #[test]
     fn add_remove() {
         let mut core = Core::new();
-        let t = task(0);
-        core.add_task(t.clone());
+        let t = task_add(&mut core, 0);
         assert_eq!(core.get_task_by_key_or_panic(&t.get().key), &t);
 
         core.remove_task(&t.get());
@@ -457,10 +457,10 @@ mod tests {
     #[test]
     fn assign_task() {
         let mut core = Core::new();
-        let t = add_task(&mut core, 0);
+        let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
-        let notifications = assign(&mut core, &t, &w);
+        let notifications = task_assign(&mut core, &t, &w);
         assert!(t.get().is_assigned_or_stealed_from(&w));
         assert_eq!(notifications.workers[&w].compute_tasks, vec!(t));
     }
@@ -468,9 +468,9 @@ mod tests {
     #[test]
     fn finish_task_scheduler_notification() {
         let mut core = Core::new();
-        let t = add_task(&mut core, 0);
+        let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
-        assign(&mut core, &t, &w);
+        task_assign(&mut core, &t, &w);
 
         let key = t.get().key.clone();
 
@@ -500,9 +500,9 @@ mod tests {
     #[test]
     fn release_task_without_consumers() {
         let mut core = Core::new();
-        let t = add_task(&mut core, 0);
+        let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
-        assign(&mut core, &t, &w);
+        task_assign(&mut core, &t, &w);
 
         let key = t.get().key.clone();
         let r#type = vec![1, 2, 3];
@@ -531,10 +531,10 @@ mod tests {
     #[test]
     fn finish_task_with_consumers() {
         let mut core = Core::new();
-        let t = add_task(&mut core, 0);
-        let _ = add_task_deps(&mut core, 1, &[&t]);
+        let t = task_add(&mut core, 0);
+        let _ = task_add_deps(&mut core, 1, &[&t]);
         let (w, _w_rx) = worker(&mut core, "w0");
-        assign(&mut core, &t, &w);
+        task_assign(&mut core, &t, &w);
 
         let key = t.get().key.clone();
         let r#type = vec![1, 2, 3];
@@ -564,9 +564,9 @@ mod tests {
     #[test]
     fn finish_task_inmemory_notification() {
         let mut core = Core::new();
-        let t = add_task(&mut core, 0);
+        let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
-        assign(&mut core, &t, &w);
+        task_assign(&mut core, &t, &w);
 
         let key = t.get().key.clone();
         let clients: Vec<Client> = (0..2)
@@ -603,8 +603,7 @@ mod tests {
     #[should_panic]
     fn finish_unassigned_task() {
         let mut core = Core::new();
-        let t = task(0);
-        core.add_task(t.clone());
+        let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
@@ -625,8 +624,7 @@ mod tests {
     #[should_panic]
     fn error_unassigned_task() {
         let mut core = Core::new();
-        let t = task(0);
-        core.add_task(t.clone());
+        let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
@@ -640,29 +638,5 @@ mod tests {
             },
             &mut Default::default(),
         );
-    }
-
-    fn add_task(core: &mut Core, id: TaskId) -> TaskRef {
-        add_task_deps(core, id, &[])
-    }
-    fn add_task_deps(core: &mut Core, id: TaskId, deps: &[&TaskRef]) -> TaskRef {
-        let t = task_deps(id, deps);
-        core.add_task(t.clone());
-        t
-    }
-
-    fn assign(core: &mut Core, task: &TaskRef, worker: &WorkerRef) -> Notifications {
-        let mut notifications = Notifications::default();
-        let tid = task.get().id;
-        let wid = worker.get().id;
-        core.process_assignments(
-            vec![TaskAssignment {
-                task: tid,
-                worker: wid,
-                priority: 0,
-            }],
-            &mut notifications,
-        );
-        notifications
     }
 }

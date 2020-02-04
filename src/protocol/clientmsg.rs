@@ -84,6 +84,7 @@ impl FromDaskTransport for FromClientMessage<SerializedMemory> {
     }
 }
 
+#[cfg_attr(test, derive(Deserialize, PartialEq))]
 #[derive(Serialize, Debug)]
 pub struct KeyInMemoryMsg {
     pub key: String,
@@ -91,6 +92,7 @@ pub struct KeyInMemoryMsg {
     pub r#type: Vec<u8>,
 }
 
+#[cfg_attr(test, derive(Deserialize, PartialEq))]
 #[derive(Serialize, Debug)]
 pub struct TaskErredMsg {
     pub key: String,
@@ -98,6 +100,7 @@ pub struct TaskErredMsg {
     pub traceback: SerializedTransport,
 }
 
+#[cfg_attr(test, derive(Deserialize, PartialEq))]
 #[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]

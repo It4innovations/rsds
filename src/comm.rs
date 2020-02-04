@@ -601,17 +601,24 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 
 #[cfg(test)]
 mod tests {
-    use crate::comm::generic_rpc_loop;
-    use crate::protocol::clientmsg::FromClientMessage;
+    use crate::comm::{generic_rpc_loop, Notifications};
+    use crate::protocol::clientmsg::{
+        ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
+    };
     use crate::protocol::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };
-    use crate::protocol::protocol::{serialize_single_packet, Batch, SerializedTransport};
-    use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
-    use crate::test_util::{
-        bytes_to_msg, dummy_address, dummy_ctx, msg_to_bytes, packets_to_bytes, MemoryStream,
+    use crate::protocol::protocol::{
+        serialize_single_packet, Batch, Frames, SerializedTransport,
     };
+    use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
+    use crate::task::{DataInfo, TaskRuntimeState};
+    use crate::test_util::{
+        bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,
+        packet_to_msg, packets_to_bytes, task_add, worker, MemoryStream,
+    };
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn respond_to_identity() -> crate::Result<()> {
@@ -662,6 +669,60 @@ mod tests {
         let res: Batch<RegisterWorkerResponseMsg> = bytes_to_msg(&msg_rx.get())?;
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].status, "OK".to_owned());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notifications_client_key_in_memory() -> crate::Result<()> {
+        let (core, comm, _) = dummy_ctx();
+        let (client, mut rx) = client(0);
+        let id = client.id();
+        core.get_mut().register_client(client);
+
+        let t = task_add(&mut core.get_mut(), 0);
+        let r#type = vec![1, 2, 3];
+
+        t.get_mut().state = TaskRuntimeState::Finished(
+            DataInfo {
+                size: 0,
+                r#type: r#type.clone(),
+            },
+            vec![],
+        );
+        let key = t.get().key.to_owned();
+
+        let mut notifications = Notifications::default();
+        notifications.notify_client_key_in_memory(id, t.clone());
+        comm.get_mut().notify(&mut core.get_mut(), notifications)?;
+
+        let msg: Batch<ToClientMessage> = packet_to_msg(rx.next().await.unwrap())?;
+        assert_eq!(
+            msg[0],
+            ToClientMessage::KeyInMemory(KeyInMemoryMsg { key, r#type })
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notifications_worker_compute_msg() -> crate::Result<()> {
+        let (core, comm, _) = dummy_ctx();
+        let (worker, mut rx) = worker(&mut core.get_mut(), "worker");
+
+        let t = task_add(&mut core.get_mut(), 0);
+        t.get_mut().spec = ClientTaskSpec::Direct {
+            function: dummy_serialized(),
+            args: dummy_serialized(),
+            kwargs: Some(dummy_serialized()),
+        };
+        let mut notifications = Notifications::default();
+        notifications.compute_task_on_worker(worker.clone(), t.clone());
+        comm.get_mut().notify(&mut core.get_mut(), notifications)?;
+
+        let packet = rx.next().await.unwrap();
+        assert_eq!(packet.main_frame, frame(b"\x91\x86\xa2op\xaccompute-task\xa3key\xa10\xa8duration\xca?\0\0\0\xa8function\xc0\xa4args\xc0\xa6kwargs\xc0"));
+        assert_eq!(packet.additional_frames, Frames::from(vec!()));
 
         Ok(())
     }
