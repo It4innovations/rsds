@@ -4,6 +4,7 @@ pub use crate::error::DsError;
 pub mod protocol;
 
 mod client;
+pub mod comm;
 mod common;
 pub mod connection;
 pub mod core;

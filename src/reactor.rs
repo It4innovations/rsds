@@ -25,105 +25,9 @@ use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use crate::scheduler::{ToSchedulerMessage, FromSchedulerMessage};
+use crate::comm::CommRef;
 
-pub type ReactorRef = WrappedRcRefCell<Reactor>;
-
-pub struct Reactor {
-    sender: UnboundedSender<Vec<ToSchedulerMessage>>
-}
-
-impl Reactor {
-    pub fn send(&mut self, core: &mut Core, notifications: Notifications) -> crate::Result<()> {
-            if !notifications.scheduler_messages.is_empty() {
-                self.sender.send(notifications.scheduler_messages).unwrap();
-            }
-
-            self.send_to_workers(&core, notifications.workers)?;
-            self.send_to_clients(core, notifications.clients)?;
-        Ok(())
-    }
-
-    fn send_to_clients(&mut self, core: &mut Core, notifications: Map<ClientId, ClientNotification>) -> crate::Result<()> {
-        for (client_id, c_update) in notifications {
-            let mut mbuilder =
-                MessageBuilder::<ToClientMessage>::with_capacity(c_update.error_tasks.len() + c_update.in_memory_tasks.len());
-            for task_ref in c_update.error_tasks {
-                let task = task_ref.get();
-                if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.copy_serialized(&error_info.exception);
-                    let traceback = mbuilder.copy_serialized(&error_info.traceback);
-                    mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key.clone(),
-                        exception,
-                        traceback,
-                    }));
-                } else {
-                    panic!("Task is not in error state");
-                };
-            }
-
-            for task_ref in c_update.in_memory_tasks {
-                let task = task_ref.get();
-                mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key.clone(),
-                    r#type: task.data_info().unwrap().r#type.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                let client = core.get_client_by_id_or_panic(client_id);
-                client.send_dask_message(mbuilder.build_batch()?)?;
-            }
-        }
-        Ok(())
-    }
-    fn send_to_workers(&mut self, core: &Core, notifications: Map<WorkerRef, WorkerNotification>) -> crate::Result<()> {
-        for (worker_ref, w_update) in notifications {
-            let mut mbuilder = MessageBuilder::new();
-
-            for task in w_update.compute_tasks {
-                task.get().make_compute_task_msg(core, &mut mbuilder);
-            }
-
-            if !w_update.delete_keys.is_empty() {
-                mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
-                    keys: w_update.delete_keys,
-                    report: false,
-                }));
-            }
-
-            for tref in w_update.steal_tasks {
-                let task = tref.get();
-                mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                let mut worker = worker_ref.get_mut();
-                worker.send_dask_message(mbuilder.build_batch()?)
-                    .unwrap_or_else(|_| {
-                        // !!! Do not propagate error right now, we need to finish sending protocol to others
-                        // Worker cleanup is done elsewhere (when worker future terminates),
-                        // so we can safely ignore this. Since we are nice guys we log (debug) message.
-                        log::debug!("Sending tasks to worker {} failed", worker.id);
-                    });
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl ReactorRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        WrappedRcRefCell::wrap(Reactor {
-            sender
-        })
-    }
-}
-
-pub fn update_graph(core_ref: &CoreRef, reactor_ref: &ReactorRef, client_id: ClientId, update: UpdateGraphMsg) {
+pub fn update_graph(core_ref: &CoreRef, comm_ref: &CommRef, client_id: ClientId, update: UpdateGraphMsg) {
     log::debug!("Updating graph from client {}", client_id);
 
     /*for vals in update.dependencies.values() {
@@ -223,7 +127,7 @@ pub fn update_graph(core_ref: &CoreRef, reactor_ref: &ReactorRef, client_id: Cli
         }
     }
     assert_eq!(count, 0);
-    reactor_ref.get_mut().send(&mut core, notifications).unwrap();
+    comm_ref.get_mut().send(&mut core, notifications).unwrap();
 
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
@@ -232,7 +136,7 @@ pub fn update_graph(core_ref: &CoreRef, reactor_ref: &ReactorRef, client_id: Cli
     }
 }
 
-pub fn release_keys(core_ref: &CoreRef, reactor_ref: &ReactorRef, client_key: String, task_keys: Vec<String>) {
+pub fn release_keys(core_ref: &CoreRef, comm_ref: &CommRef, client_key: String, task_keys: Vec<String>) {
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
     let mut notifications = Notifications::default();
@@ -247,12 +151,12 @@ pub fn release_keys(core_ref: &CoreRef, reactor_ref: &ReactorRef, client_key: St
             core.remove_task(&task); // TODO: recursively remove dependencies
         }
     }
-    reactor_ref.get_mut().send(&mut core, notifications).unwrap();
+    comm_ref.get_mut().send(&mut core, notifications).unwrap();
 }
 
 pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
+    comm_ref: &CommRef,
     address: std::net::SocketAddr,
     sink: &mut W,
     keys: Vec<String>,
@@ -303,7 +207,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
 pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
+    comm_ref: &CommRef,
     writer: &mut W,
 ) -> crate::Result<()> {
     let core = core_ref.get();
@@ -314,7 +218,7 @@ pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
 pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
+    comm_ref: &CommRef,
     writer: &mut W,
     mut message: ScatterMsg,
 ) -> crate::Result<()> {
@@ -372,7 +276,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
             core.add_task(task_ref);
             // TODO: notify key-in-memory
         }
-        reactor_ref.get_mut().send(&mut core, notifications).unwrap();
+        comm_ref.get_mut().send(&mut core, notifications).unwrap();
     }
 
     writer.send(serialize_single_packet(response)?).await?;
@@ -428,7 +332,7 @@ pub async fn update_data_on_worker(
 
 pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
+    comm_ref: &CommRef,
     sink: &mut W,
     keys: Vec<String>,
 ) -> crate::Result<()> {
@@ -449,7 +353,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 }
 
 pub async fn observe_scheduler(core_ref: CoreRef,
-                               reactor_ref: ReactorRef,
+                               comm_ref: CommRef,
                                mut receiver: UnboundedReceiver<FromSchedulerMessage>) {
     log::debug!("Starting scheduler");
 
@@ -465,7 +369,7 @@ pub async fn observe_scheduler(core_ref: CoreRef,
                 let mut core = core_ref.get_mut();
                 let mut notifications = Default::default();
                 core.process_assignments(assignments, &mut notifications);
-                reactor_ref.get_mut().send(&mut core, notifications).unwrap();
+                comm_ref.get_mut().send(&mut core, notifications).unwrap();
             }
             FromSchedulerMessage::Register(_) => {
                 panic!("Double registration of scheduler");
