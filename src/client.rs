@@ -3,7 +3,7 @@ use futures::sink::SinkExt;
 use crate::core::CoreRef;
 use crate::protocol::clientmsg::{FromClientMessage, ToClientMessage};
 use crate::protocol::protocol::{serialize_single_packet, Batch, DaskPacket};
-use crate::reactor::{release_keys, update_graph};
+use crate::reactor::{release_keys, update_graph, ReactorRef};
 use futures::{FutureExt, Sink, Stream, StreamExt};
 
 pub type ClientId = u64;
@@ -41,6 +41,7 @@ pub async fn execute_client<
     Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
 >(
     core_ref: &CoreRef,
+    reactor_ref: &ReactorRef,
     address: std::net::SocketAddr,
     mut receiver: Reader,
     mut sender: Writer,
@@ -82,10 +83,10 @@ pub async fn execute_client<
                 match message {
                     FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
                     FromClientMessage::ClientReleasesKeys(msg) => {
-                        release_keys(&core_ref, msg.client, msg.keys);
+                        release_keys(&core_ref, &reactor_ref, msg.client, msg.keys);
                     }
                     FromClientMessage::UpdateGraph(update) => {
-                        update_graph(&core_ref, client_id, update);
+                        update_graph(&core_ref, &reactor_ref, client_id, update);
                     }
                     FromClientMessage::CloseClient => {
                         log::debug!("CloseClient message received");

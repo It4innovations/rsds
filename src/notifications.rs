@@ -10,6 +10,8 @@ use crate::protocol::protocol::MessageBuilder;
 use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 use crate::task::{Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::{Worker, WorkerRef};
+use futures::SinkExt;
+use futures::channel::mpsc::UnboundedSender;
 
 #[derive(Default)]
 pub struct WorkerNotification {
@@ -26,9 +28,9 @@ pub struct ClientNotification {
 
 #[derive(Default)]
 pub struct Notifications {
-    workers: Map<WorkerRef, WorkerNotification>,
-    clients: Map<ClientId, ClientNotification>,
-    scheduler_messages: Vec<ToSchedulerMessage>,
+    pub workers: Map<WorkerRef, WorkerNotification>,
+    pub clients: Map<ClientId, ClientNotification>,
+    pub scheduler_messages: Vec<ToSchedulerMessage>,
 }
 
 impl Notifications {
@@ -124,85 +126,5 @@ impl Notifications {
             .or_default()
             .in_memory_tasks
             .push(task_ref);
-    }
-
-    pub fn send(self, core: &mut Core) -> crate::Result<()> {
-        /* Send to scheduler */
-        if !self.scheduler_messages.is_empty() {
-            core.send_scheduler_messages(self.scheduler_messages);
-        }
-
-        /* Send to workers */
-        for (worker_ref, w_update) in self.workers {
-            let mut mbuilder = MessageBuilder::new();
-
-            for task in w_update.compute_tasks {
-                task.get().make_compute_task_msg(core, &mut mbuilder);
-            }
-
-            if !w_update.delete_keys.is_empty() {
-                mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
-                    keys: w_update.delete_keys,
-                    report: false,
-                }));
-            }
-
-            for tref in w_update.steal_tasks {
-                let task = tref.get();
-                mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                let mut worker = worker_ref.get_mut();
-                worker
-                    .send_dask_message(
-                        mbuilder
-                            .build_batch()
-                            .expect("Could not build worker notification messages"),
-                    )
-                    .unwrap_or_else(|_| {
-                        // !!! Do not propagate error right now, we need to finish sending protocol to others
-                        // Worker cleanup is done elsewhere (when worker future terminates),
-                        // so we can safely ignore this. Since we are nice guys we log (debug) message.
-                        log::debug!("Sending tasks to worker {} failed", worker.id);
-                    });
-            }
-        }
-
-        /* Send to clients */
-        for (client_id, c_update) in self.clients {
-            let mut mbuilder =
-                MessageBuilder::<ToClientMessage>::with_capacity(c_update.error_tasks.len() + c_update.in_memory_tasks.len());
-            for task_ref in c_update.error_tasks {
-                let task = task_ref.get();
-                if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.copy_serialized(&error_info.exception);
-                    let traceback = mbuilder.copy_serialized(&error_info.traceback);
-                    mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key.clone(),
-                        exception,
-                        traceback,
-                    }));
-                } else {
-                    panic!("Task is not in error state");
-                };
-            }
-
-            for task_ref in c_update.in_memory_tasks {
-                let task = task_ref.get();
-                mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key.clone(),
-                    r#type: task.data_info().unwrap().r#type.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                let client = core.get_client_by_id_or_panic(client_id);
-                client.send_dask_message(mbuilder.build_batch()?)?;
-            }
-        }
-        Ok(())
     }
 }

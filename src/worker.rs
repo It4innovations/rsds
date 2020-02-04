@@ -11,6 +11,7 @@ use crate::protocol::workermsg::Status;
 use crate::protocol::workermsg::{FromWorkerMessage, ToWorkerMessage};
 use crate::task::ErrorInfo;
 use futures::{FutureExt, Sink, Stream, StreamExt};
+use crate::reactor::ReactorRef;
 
 pub type WorkerId = u64;
 
@@ -68,6 +69,7 @@ impl WorkerRef {
 pub(crate) fn create_worker(
     msg: RegisterWorkerMsg,
     core_ref: &CoreRef,
+    reactor_ref: &ReactorRef,
     sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
 ) -> (WorkerId, WorkerRef) {
     let mut core = core_ref.get_mut();
@@ -81,7 +83,7 @@ pub(crate) fn create_worker(
     core.register_worker(worker_ref.clone());
     let mut notifications = Notifications::default();
     notifications.new_worker(&worker_ref.get());
-    notifications.send(&mut core).unwrap();
+    reactor_ref.get_mut().send(&mut core, notifications).unwrap();
     (worker_id, worker_ref)
 }
 
@@ -90,6 +92,7 @@ pub async fn execute_worker<
     Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
 >(
     core_ref: &CoreRef,
+    reactor_ref: &ReactorRef,
     address: std::net::SocketAddr,
     mut receiver: Reader,
     mut sender: Writer,
@@ -98,7 +101,7 @@ pub async fn execute_worker<
     let core_ref2 = core_ref.clone();
     let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
-    let (worker_id, worker_ref) = create_worker(msg, core_ref, queue_sender);
+    let (worker_id, worker_ref) = create_worker(msg, core_ref, reactor_ref, queue_sender);
 
     log::info!("Worker {} registered from {}", worker_id, address);
 
@@ -149,7 +152,7 @@ pub async fn execute_worker<
                 }
             }
             let mut core = core_ref.get_mut();
-            notifications.send(&mut core).unwrap();
+            reactor_ref.get_mut().send(&mut core, notifications).unwrap();
         }
         Ok(())
     };
