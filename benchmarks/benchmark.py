@@ -179,7 +179,6 @@ def benchmark_configurations(configurations, repeat, workdir):
             f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
 
         try:
-            raise Exception("asd")
             configuration, result, duration = benchmark_configuration(configuration, workdir)
 
             results["cluster"].append(format_cluster_info(configuration["cluster"]))
@@ -263,7 +262,7 @@ def check_results(frame, reference):
                             f"Wrong result for {cluster}/{function} (expected {ref_results[0]}, got {result})")
 
 
-def create_boxplot(frame):
+def create_plot(frame, plot_fn):
     def extract(fn):
         name, variant = fn.split("-")
         return (name, int(variant))
@@ -272,7 +271,7 @@ def create_boxplot(frame):
     functions = sorted(set(frame["function"]), key=extract)
 
     def plot(data, **kwargs):
-        sns.boxplot(x=data["cluster"], y=data["time"] * 1000, order=clusters)
+        plot_fn(data, clusters, **kwargs)
 
     g = sns.FacetGrid(frame, col="function", col_wrap=4, col_order=functions, sharey=False)
     g = g.map_dataframe(plot)
@@ -284,10 +283,21 @@ def create_boxplot(frame):
 
 
 def save_results(frame, directory):
+    def plot_box(data, clusters, **kwargs):
+        sns.boxplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
+
+    def plot_scatter(data, clusters, **kwargs):
+        sns.swarmplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
+
     os.makedirs(directory, exist_ok=True)
     frame.to_json(os.path.join(directory, "result.json"))
-    plot = create_boxplot(frame)
-    plot.savefig(os.path.join(directory, "result.png"))
+
+    for (file, plot_fn) in (
+            ("result_boxplot", plot_box),
+            ("result_scatterplot", plot_scatter)
+    ):
+        plot = create_plot(frame, plot_fn)
+        plot.savefig(os.path.join(directory, f"{file}.png"))
 
     with pd.option_context('display.max_rows', None,
                            'display.max_columns', None,
