@@ -293,13 +293,11 @@ impl Core {
         if success {
             log::debug!("Task stealing was successful task={}", task.id);
             notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());
-            TaskRuntimeState::Assigned(to_w);
-            task.state = TaskRuntimeState::Waiting
+            task.state = TaskRuntimeState::Assigned(to_w);
         } else {
             log::debug!("Task stealing was not successful task={}", task.id);
             task.state = TaskRuntimeState::Assigned(worker_ref.clone())
         }
-        // TODO: Notify scheduler
     }
 
     pub fn on_task_error(
