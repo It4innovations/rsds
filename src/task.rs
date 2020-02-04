@@ -57,7 +57,6 @@ pub struct Task {
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
     pub consumers: HashSet<TaskRef>,
-    //pub worker: Option<WorkerRef>,
     pub key: TaskKey,
     pub dependencies: Vec<TaskId>,
 
@@ -97,7 +96,7 @@ impl Task {
         }
     }
 
-    pub fn check_if_data_can_be_removed(&mut self, notifications: &mut Notifications) -> bool {
+    pub fn remove_data_if_possible(&mut self, notifications: &mut Notifications) -> bool {
         if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
             // Hack for changing Finished -> Released while moving DataInfo
             let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {

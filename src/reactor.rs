@@ -143,7 +143,7 @@ pub fn release_keys(core_ref: &CoreRef, client_key: String, task_keys: Vec<Strin
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
 
-        if task.check_if_data_can_be_removed(&mut notifications) {
+        if task.remove_data_if_possible(&mut notifications) {
             core.remove_task(&task); // TODO: recursively remove dependencies
         }
     }

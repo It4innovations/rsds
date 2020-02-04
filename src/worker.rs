@@ -78,8 +78,9 @@ pub(crate) fn create_worker(
         sender,
         listen_address: msg.address,
     });
+    core.register_worker(worker_ref.clone());
     let mut notifications = Notifications::default();
-    core.register_worker(worker_ref.clone(), &mut notifications);
+    notifications.new_worker(&worker_ref.get());
     notifications.send(&mut core).unwrap();
     (worker_id, worker_ref)
 }
