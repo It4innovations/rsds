@@ -248,7 +248,8 @@ impl Core {
                     TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
                 },
                 TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released(_) | TaskRuntimeState::Error(_) => {
-                    panic!("Scheduling invalid task={}", assignment.task);
+                    log::debug!("Rescheduling non-active task={}", assignment.task);
+                    continue;
                 }
             };
             task.state = state;
@@ -273,6 +274,9 @@ impl Core {
     pub fn on_steal_response(&mut self, worker_ref: &WorkerRef, msg: StealResponseMsg, mut notifications: &mut Notifications) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key);
         let mut task = task_ref.get_mut();
+        if task.is_done() {
+            return;
+        }
         let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
             assert!(from_w == worker_ref);
             to_w.clone()

@@ -245,6 +245,14 @@ impl Task {
     }
 
     #[inline]
+    pub fn is_done(&self) -> bool {
+        match &self.state {
+            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released(_) | TaskRuntimeState::Error(_) => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
     pub fn data_info(&self) -> Option<&DataInfo> {
         match &self.state {
             TaskRuntimeState::Finished(data, _) => Some(data),
