@@ -17,6 +17,7 @@ pub struct Task {
     pub assigned_worker: Option<WorkerRef>,
     pub placement: Set<WorkerRef>,
     pub size: u64,
+    pub pinned: bool,
     pub take_flag: bool, // Used in algorithms, no meaning between calls
 }
 
@@ -91,6 +92,7 @@ impl TaskRef {
             consumers: Default::default(),
             assigned_worker: None,
             placement: Default::default(),
+            pinned: false,
             take_flag: false,
         });
         {

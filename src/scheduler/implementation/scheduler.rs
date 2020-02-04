@@ -163,7 +163,7 @@ impl Scheduler {
                 for tr in &worker.tasks {
                     tr.get_mut().take_flag = false;
                 }
-                balanced_tasks.extend(worker.tasks.iter().cloned());
+                balanced_tasks.extend(worker.tasks.iter().filter(|tr| !tr.get().pinned).cloned());
             }
         }
 
@@ -302,6 +302,7 @@ impl Scheduler {
             worker.tasks.remove(&tref);
             worker.is_underloaded()
         };
+        task.pinned = true;
         task.assigned_worker = Some(new_wref.clone());
         let mut new_worker = new_wref.get_mut();
         new_worker.tasks.insert(tref.clone());
