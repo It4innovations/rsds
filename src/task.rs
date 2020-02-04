@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::client::ClientId;
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
-use crate::notifications::Notifications;
+use crate::comm::Notifications;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 
@@ -244,7 +244,9 @@ impl Task {
     #[inline]
     pub fn is_done(&self) -> bool {
         match &self.state {
-            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released(_) | TaskRuntimeState::Error(_) => true,
+            TaskRuntimeState::Finished(_, _)
+            | TaskRuntimeState::Released(_)
+            | TaskRuntimeState::Error(_) => true,
             _ => false,
         }
     }

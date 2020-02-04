@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use crate::comm::CommRef;
 use crate::common::WrappedRcRefCell;
 use crate::core::CoreRef;
 use crate::protocol::protocol::{
@@ -66,12 +67,13 @@ impl AsyncWrite for MemoryStream {
     }
 }
 
-pub fn dummy_core() -> (
+pub fn dummy_ctx() -> (
     CoreRef,
+    CommRef,
     tokio::sync::mpsc::UnboundedReceiver<Vec<ToSchedulerMessage>>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (CoreRef::new(tx), rx)
+    (CoreRef::new(), CommRef::new(tx), rx)
 }
 
 pub fn dummy_address() -> SocketAddr {

@@ -5,10 +5,9 @@ use futures::FutureExt;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 
+use rsds::comm::{observe_scheduler, CommRef};
 use rsds::core::CoreRef;
 use rsds::scheduler::interface::prepare_scheduler_comm;
-use rsds::reactor::{observe_scheduler};
-use rsds::comm::CommRef;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -56,11 +55,10 @@ async fn main() -> rsds::Result<()> {
     let comm_ref2 = comm_ref.clone();
     task_set
         .run_until(async move {
-            let fut =
-                tokio::task::spawn_local(observe_scheduler(core_ref2, comm_ref2, receiver))
+            let fut = tokio::task::spawn_local(observe_scheduler(core_ref2, comm_ref2, receiver))
                 .boxed_local();
             let connection =
-                rsds::connection::connection_initiator(listener, core_ref, comm_ref).boxed_local();
+                rsds::comm::connection_initiator(listener, core_ref, comm_ref).boxed_local();
 
             futures::future::select(fut, connection).await
         })

@@ -1,11 +1,5 @@
-use futures::sink::SinkExt;
+use crate::protocol::protocol::DaskPacket;
 
-use crate::core::CoreRef;
-use crate::protocol::clientmsg::{FromClientMessage, ToClientMessage};
-use crate::protocol::protocol::{serialize_single_packet, Batch, DaskPacket};
-use crate::reactor::{release_keys, update_graph};
-use crate::comm::CommRef;
-use futures::{FutureExt, Sink, Stream, StreamExt};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub type ClientId = u64;
@@ -19,11 +13,7 @@ pub struct Client {
 impl Client {
     #[inline]
     pub fn new(id: ClientId, key: String, sender: UnboundedSender<DaskPacket>) -> Self {
-        Client {
-            id,
-            key,
-            sender
-        }
+        Client { id, key, sender }
     }
 
     #[inline]
@@ -34,11 +24,6 @@ impl Client {
     #[inline]
     pub fn key(&self) -> &str {
         &self.key
-    }
-
-    pub fn send_message(&mut self, message: ToClientMessage) -> crate::Result<()> {
-        log::debug!("Client send message {:?}", message);
-        self.send_dask_packet(serialize_single_packet(message)?)
     }
 
     pub fn send_dask_packet(&mut self, packet: DaskPacket) -> crate::Result<()> {

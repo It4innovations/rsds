@@ -1,17 +1,7 @@
-use futures::sink::SinkExt;
-
-use tokio::net::TcpStream;
-
 use crate::common::WrappedRcRefCell;
 use crate::core::CoreRef;
-use crate::notifications::Notifications;
-use crate::protocol::generic::RegisterWorkerMsg;
-use crate::protocol::protocol::{serialize_batch_packet, Batch, DaskPacket};
-use crate::protocol::workermsg::Status;
-use crate::protocol::workermsg::{FromWorkerMessage, ToWorkerMessage};
-use crate::task::ErrorInfo;
-use futures::{FutureExt, Sink, Stream, StreamExt};
-use crate::comm::CommRef;
+
+use crate::protocol::protocol::DaskPacket;
 
 pub type WorkerId = u64;
 
@@ -33,16 +23,16 @@ impl Worker {
         &self.listen_address
     }
 
+    #[inline]
+    pub fn address(&self) -> &str {
+        &self.listen_address
+    }
+
     pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
         crate::scheduler::schedproto::WorkerInfo {
             id: self.id,
             n_cpus: self.ncpus,
         }
-    }
-
-    pub fn send_message(&mut self, messages: Batch<ToWorkerMessage>) -> crate::Result<()> {
-        log::debug!("Worker send message {:?}", messages);
-        self.send_dask_packet(serialize_batch_packet(messages)?)
     }
 
     pub fn send_dask_packet(&mut self, message: DaskPacket) -> crate::Result<()> {
@@ -54,24 +44,18 @@ impl Worker {
 pub type WorkerRef = WrappedRcRefCell<Worker>;
 
 impl WorkerRef {
-    pub fn new(id: WorkerId, ncpus: u32, sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>, listen_address: String) -> Self {
+    pub fn new(
+        id: WorkerId,
+        ncpus: u32,
+        sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
+        listen_address: String,
+    ) -> Self {
         WorkerRef::wrap(Worker {
             id,
             ncpus,
             sender,
-            listen_address
+            listen_address,
         })
-    }
-
-    pub async fn connect(&self) -> crate::Result<tokio::net::TcpStream> {
-        // a copy is needed to avoid runtime Borrow errors
-        let address: String = {
-            self.get()
-                .listen_address
-                .trim_start_matches("tcp://")
-                .to_owned()
-        };
-        Ok(TcpStream::connect(address).await?)
     }
 }
 

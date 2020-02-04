@@ -1,14 +1,11 @@
 use std::rc::Rc;
 
-use futures::stream::StreamExt;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-
 use crate::client::{Client, ClientId};
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
-use crate::notifications::Notifications;
+use crate::comm::Notifications;
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+
 use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
 
@@ -180,7 +177,11 @@ impl Core {
             .collect()
     }
 
-    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>, notifications: &mut Notifications) {
+    pub fn process_assignments(
+        &mut self,
+        assignments: Vec<TaskAssignment>,
+        notifications: &mut Notifications,
+    ) {
         log::debug!("Assignments from scheduler: {:?}", assignments);
         for assignment in assignments {
             let worker_ref = self
@@ -228,7 +229,7 @@ impl Core {
                         wref1.get().id
                     );
                     TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
-                },
+                }
                 TaskRuntimeState::Finished(_, _)
                 | TaskRuntimeState::Released(_)
                 | TaskRuntimeState::Error(_) => {
@@ -285,11 +286,7 @@ impl Core {
         let error_info = Rc::new(error_info);
         let task_refs = {
             assert!(task_ref.get().is_assigned());
-            self.on_task_error_helper(
-                &task_ref,
-                error_info.clone(),
-                &mut notifications,
-            );
+            self.on_task_error_helper(&task_ref, error_info.clone(), &mut notifications);
             task_ref.get().collect_consumers()
         };
 
@@ -298,11 +295,7 @@ impl Core {
                 let task = task_ref.get();
                 assert!(task.is_waiting() || task.is_scheduled());
             }
-            self.on_task_error_helper(
-                &task_ref,
-                error_info.clone(),
-                &mut notifications,
-            );
+            self.on_task_error_helper(&task_ref, error_info.clone(), &mut notifications);
         }
     }
 

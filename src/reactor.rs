@@ -1,43 +1,39 @@
 use crate::client::ClientId;
-use crate::common::{Map, Set, WrappedRcRefCell};
-use crate::core::{CoreRef, Core};
-use crate::notifications::{Notifications, WorkerNotification, ClientNotification};
+use crate::comm::CommRef;
+use crate::common::{Map, Set};
+use crate::core::CoreRef;
+use crate::comm::Notifications;
 use crate::protocol::clientmsg::{ClientTaskSpec, UpdateGraphMsg};
+
 use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
     map_to_transport_clone, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
     SerializedMemory,
 };
+
 use crate::protocol::workermsg::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
 };
-use crate::task::TaskRuntimeState;
-use crate::protocol::clientmsg::{ToClientMessage, TaskErredMsg, KeyInMemoryMsg};
-use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg};
 use crate::scheduler::schedproto::TaskId;
+
 use crate::task::TaskRef;
+
 use crate::util::OptionExt;
-use crate::worker::WorkerRef;
 use futures::stream::FuturesUnordered;
 use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
-use crate::scheduler::{ToSchedulerMessage, FromSchedulerMessage};
-use crate::comm::CommRef;
+use tokio::net::TcpStream;
 
-pub fn update_graph(core_ref: &CoreRef, comm_ref: &CommRef, client_id: ClientId, update: UpdateGraphMsg) {
+pub fn update_graph(
+    core_ref: &CoreRef,
+    comm_ref: &CommRef,
+    client_id: ClientId,
+    update: UpdateGraphMsg,
+) -> crate::Result<()> {
     log::debug!("Updating graph from client {}", client_id);
 
-    /*for vals in update.dependencies.values() {
-        for key in vals {
-            if !update.tasks.contains_key(key) {
-                // TODO: Error handling
-                panic!("Invalid key in dependecies: {}", key);
-            }
-        }
-    }*/
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
@@ -127,16 +123,22 @@ pub fn update_graph(core_ref: &CoreRef, comm_ref: &CommRef, client_id: ClientId,
         }
     }
     assert_eq!(count, 0);
-    comm_ref.get_mut().send(&mut core, notifications).unwrap();
+    comm_ref.get_mut().notify(&mut core, notifications)?;
 
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
         task.subscribe_client(client_id);
     }
+    Ok(())
 }
 
-pub fn release_keys(core_ref: &CoreRef, comm_ref: &CommRef, client_key: String, task_keys: Vec<String>) {
+pub fn release_keys(
+    core_ref: &CoreRef,
+    comm_ref: &CommRef,
+    client_key: String,
+    task_keys: Vec<String>,
+) -> crate::Result<()> {
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
     let mut notifications = Notifications::default();
@@ -151,17 +153,17 @@ pub fn release_keys(core_ref: &CoreRef, comm_ref: &CommRef, client_key: String, 
             core.remove_task(&task); // TODO: recursively remove dependencies
         }
     }
-    comm_ref.get_mut().send(&mut core, notifications).unwrap();
+    comm_ref.get_mut().notify(&mut core, notifications)
 }
 
 pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    _comm_ref: &CommRef,
     address: std::net::SocketAddr,
     sink: &mut W,
     keys: Vec<String>,
 ) -> crate::Result<()> {
-    let mut worker_map: Map<WorkerRef, Vec<&str>> = Default::default();
+    let mut worker_map: Map<String, Vec<&str>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
@@ -169,7 +171,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
             let task_ref = core.get_task_by_key_or_panic(key);
             task_ref.get().get_workers().map(|ws| {
                 ws.choose(&mut rng).map(|w| {
-                    worker_map.entry(w.clone()).or_default().push(key);
+                    worker_map.entry(w.get().address().to_owned()).or_default().push(key);
                 })
             });
         }
@@ -179,7 +181,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
             .iter()
-            .map(|(worker, keys)| get_data_from_worker(&worker, &keys)),
+            .map(|(worker, keys)| get_data_from_worker(worker.clone(), &keys)),
     );
 
     while let Some(data) = worker_futures.next().await {
@@ -207,7 +209,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
 pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    _comm_ref: &CommRef,
     writer: &mut W,
 ) -> crate::Result<()> {
     let core = core_ref.get();
@@ -245,7 +247,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
             workers
                 .into_iter()
-                .map(|worker| update_data_on_worker(worker, &message.data)),
+                .map(|worker| update_data_on_worker(worker.get().address().to_owned(), &message.data)),
         );
 
         while let Some(data) = worker_futures.next().await {
@@ -276,15 +278,15 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
             core.add_task(task_ref);
             // TODO: notify key-in-memory
         }
-        comm_ref.get_mut().send(&mut core, notifications).unwrap();
+        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
     }
 
     writer.send(serialize_single_packet(response)?).await?;
     Ok(())
 }
 
-pub async fn get_data_from_worker(worker: &WorkerRef, keys: &[&str]) -> crate::Result<DaskPacket> {
-    let mut connection = worker.connect().await?;
+pub async fn get_data_from_worker(worker_address: String, keys: &[&str]) -> crate::Result<DaskPacket> {
+    let mut connection = connect_to_worker(worker_address).await?;
     let msg = ToWorkerMessage::GetData(GetDataMsg {
         keys,
         who: None,
@@ -306,10 +308,10 @@ pub async fn get_data_from_worker(worker: &WorkerRef, keys: &[&str]) -> crate::R
 }
 
 pub async fn update_data_on_worker(
-    worker: WorkerRef,
+    worker_address: String,
     data: &Map<String, SerializedMemory>,
 ) -> crate::Result<()> {
-    let mut connection = worker.connect().await?;
+    let mut connection = connect_to_worker(worker_address).await?;
 
     let mut builder = MessageBuilder::<ToWorkerMessage>::new();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
@@ -332,7 +334,7 @@ pub async fn update_data_on_worker(
 
 pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    _comm_ref: &CommRef,
     sink: &mut W,
     keys: Vec<String>,
 ) -> crate::Result<()> {
@@ -352,28 +354,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     sink.send(serialize_single_packet(response)?).await
 }
 
-pub async fn observe_scheduler(core_ref: CoreRef,
-                               comm_ref: CommRef,
-                               mut receiver: UnboundedReceiver<FromSchedulerMessage>) {
-    log::debug!("Starting scheduler");
-
-    match receiver.next().await {
-        Some(crate::scheduler::FromSchedulerMessage::Register(r)) => log::debug!("Scheduler registered: {:?}", r),
-        None => panic!("Scheduler closed connection without registration"),
-        _ => panic!("First message of scheduler has to be registration")
-    }
-
-    while let Some(msg) = receiver.next().await {
-        match msg {
-            FromSchedulerMessage::TaskAssignments(assignments) => {
-                let mut core = core_ref.get_mut();
-                let mut notifications = Default::default();
-                core.process_assignments(assignments, &mut notifications);
-                comm_ref.get_mut().send(&mut core, notifications).unwrap();
-            }
-            FromSchedulerMessage::Register(_) => {
-                panic!("Double registration of scheduler");
-            }
-        }
-    }
+async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
+    let address = address.trim_start_matches("tcp://");
+    Ok(TcpStream::connect(address).await?)
 }
