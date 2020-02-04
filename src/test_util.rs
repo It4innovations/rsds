@@ -1,13 +1,18 @@
 #![cfg(test)]
 
+use crate::client::{Client, ClientId};
 use crate::comm::CommRef;
 use crate::common::WrappedRcRefCell;
-use crate::core::CoreRef;
+use crate::core::{Core, CoreRef};
+use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{
     deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, FromDaskTransport,
-    ToDaskTransport,
+    SerializedMemory, ToDaskTransport,
 };
+use crate::scheduler::schedproto::TaskId;
 use crate::scheduler::ToSchedulerMessage;
+use crate::task::TaskRef;
+use crate::worker::{create_worker, WorkerRef};
 use bytes::BytesMut;
 use std::io::Cursor;
 use std::net::SocketAddr;
@@ -16,6 +21,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::codec::{Decoder, Encoder};
 
 /// Memory stream for reading and writing at the same time.
@@ -75,9 +81,37 @@ pub fn dummy_ctx() -> (
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     (CoreRef::new(), CommRef::new(tx), rx)
 }
-
 pub fn dummy_address() -> SocketAddr {
     "127.0.0.1:8080".parse().unwrap()
+}
+pub fn dummy_serialized() -> SerializedMemory {
+    SerializedMemory::Inline(rmpv::Value::Nil)
+}
+
+pub fn task(id: TaskId) -> TaskRef {
+    task_deps(id, &[])
+}
+pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
+    let task = TaskRef::new(
+        id,
+        format!("{}", id),
+        ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
+        deps.iter().map(|t| t.get().id).collect(),
+        deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
+    );
+    for &dep in deps {
+        dep.get_mut().add_consumer(task.clone());
+    }
+    task
+}
+pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, UnboundedReceiver<DaskPacket>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let worker = create_worker(core, tx, address.to_owned());
+    (worker, rx)
+}
+pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (Client::new(id, format!("client-{}", id), tx), rx)
 }
 
 pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {

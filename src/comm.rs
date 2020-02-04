@@ -4,23 +4,31 @@ use crate::core::{Core, CoreRef};
 use crate::protocol::clientmsg::{
     FromClientMessage, KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
 };
-use crate::protocol::generic::{RegisterWorkerMsg, GenericMessage, SimpleMessage, IdentityResponse, WorkerInfo};
-use crate::protocol::protocol::{MessageBuilder, serialize_batch_packet, dask_parse_stream, serialize_single_packet, asyncread_to_stream, asyncwrite_to_sink};
+use crate::protocol::generic::{
+    GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
+};
+use crate::protocol::protocol::{
+    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
+    serialize_single_packet, MessageBuilder,
+};
 use crate::protocol::protocol::{Batch, DaskPacket};
-use crate::protocol::workermsg::{DeleteDataMsg, FromWorkerMessage, Status, StealRequestMsg, ToWorkerMessage, RegisterWorkerResponseMsg};
-use crate::reactor::{release_keys, update_graph, who_has, gather, scatter, get_ncores};
+use crate::protocol::workermsg::{
+    DeleteDataMsg, FromWorkerMessage, RegisterWorkerResponseMsg, Status, StealRequestMsg,
+    ToWorkerMessage,
+};
+use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
+use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use crate::task::{ErrorInfo, TaskRef, Task, TaskKey};
 use crate::task::TaskRuntimeState;
+use crate::task::{ErrorInfo, Task, TaskKey, TaskRef};
+use crate::worker::Worker;
 use crate::worker::{create_worker, WorkerRef};
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
+use smallvec::smallvec;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdateType, TaskUpdate};
-use crate::worker::Worker;
-use smallvec::smallvec;
-use tokio::net::TcpListener;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -132,28 +140,29 @@ impl Comm {
 
 impl CommRef {
     pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        WrappedRcRefCell::wrap(Comm { sender })
+        Self::wrap(Comm { sender })
     }
 }
 
-#[derive(Default)]
-struct WorkerNotification {
-    compute_tasks: Vec<TaskRef>,
-    delete_keys: Vec<TaskKey>,
-    steal_tasks: Vec<TaskRef>,
+#[derive(Default, Debug)]
+pub(crate) struct WorkerNotification {
+    pub(crate) compute_tasks: Vec<TaskRef>,
+    pub(crate) delete_keys: Vec<TaskKey>,
+    pub(crate) steal_tasks: Vec<TaskRef>,
 }
 
-#[derive(Default)]
-struct ClientNotification {
-    in_memory_tasks: Vec<TaskRef>,
-    error_tasks: Vec<TaskRef>,
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Default, Debug)]
+pub(crate) struct ClientNotification {
+    pub(crate) in_memory_tasks: Vec<TaskRef>,
+    pub(crate) error_tasks: Vec<TaskRef>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Notifications {
-    workers: Map<WorkerRef, WorkerNotification>,
-    clients: Map<ClientId, ClientNotification>,
-    scheduler_messages: Vec<ToSchedulerMessage>,
+    pub(crate) workers: Map<WorkerRef, WorkerNotification>,
+    pub(crate) clients: Map<ClientId, ClientNotification>,
+    pub(crate) scheduler_messages: Vec<ToSchedulerMessage>,
 }
 
 impl Notifications {
@@ -265,7 +274,8 @@ pub async fn worker_rpc_loop<
 ) -> crate::Result<()> {
     let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
-    let (worker_id, worker_ref) = create_worker(core_ref, queue_sender, msg.address);
+    let worker_ref = create_worker(&mut core_ref.get_mut(), queue_sender, msg.address);
+    let worker_id = worker_ref.get().id;
     let mut notifications = Notifications::default();
     notifications.new_worker(&worker_ref.get());
     comm_ref
@@ -508,7 +518,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                         writer,
                         msg,
                     )
-                        .await?;
+                    .await?;
                     break 'outer;
                 }
                 GenericMessage::RegisterClient(msg) => {
@@ -528,7 +538,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                         writer,
                         msg.client,
                     )
-                        .await?;
+                    .await?;
                     break 'outer;
                 }
                 GenericMessage::Identity(_) => {
@@ -591,6 +601,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 
 #[cfg(test)]
 mod tests {
+    use crate::comm::generic_rpc_loop;
     use crate::protocol::clientmsg::FromClientMessage;
     use crate::protocol::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
@@ -601,7 +612,6 @@ mod tests {
     use crate::test_util::{
         bytes_to_msg, dummy_address, dummy_ctx, msg_to_bytes, packets_to_bytes, MemoryStream,
     };
-    use crate::comm::generic_rpc_loop;
 
     #[tokio::test]
     async fn respond_to_identity() -> crate::Result<()> {
