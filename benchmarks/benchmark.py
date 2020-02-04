@@ -1,21 +1,19 @@
+import datetime
 import functools
 import logging
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
-import time
-import io
-import shutil
-import datetime
 import sys
+import time
 import traceback
-from getpass import getuser
 from random import Random
 
-import psutil
 import click
 import pandas as pd
+import psutil
 import seaborn as sns
 import tqdm
 from distributed import Client
@@ -118,7 +116,7 @@ class Cluster:
             return ("dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores))
 
         env = os.environ.copy()
-        env["OMP_NUM_THREADS"] = "1" # TODO
+        env["OMP_NUM_THREADS"] = "1"  # TODO
 
         if count == 1:
             return [Process(get_args(cores), env=env, workdir=workdir, tag="worker-0")]
@@ -126,7 +124,8 @@ class Cluster:
             nodes = get_pbs_nodes()
             if count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
-            return [Process(get_args(cores), node=node, env=env, remote=True, workdir=workdir, tag=f"worker-{i}") for i, node in enumerate(nodes[1:])]
+            return [Process(get_args(cores), node=node, env=env, remote=True, workdir=workdir, tag=f"worker-{i}") for
+                    i, node in enumerate(nodes[1:])]
 
     def __enter__(self):
         return self
@@ -222,8 +221,9 @@ def create_frame(results, clusters):
 
 def gen_results(cluster_info, usecases, repeat, workdir):
     for (name, function) in usecases:
-        with Cluster(cluster_info, workdir):
-            for _ in range(repeat):
+        for i in range(repeat):
+            logging.info(f"Benchmarking {name} ({i})")
+            with Cluster(cluster_info, workdir):
                 start = time.time()
                 result = function()
                 duration = time.time() - start
@@ -238,7 +238,7 @@ def benchmark_cluster(cluster_info, usecases, repeat, workdir):
     } for (name, _) in usecases}
     try:
         for (function, result, duration) in tqdm.tqdm(gen_results(cluster_info, usecases, repeat, workdir),
-                                                    total=len(usecases) * repeat):
+                                                      total=len(usecases) * repeat):
             results[function]["results"].append(result)
             results[function]["times"].append(duration)
     except:
@@ -335,7 +335,6 @@ python {script_path} benchmark {input} {directory}"""
     print(f"Submitting PBS script: {fpath}")
     result = subprocess.run(["qsub", fpath], stdout=subprocess.PIPE)
     print(f"Job id: {result.stdout.decode().strip()}")
-
 
 
 @click.group()
