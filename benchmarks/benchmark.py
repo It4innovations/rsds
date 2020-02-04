@@ -279,6 +279,7 @@ def create_boxplot(frame):
     g = g.add_legend()
     g.set_ylabels("Time [ms]")
     g.set(ylim=(0, None))
+    g.set_xticklabels(rotation=90)
     return g
 
 
