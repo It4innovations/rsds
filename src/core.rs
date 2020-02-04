@@ -6,7 +6,6 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::client::{Client, ClientId};
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::notifications::Notifications;
-use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
@@ -80,22 +79,21 @@ impl Core {
         self.task_id_counter.next()
     }
 
-    pub fn register_worker(&mut self, worker_ref: WorkerRef, notifications: &mut Notifications) {
-        notifications.new_worker(&worker_ref.get());
+    pub fn register_worker(&mut self, worker_ref: WorkerRef) {
         self.workers.insert(worker_ref);
     }
 
     #[inline]
     pub fn unregister_client(&mut self, client_id: ClientId) {
+        // TODO: remove tasks of this client
         self.clients.remove_by_id(client_id);
     }
 
     pub fn unregister_worker(&mut self, worker_id: WorkerId) {
+        // TODO: send to scheduler
         self.workers.remove_by_id(worker_id);
     }
 
-    // ! This function modifies update, but do not triggers, send_update
-    // You have to done it manually.
     pub fn add_task(&mut self, task_ref: TaskRef) {
         let (task_id, task_key) = {
             let task = task_ref.get();
@@ -161,7 +159,7 @@ impl Core {
             .values()
             .map(|w| {
                 let w = w.get();
-                (w.listen_address.clone(), w.ncpus as u64)
+                (w.key().to_owned(), w.ncpus as u64)
             })
             .collect()
     }
@@ -174,9 +172,8 @@ impl Core {
         self.self_ref.clone().unwrap()
     }
 
-    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>) {
+    pub fn process_assignments(&mut self, assignments: Vec<TaskAssignment>, notifications: &mut Notifications) {
         log::debug!("Assignments from scheduler: {:?}", assignments);
-        let mut notifications = Notifications::default();
         for assignment in assignments {
             let worker_ref = self
                 .workers
@@ -233,18 +230,18 @@ impl Core {
             };
             task.state = state;
         }
-        notifications.send(self).unwrap();
     }
 
     pub fn _on_task_error_helper(
         &mut self,
-        task: &mut Task,
         task_ref: &TaskRef,
         error_info: Rc<ErrorInfo>,
         mut notifications: &mut Notifications,
     ) {
-        task.state = TaskRuntimeState::Error(error_info);
-        self.unregister_as_consumer(&task, task_ref, &mut notifications);
+        task_ref.get_mut().state = TaskRuntimeState::Error(error_info);
+        self.unregister_as_consumer(task_ref, &mut notifications);
+
+        let task = task_ref.get();
         for client_id in task.subscribed_clients() {
             notifications.notify_client_about_task_error(*client_id, task_ref.clone());
         }
@@ -294,22 +291,21 @@ impl Core {
         let task_ref = self.get_task_by_key_or_panic(&task_key).clone();
         let error_info = Rc::new(error_info);
         let task_refs = {
-            let mut task = task_ref.get_mut();
-            assert!(task.is_assigned());
+            assert!(task_ref.get().is_assigned());
             self._on_task_error_helper(
-                &mut task,
                 &task_ref,
                 error_info.clone(),
                 &mut notifications,
             );
-            task.collect_consumers()
+            task_ref.get().collect_consumers()
         };
 
         for task_ref in task_refs {
-            let mut task = task_ref.get_mut();
-            assert!(task.is_waiting() || task.is_scheduled());
+            {
+                let task = task_ref.get();
+                assert!(task.is_waiting() || task.is_scheduled());
+            }
             self._on_task_error_helper(
-                &mut task,
                 &task_ref,
                 error_info.clone(),
                 &mut notifications,
@@ -319,15 +315,15 @@ impl Core {
 
     pub fn unregister_as_consumer(
         &mut self,
-        task: &Task,
         task_ref: &TaskRef,
         notifications: &mut Notifications,
     ) {
+        let task = task_ref.get();
         for input_id in &task.dependencies {
             let tr = self.get_task_by_id_or_panic(*input_id);
             let mut t = tr.get_mut();
             assert!(t.consumers.remove(&task_ref));
-            t.check_if_data_can_be_removed(notifications);
+            t.remove_data_if_possible(notifications);
         }
     }
 
@@ -350,64 +346,56 @@ impl Core {
         &mut self,
         worker: &WorkerRef,
         msg: TaskFinishedMsg,
-        mut notifications: &mut Notifications,
+        notifications: &mut Notifications,
     ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key).clone();
         {
-            let mut task = task_ref.get_mut();
-            log::debug!(
-                "Task id={} finished on worker={}",
-                task.id,
-                worker.get().id()
-            );
-            assert!(task.is_assigned_or_stealed_from(worker));
-            task.state = TaskRuntimeState::Finished(
-                DataInfo {
-                    size: msg.nbytes,
-                    r#type: msg.r#type,
-                },
-                vec![worker.clone()],
-            );
-            for consumer in &task.consumers {
-                let mut t = consumer.get_mut();
-                assert!(t.is_waiting() || t.is_scheduled());
-                t.unfinished_inputs -= 1;
-                if t.unfinished_inputs == 0 {
-                    let wr = match &t.state {
-                        TaskRuntimeState::Scheduled(w) => Some(w.clone()),
-                        _ => None,
-                    };
-                    if let Some(w) = wr {
-                        t.state = TaskRuntimeState::Assigned(w.clone());
-                        notifications.compute_task_on_worker(w, consumer.clone());
+            {
+                let mut task = task_ref.get_mut();
+                log::debug!(
+                    "Task id={} finished on worker={}",
+                    task.id,
+                    worker.get().id()
+                );
+                assert!(task.is_assigned_or_stealed_from(worker));
+                task.state = TaskRuntimeState::Finished(
+                    DataInfo {
+                        size: msg.nbytes,
+                        r#type: msg.r#type,
+                    },
+                    vec![worker.clone()],
+                );
+            }
+            {
+                let task = task_ref.get();
+                for consumer in &task.consumers {
+                    let mut t = consumer.get_mut();
+                    assert!(t.is_waiting() || t.is_scheduled());
+                    t.unfinished_inputs -= 1;
+                    if t.unfinished_inputs == 0 {
+                        let wr = match &t.state {
+                            TaskRuntimeState::Scheduled(w) => Some(w.clone()),
+                            _ => None,
+                        };
+                        if let Some(w) = wr {
+                            t.state = TaskRuntimeState::Assigned(w.clone());
+                            notifications.compute_task_on_worker(w, consumer.clone());
+                        }
                     }
                 }
+                notifications.task_finished(&worker.get(), &task);
+                self.unregister_as_consumer(&task_ref, notifications);
+                self.notify_key_in_memory(&task_ref, notifications);
             }
-            notifications.task_finished(&worker.get(), &task);
-            self.unregister_as_consumer(&task, &task_ref, &mut notifications);
-            self.notify_key_in_memory(&task);
-            task.check_if_data_can_be_removed(notifications);
+
+            task_ref.get_mut().remove_data_if_possible(notifications);
         }
     }
 
-    fn notify_key_in_memory(&mut self, task: &Task) {
-        for client_id in task.subscribed_clients() {
-            match self.clients.get_mut_by_id(*client_id) {
-                Some(client) => {
-                    client
-                        .send_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                            key: task.key.clone(),
-                            r#type: task.data_info().unwrap().r#type.clone(),
-                        }))
-                        .unwrap();
-                }
-                None => {
-                    panic!(
-                        "Task id={} finished for a dropped client={}",
-                        task.id, client_id
-                    );
-                }
-            }
+    fn notify_key_in_memory(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
+        let task = task_ref.get();
+        for &client_id in task.subscribed_clients() {
+            notifications.notify_client_key_in_memory(client_id, task_ref.clone());
         }
     }
 }
@@ -460,7 +448,9 @@ impl CoreRef {
             match msg {
                 FromSchedulerMessage::TaskAssignments(assignments) => {
                     let mut core = self.get_mut();
-                    core.process_assignments(assignments);
+                    let mut notifications = Default::default();
+                    core.process_assignments(assignments, &mut notifications);
+                    notifications.send(&mut core).unwrap();
                 }
                 FromSchedulerMessage::Register(_) => {
                     panic!("Double registration of scheduler");

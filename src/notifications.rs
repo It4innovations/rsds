@@ -5,7 +5,7 @@ use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType
 use crate::scheduler::ToSchedulerMessage;
 
 use crate::common::Map;
-use crate::protocol::clientmsg::{TaskErredMsg, ToClientMessage};
+use crate::protocol::clientmsg::{TaskErredMsg, KeyInMemoryMsg, ToClientMessage};
 use crate::protocol::protocol::MessageBuilder;
 use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 use crate::task::{Task, TaskKey, TaskRef, TaskRuntimeState};
@@ -20,6 +20,7 @@ pub struct WorkerNotification {
 
 #[derive(Default)]
 pub struct ClientNotification {
+    pub in_memory_tasks: Vec<TaskRef>,
     pub error_tasks: Vec<TaskRef>,
 }
 
@@ -117,6 +118,14 @@ impl Notifications {
             .push(task_ref);
     }
 
+    pub fn notify_client_key_in_memory(&mut self, client_id: ClientId, task_ref: TaskRef) {
+        self.clients
+            .entry(client_id)
+            .or_default()
+            .in_memory_tasks
+            .push(task_ref);
+    }
+
     pub fn send(self, core: &mut Core) -> crate::Result<()> {
         /* Send to scheduler */
         if !self.scheduler_messages.is_empty() {
@@ -164,27 +173,34 @@ impl Notifications {
 
         /* Send to clients */
         for (client_id, c_update) in self.clients {
-            if !c_update.error_tasks.is_empty() {
-                let mut mbuilder =
-                    MessageBuilder::<ToClientMessage>::with_capacity(c_update.error_tasks.len());
+            let mut mbuilder =
+                MessageBuilder::<ToClientMessage>::with_capacity(c_update.error_tasks.len() + c_update.in_memory_tasks.len());
+            for task_ref in c_update.error_tasks {
+                let task = task_ref.get();
+                if let TaskRuntimeState::Error(error_info) = &task.state {
+                    let exception = mbuilder.copy_serialized(&error_info.exception);
+                    let traceback = mbuilder.copy_serialized(&error_info.traceback);
+                    mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
+                        key: task.key.clone(),
+                        exception,
+                        traceback,
+                    }));
+                } else {
+                    panic!("Task is not in error state");
+                };
+            }
 
-                for task_ref in c_update.error_tasks.iter() {
-                    let task = task_ref.get();
-                    if let TaskRuntimeState::Error(error_info) = &task.state {
-                        let exception = mbuilder.copy_serialized(&error_info.exception);
-                        let traceback = mbuilder.copy_serialized(&error_info.traceback);
-                        mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                            key: task.key.clone(),
-                            exception,
-                            traceback,
-                        }));
-                    } else {
-                        panic!("Task is not in error state");
-                    };
-                }
+            for task_ref in c_update.in_memory_tasks {
+                let task = task_ref.get();
+                mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
+                    key: task.key.clone(),
+                    r#type: task.data_info().unwrap().r#type.clone(),
+                }));
+            }
 
+            if !mbuilder.is_empty() {
                 let client = core.get_client_by_id_or_panic(client_id);
-                client.send_dask_message(mbuilder.build_batch()?).unwrap();
+                client.send_dask_message(mbuilder.build_batch()?)?;
             }
         }
         Ok(())
