@@ -129,7 +129,7 @@ impl Scheduler {
             self.new_tasks = Vec::new()
         }
 
-        for tr in std::mem::replace(&mut self.ready_to_assign, Default::default()).into_iter() {
+        for tr in std::mem::take(&mut self.ready_to_assign).into_iter() {
             let mut task = tr.get_mut();
             let worker_ref = self.choose_worker_for_task(&task);
             let mut worker = worker_ref.get_mut();
@@ -296,7 +296,7 @@ impl Scheduler {
 
         let need_balancing = {
             let wref = task.assigned_worker.as_ref().unwrap();
-            if &wref == &new_wref {
+            if wref == new_wref {
                 return false;
             }
             let mut worker = wref.get_mut();

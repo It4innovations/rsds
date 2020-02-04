@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use crate::client::{Client, ClientId};
-use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::comm::Notifications;
+use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
@@ -58,6 +58,23 @@ pub struct Core {
 pub type CoreRef = WrappedRcRefCell<Core>;
 
 impl Core {
+    pub fn new() -> Self {
+        Self {
+            tasks_by_id: Default::default(),
+            tasks_by_key: Default::default(),
+
+            task_id_counter: Default::default(),
+            worker_id_counter: Default::default(),
+            client_id_counter: Default::default(),
+
+            workers: KeyIdMap::new(),
+            clients: KeyIdMap::new(),
+
+            uid: "123_TODO".into(),
+            self_ref: None,
+        }
+    }
+
     #[inline]
     pub fn uid(&self) -> &str {
         &self.uid
@@ -110,7 +127,7 @@ impl Core {
     }
 
     pub fn remove_task(&mut self, task: &Task) {
-        assert!(task.consumers.is_empty());
+        assert!(!task.has_consumers());
         self.tasks_by_id.remove(&task.id);
         self.tasks_by_key.remove(&task.key);
     }
@@ -125,6 +142,11 @@ impl Core {
         self.tasks_by_id.get(&id).unwrap_or_else(|| {
             panic!("Asking for invalid task id={}", id);
         })
+    }
+
+    #[inline]
+    pub fn get_task_by_id(&self, id: TaskId) -> Option<&TaskRef> {
+        self.tasks_by_id.get(&id)
     }
 
     #[inline]
@@ -277,7 +299,7 @@ impl Core {
 
     pub fn on_task_error(
         &mut self,
-        _worker: &WorkerRef,
+        worker: &WorkerRef,
         task_key: TaskKey,
         error_info: ErrorInfo,
         mut notifications: &mut Notifications,
@@ -285,7 +307,7 @@ impl Core {
         let task_ref = self.get_task_by_key_or_panic(&task_key).clone();
         let error_info = Rc::new(error_info);
         let task_refs = {
-            assert!(task_ref.get().is_assigned());
+            assert!(task_ref.get().is_assigned_or_stealed_from(worker));
             self.on_task_error_helper(&task_ref, error_info.clone(), &mut notifications);
             task_ref.get().collect_consumers()
         };
@@ -296,20 +318,6 @@ impl Core {
                 assert!(task.is_waiting() || task.is_scheduled());
             }
             self.on_task_error_helper(&task_ref, error_info.clone(), &mut notifications);
-        }
-    }
-
-    pub fn unregister_as_consumer(
-        &mut self,
-        task_ref: &TaskRef,
-        notifications: &mut Notifications,
-    ) {
-        let task = task_ref.get();
-        for input_id in &task.dependencies {
-            let tr = self.get_task_by_id_or_panic(*input_id);
-            let mut t = tr.get_mut();
-            assert!(t.consumers.remove(&task_ref));
-            t.remove_data_if_possible(notifications);
         }
     }
 
@@ -354,7 +362,7 @@ impl Core {
             }
             {
                 let task = task_ref.get();
-                for consumer in &task.consumers {
+                for consumer in task.get_consumers() {
                     let mut t = consumer.get_mut();
                     assert!(t.is_waiting() || t.is_scheduled());
                     t.unfinished_inputs -= 1;
@@ -375,6 +383,16 @@ impl Core {
             }
 
             task_ref.get_mut().remove_data_if_possible(notifications);
+        }
+    }
+
+    fn unregister_as_consumer(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
+        let task = task_ref.get();
+        for input_id in &task.dependencies {
+            let tr = self.get_task_by_id_or_panic(*input_id);
+            let mut t = tr.get_mut();
+            assert!(t.remove_consumer(&task_ref));
+            t.remove_data_if_possible(notifications);
         }
     }
 
@@ -403,24 +421,248 @@ impl Core {
 
 impl CoreRef {
     pub fn new() -> Self {
-        let core_ref = Self::wrap(Core {
-            tasks_by_id: Default::default(),
-            tasks_by_key: Default::default(),
-
-            task_id_counter: Default::default(),
-            worker_id_counter: Default::default(),
-            client_id_counter: Default::default(),
-
-            workers: KeyIdMap::new(),
-            clients: KeyIdMap::new(),
-
-            uid: "123_TODO".into(),
-            self_ref: None,
-        });
+        let core_ref = Self::wrap(Core::new());
         {
             let mut core = core_ref.get_mut();
             core.self_ref = Some(core_ref.clone());
         }
         core_ref
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Core;
+    use crate::client::Client;
+    use crate::comm::{ClientNotification, Notifications};
+    use crate::protocol::workermsg::Status;
+    use crate::protocol::workermsg::TaskFinishedMsg;
+    use crate::scheduler::schedproto::{TaskAssignment, TaskId, TaskUpdate, TaskUpdateType};
+    use crate::scheduler::ToSchedulerMessage;
+    use crate::task::{ErrorInfo, TaskRef, TaskRuntimeState};
+    use crate::test_util::{client, dummy_serialized, task, task_deps, worker};
+    use crate::worker::WorkerRef;
+
+    #[test]
+    fn add_remove() {
+        let mut core = Core::new();
+        let t = task(0);
+        core.add_task(t.clone());
+        assert_eq!(core.get_task_by_key_or_panic(&t.get().key), &t);
+
+        core.remove_task(&t.get());
+        assert_eq!(core.get_task_by_id(0), None);
+    }
+
+    #[test]
+    fn assign_task() {
+        let mut core = Core::new();
+        let t = add_task(&mut core, 0);
+
+        let (w, _w_rx) = worker(&mut core, "w0");
+        let notifications = assign(&mut core, &t, &w);
+        assert!(t.get().is_assigned_or_stealed_from(&w));
+        assert_eq!(notifications.workers[&w].compute_tasks, vec!(t));
+    }
+
+    #[test]
+    fn finish_task_scheduler_notification() {
+        let mut core = Core::new();
+        let t = add_task(&mut core, 0);
+        let (w, _w_rx) = worker(&mut core, "w0");
+        assign(&mut core, &t, &w);
+
+        let key = t.get().key.clone();
+
+        let mut notifications = Notifications::default();
+        let nbytes = 16;
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg {
+                status: Status::Ok,
+                key,
+                nbytes,
+                r#type: vec![],
+            },
+            &mut notifications,
+        );
+        assert_eq!(
+            notifications.scheduler_messages[0],
+            ToSchedulerMessage::TaskUpdate(TaskUpdate {
+                id: t.get().id,
+                state: TaskUpdateType::Finished,
+                worker: w.get().id,
+                size: Some(nbytes)
+            })
+        );
+    }
+
+    #[test]
+    fn release_task_without_consumers() {
+        let mut core = Core::new();
+        let t = add_task(&mut core, 0);
+        let (w, _w_rx) = worker(&mut core, "w0");
+        assign(&mut core, &t, &w);
+
+        let key = t.get().key.clone();
+        let r#type = vec![1, 2, 3];
+        let nbytes = 16;
+
+        let mut notifications = Notifications::default();
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg {
+                status: Status::Ok,
+                key,
+                nbytes,
+                r#type: r#type.clone(),
+            },
+            &mut notifications,
+        );
+        match &t.get().state {
+            TaskRuntimeState::Released(data) => {
+                assert_eq!(data.size, nbytes);
+                assert_eq!(data.r#type, r#type);
+            }
+            _ => panic!("Wrong task state"),
+        };
+    }
+
+    #[test]
+    fn finish_task_with_consumers() {
+        let mut core = Core::new();
+        let t = add_task(&mut core, 0);
+        let _ = add_task_deps(&mut core, 1, &[&t]);
+        let (w, _w_rx) = worker(&mut core, "w0");
+        assign(&mut core, &t, &w);
+
+        let key = t.get().key.clone();
+        let r#type = vec![1, 2, 3];
+        let nbytes = 16;
+
+        let mut notifications = Notifications::default();
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg {
+                status: Status::Ok,
+                key,
+                nbytes,
+                r#type: r#type.clone(),
+            },
+            &mut notifications,
+        );
+        match &t.get().state {
+            TaskRuntimeState::Finished(data, workers) => {
+                assert_eq!(data.size, nbytes);
+                assert_eq!(data.r#type, r#type);
+                assert_eq!(workers, &vec!(w));
+            }
+            _ => panic!("Wrong task state"),
+        };
+    }
+
+    #[test]
+    fn finish_task_inmemory_notification() {
+        let mut core = Core::new();
+        let t = add_task(&mut core, 0);
+        let (w, _w_rx) = worker(&mut core, "w0");
+        assign(&mut core, &t, &w);
+
+        let key = t.get().key.clone();
+        let clients: Vec<Client> = (0..2)
+            .map(|c| {
+                let (client, _c_rx) = client(c);
+                t.get_mut().subscribe_client(client.id());
+                client
+            })
+            .collect();
+
+        let mut notifications = Notifications::default();
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg {
+                status: Status::Ok,
+                key,
+                nbytes: 0,
+                r#type: vec![],
+            },
+            &mut notifications,
+        );
+        for client in clients {
+            assert_eq!(
+                notifications.clients[&client.id()],
+                ClientNotification {
+                    in_memory_tasks: vec![t.clone()],
+                    error_tasks: vec![]
+                }
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn finish_unassigned_task() {
+        let mut core = Core::new();
+        let t = task(0);
+        core.add_task(t.clone());
+
+        let (w, _w_rx) = worker(&mut core, "w0");
+
+        let key = t.get().key.clone();
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg {
+                status: Status::Ok,
+                key,
+                nbytes: 16,
+                r#type: vec![1, 2, 3],
+            },
+            &mut &mut Default::default(),
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn error_unassigned_task() {
+        let mut core = Core::new();
+        let t = task(0);
+        core.add_task(t.clone());
+
+        let (w, _w_rx) = worker(&mut core, "w0");
+
+        let key = t.get().key.clone();
+        core.on_task_error(
+            &w,
+            key,
+            ErrorInfo {
+                exception: dummy_serialized(),
+                traceback: dummy_serialized(),
+            },
+            &mut Default::default(),
+        );
+    }
+
+    fn add_task(core: &mut Core, id: TaskId) -> TaskRef {
+        add_task_deps(core, id, &[])
+    }
+    fn add_task_deps(core: &mut Core, id: TaskId, deps: &[&TaskRef]) -> TaskRef {
+        let t = task_deps(id, deps);
+        core.add_task(t.clone());
+        t
+    }
+
+    fn assign(core: &mut Core, task: &TaskRef, worker: &WorkerRef) -> Notifications {
+        let mut notifications = Notifications::default();
+        let tid = task.get().id;
+        let wid = worker.get().id;
+        core.process_assignments(
+            vec![TaskAssignment {
+                task: tid,
+                worker: wid,
+                priority: 0,
+            }],
+            &mut notifications,
+        );
+        notifications
     }
 }

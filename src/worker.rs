@@ -1,10 +1,11 @@
 use crate::common::WrappedRcRefCell;
-use crate::core::CoreRef;
+use crate::core::Core;
 
 use crate::protocol::protocol::DaskPacket;
 
 pub type WorkerId = u64;
 
+#[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
     pub sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
@@ -50,7 +51,7 @@ impl WorkerRef {
         sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
         listen_address: String,
     ) -> Self {
-        WorkerRef::wrap(Worker {
+        Self::wrap(Worker {
             id,
             ncpus,
             sender,
@@ -60,16 +61,12 @@ impl WorkerRef {
 }
 
 pub(crate) fn create_worker(
-    core_ref: &CoreRef,
+    core: &mut Core,
     sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
     address: String,
-) -> (WorkerId, WorkerRef) {
-    let mut core = core_ref.get_mut();
-    let worker_id = core.new_worker_id();
-
+) -> WorkerRef {
     // TODO: real cpus
-    let worker_ref = WorkerRef::new(worker_id, 1, sender, address);
+    let worker_ref = WorkerRef::new(core.new_worker_id(), 1, sender, address);
     core.register_worker(worker_ref.clone());
-
-    (worker_id, worker_ref)
+    worker_ref
 }

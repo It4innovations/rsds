@@ -4,6 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub type ClientId = u64;
 
+#[derive(Debug)]
 pub struct Client {
     id: ClientId,
     key: String,

@@ -1,8 +1,8 @@
 use crate::client::ClientId;
 use crate::comm::CommRef;
+use crate::comm::Notifications;
 use crate::common::{Map, Set};
 use crate::core::CoreRef;
-use crate::comm::Notifications;
 use crate::protocol::clientmsg::{ClientTaskSpec, UpdateGraphMsg};
 
 use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
@@ -91,7 +91,7 @@ pub fn update_graph(
         let task = task_ref.get();
         for task_id in &task.dependencies {
             let tr = core.get_task_by_id_or_panic(*task_id);
-            tr.get_mut().consumers.insert(task_ref.clone());
+            tr.get_mut().add_consumer(task_ref.clone());
         }
     }
 
@@ -102,7 +102,7 @@ pub fn update_graph(
     let mut stack: Vec<(TaskRef, usize)> = Vec::new();
     let mut count = new_tasks.len();
     for task_ref in new_tasks {
-        if task_ref.get().consumers.is_empty() {
+        if !task_ref.get().has_consumers() {
             stack.push((task_ref, 0));
             while let Some((tr, c)) = stack.pop() {
                 let ii = {
@@ -171,7 +171,10 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
             let task_ref = core.get_task_by_key_or_panic(key);
             task_ref.get().get_workers().map(|ws| {
                 ws.choose(&mut rng).map(|w| {
-                    worker_map.entry(w.get().address().to_owned()).or_default().push(key);
+                    worker_map
+                        .entry(w.get().address().to_owned())
+                        .or_default()
+                        .push(key);
                 })
             });
         }
@@ -244,11 +247,10 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
     {
         // TODO: round-robin
-        let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
-            workers
-                .into_iter()
-                .map(|worker| update_data_on_worker(worker.get().address().to_owned(), &message.data)),
-        );
+        let mut worker_futures: FuturesUnordered<_> =
+            FuturesUnordered::from_iter(workers.into_iter().map(|worker| {
+                update_data_on_worker(worker.get().address().to_owned(), &message.data)
+            }));
 
         while let Some(data) = worker_futures.next().await {
             data.unwrap();
@@ -285,7 +287,10 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     Ok(())
 }
 
-pub async fn get_data_from_worker(worker_address: String, keys: &[&str]) -> crate::Result<DaskPacket> {
+pub async fn get_data_from_worker(
+    worker_address: String,
+    keys: &[&str],
+) -> crate::Result<DaskPacket> {
     let mut connection = connect_to_worker(worker_address).await?;
     let msg = ToWorkerMessage::GetData(GetDataMsg {
         keys,

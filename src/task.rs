@@ -3,9 +3,9 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::client::ClientId;
-use crate::common::WrappedRcRefCell;
-use crate::core::Core;
 use crate::comm::Notifications;
+use crate::common::{Set, WrappedRcRefCell};
+use crate::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 
@@ -56,7 +56,7 @@ pub struct Task {
     pub id: TaskId,
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
-    pub consumers: HashSet<TaskRef>,
+    consumers: Set<TaskRef>,
     pub key: TaskKey,
     pub dependencies: Vec<TaskId>,
 
@@ -70,6 +70,23 @@ impl Task {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_inputs == 0
+    }
+
+    #[inline]
+    pub fn has_consumers(&self) -> bool {
+        !self.consumers.is_empty()
+    }
+    #[inline]
+    pub fn add_consumer(&mut self, consumer: TaskRef) -> bool {
+        self.consumers.insert(consumer)
+    }
+    #[inline]
+    pub fn remove_consumer(&mut self, consumer: &TaskRef) -> bool {
+        self.consumers.remove(consumer)
+    }
+    #[inline]
+    pub fn get_consumers(&self) -> &Set<TaskRef> {
+        &self.consumers
     }
 
     pub fn subscribe_client(&mut self, client_id: ClientId) {
@@ -277,7 +294,7 @@ impl TaskRef {
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
     ) -> Self {
-        WrappedRcRefCell::wrap(Task {
+        Self::wrap(Task {
             id,
             key,
             dependencies,

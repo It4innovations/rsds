@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 pub type WorkerId = u64;
 pub type TaskId = u64;
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerInfo {
     pub id: WorkerId,
     pub n_cpus: u32,
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum TaskUpdateType {
     Finished,
@@ -21,12 +23,14 @@ pub enum TaskUpdateType {
              // & it is no longer available on on any worker
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskInfo {
     pub id: TaskId,
     pub inputs: Vec<TaskId>,
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskUpdate {
     pub id: TaskId,
@@ -35,6 +39,7 @@ pub struct TaskUpdate {
     pub size: Option<u64>,
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskStealResponse {
     pub id: TaskId,
@@ -43,6 +48,7 @@ pub struct TaskStealResponse {
     pub to_worker: WorkerId,
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ToSchedulerMessage {
     TaskUpdate(TaskUpdate),
