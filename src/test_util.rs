@@ -1,15 +1,15 @@
 #![cfg(test)]
 
 use crate::client::{Client, ClientId};
-use crate::comm::CommRef;
+use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
 use crate::core::{Core, CoreRef};
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{
-    deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, FromDaskTransport,
-    SerializedMemory, ToDaskTransport,
+    deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame,
+    FromDaskTransport, SerializedMemory, ToDaskTransport,
 };
-use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::schedproto::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
 use crate::task::TaskRef;
 use crate::worker::{create_worker, WorkerRef};
@@ -114,6 +114,30 @@ pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {
     (Client::new(id, format!("client-{}", id), tx), rx)
 }
 
+pub(crate) fn task_add(core: &mut Core, id: TaskId) -> TaskRef {
+    task_add_deps(core, id, &[])
+}
+pub(crate) fn task_add_deps(core: &mut Core, id: TaskId, deps: &[&TaskRef]) -> TaskRef {
+    let t = task_deps(id, deps);
+    core.add_task(t.clone());
+    t
+}
+
+pub(crate) fn task_assign(core: &mut Core, task: &TaskRef, worker: &WorkerRef) -> Notifications {
+    let mut notifications = Notifications::default();
+    let tid = task.get().id;
+    let wid = worker.get().id;
+    core.process_assignments(
+        vec![TaskAssignment {
+            task: tid,
+            worker: wid,
+            priority: 0,
+        }],
+        &mut notifications,
+    );
+    notifications
+}
+
 pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {
     let mut data = BytesMut::new();
     let mut codec = DaskCodec::default();
@@ -132,6 +156,12 @@ pub fn bytes_to_msg<T: FromDaskTransport>(data: &[u8]) -> crate::Result<Batch<T>
     let mut bytes = BytesMut::from(data);
     let packet = DaskCodec::default().decode(&mut bytes)?.unwrap();
     deserialize_packet(packet)
+}
+pub fn packet_to_msg<T: FromDaskTransport>(packet: DaskPacket) -> crate::Result<Batch<T>> {
+    deserialize_packet(packet)
+}
+pub fn frame(data: &[u8]) -> Frame {
+    BytesMut::from(data).freeze()
 }
 
 pub fn load_bin_test_data(path: &str) -> Vec<u8> {
