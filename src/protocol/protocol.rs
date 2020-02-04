@@ -189,10 +189,9 @@ impl SerializedTransport {
                 frame_count,
                 header,
             } => {
-                let frames = (0..frame_count).map(|i| {
-                    let frame = &frames[(frame_index + i) as usize]; // TODO: avoid copy
-                    frame.clone()
-                });
+                let frames = frames[frame_index as usize..(frame_index + frame_count) as usize]
+                    .iter_mut()
+                    .map(|frame| std::mem::take(frame));
 
                 SerializedMemory::Indexed {
                     frames: frames.collect(),
@@ -212,11 +211,19 @@ pub enum SerializedMemory {
 }
 
 impl SerializedMemory {
-    pub fn to_transport<T: Serialize>(
+    #[inline]
+    pub fn to_transport_clone<T: Serialize>(
         &self,
         message_builder: &mut MessageBuilder<T>,
     ) -> SerializedTransport {
-        message_builder.add_serialized(self)
+        message_builder.copy_serialized(self)
+    }
+    #[inline]
+    pub fn to_transport<T: Serialize>(
+        self,
+        message_builder: &mut MessageBuilder<T>,
+    ) -> SerializedTransport {
+        message_builder.take_serialized(self)
     }
 }
 
@@ -224,13 +231,13 @@ impl SerializedMemory {
 pub trait FromDaskTransport {
     type Transport: DeserializeOwned;
 
-    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self;
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self;
 }
 
 impl<T: DeserializeOwned> FromDaskTransport for T {
     type Transport = Self;
 
-    fn to_memory(source: Self::Transport, _frames: &mut Frames) -> Self {
+    fn deserialize(source: Self::Transport, _frames: &mut Frames) -> Self {
         source
     }
 }
@@ -253,12 +260,13 @@ pub fn map_to_transport<K: Eq + Hash, T: Serialize>(
         .map(|(k, v)| (k, v.to_transport(message_builder)))
         .collect()
 }
-pub fn map_ref_to_transport<K: Eq + Hash + Clone, T: Serialize>(
+#[inline]
+pub fn map_to_transport_clone<K: Eq + Hash + Clone, T: Serialize>(
     map: &crate::common::Map<K, SerializedMemory>,
     message_builder: &mut MessageBuilder<T>,
 ) -> crate::common::Map<K, SerializedTransport> {
     map.iter()
-        .map(|(k, v)| (k.clone(), v.to_transport(message_builder)))
+        .map(|(k, v)| (k.clone(), v.to_transport_clone(message_builder)))
         .collect()
 }
 
@@ -307,29 +315,43 @@ impl<T: Serialize> MessageBuilder<T> {
     pub fn add_message(&mut self, message: T) {
         self.messages.push(message);
     }
-    pub fn add_serialized(&mut self, serialized: &SerializedMemory) -> SerializedTransport {
+    pub fn copy_serialized(&mut self, serialized: &SerializedMemory) -> SerializedTransport {
         match serialized {
             SerializedMemory::Inline(value) => SerializedTransport::Inline(value.clone()),
             SerializedMemory::Indexed { frames, header } => {
                 let frame_index = self.frames.len() as u64;
+                let frame_count = frames.len() as u64;
                 self.frames.extend_from_slice(&frames);
                 SerializedTransport::Indexed {
                     frame_index,
-                    frame_count: frames.len() as u64,
+                    frame_count,
                     header: header.clone(),
+                }
+            }
+        }
+    }
+    pub fn take_serialized(&mut self, serialized: SerializedMemory) -> SerializedTransport {
+        match serialized {
+            SerializedMemory::Inline(value) => SerializedTransport::Inline(value),
+            SerializedMemory::Indexed { mut frames, header } => {
+                let frame_index = self.frames.len() as u64;
+                let frame_count = frames.len() as u64;
+                self.frames.append(&mut frames);
+                SerializedTransport::Indexed {
+                    frame_index,
+                    frame_count,
+                    header,
                 }
             }
         }
     }
 
     pub fn build_single(mut self) -> crate::Result<DaskPacket> {
-        assert!(!self.messages.is_empty());
         assert_eq!(self.messages.len(), 1);
         let wrapper = MessageWrapper::Message(self.messages.pop().ensure());
 
         DaskPacket::from_wrapper(wrapper, self.frames)
     }
-
     pub fn build_batch(self) -> crate::Result<DaskPacket> {
         assert!(!self.messages.is_empty());
         let wrapper = MessageWrapper::MessageList(self.messages);
@@ -354,10 +376,12 @@ fn parse_packet<T: FromDaskTransport>(
         }
     };
     match message {
-        MessageWrapper::Message(p) => Ok(smallvec!(T::to_memory(p, &mut packet.additional_frames))),
+        MessageWrapper::Message(p) => {
+            Ok(smallvec!(T::deserialize(p, &mut packet.additional_frames)))
+        }
         MessageWrapper::MessageList(v) => Ok(v
             .into_iter()
-            .map(|p| T::to_memory(p, &mut packet.additional_frames))
+            .map(|p| T::deserialize(p, &mut packet.additional_frames))
             .collect()),
     }
 }
@@ -386,10 +410,10 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
     let message: MessageWrapper<T::Transport> = rmp_serde::from_slice(&packet.main_frame)?;
 
     let commands = match message {
-        MessageWrapper::Message(p) => smallvec!(T::to_memory(p, &mut packet.additional_frames)),
+        MessageWrapper::Message(p) => smallvec!(T::deserialize(p, &mut packet.additional_frames)),
         MessageWrapper::MessageList(v) => v
             .into_iter()
-            .map(|p| T::to_memory(p, &mut packet.additional_frames))
+            .map(|p| T::deserialize(p, &mut packet.additional_frames))
             .collect(),
     };
 

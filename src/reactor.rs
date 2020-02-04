@@ -6,7 +6,7 @@ use crate::protocol::clientmsg::{ClientTaskSpec, UpdateGraphMsg};
 use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    map_ref_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
+    map_to_transport_clone, serialize_single_packet, Batch, DaskPacket, MessageBuilder,
     SerializedMemory,
 };
 use crate::protocol::workermsg::{
@@ -306,7 +306,7 @@ pub async fn update_data_on_worker(
 
     let mut builder = MessageBuilder::<ToWorkerMessage>::new();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
-        data: map_ref_to_transport(data, &mut builder),
+        data: map_to_transport_clone(data, &mut builder),
         reply: true,
         report: false,
     });

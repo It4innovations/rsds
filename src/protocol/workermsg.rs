@@ -79,7 +79,7 @@ pub enum ToWorkerMessage<'a> {
     GetData(GetDataMsg<'a>),
     #[serde(rename = "update_data")]
     UpdateData(UpdateDataMsg),
-    StealRequest(StealRequestMsg)
+    StealRequest(StealRequestMsg),
 }
 
 #[cfg_attr(test, derive(Deserialize))]
@@ -174,13 +174,13 @@ pub enum FromWorkerMessage<T = SerializedMemory> {
     KeepAlive,
     Unregister,
     StealResponse(StealResponseMsg),
-    Release(ReleaseMsg)
+    Release(ReleaseMsg),
 }
 
 impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
     type Transport = FromWorkerMessage<SerializedTransport>;
 
-    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
         match source {
             Self::Transport::TaskFinished(msg) => Self::TaskFinished(msg),
             Self::Transport::TaskErred(msg) => Self::TaskErred(TaskErredMsg {
@@ -194,7 +194,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
             Self::Transport::KeepAlive => Self::KeepAlive,
             Self::Transport::Unregister => Self::Unregister,
             Self::Transport::StealResponse(msg) => Self::StealResponse(msg),
-            Self::Transport::Release(msg) => Self::Release(msg)
+            Self::Transport::Release(msg) => Self::Release(msg),
         }
     }
 }
@@ -211,7 +211,7 @@ pub struct GetDataResponse<T = SerializedMemory> {
 impl FromDaskTransport for GetDataResponse<SerializedMemory> {
     type Transport = GetDataResponse<SerializedTransport>;
 
-    fn to_memory(source: Self::Transport, frames: &mut Frames) -> Self {
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
         GetDataResponse {
             status: source.status,
             data: map_from_transport(source.data, frames),

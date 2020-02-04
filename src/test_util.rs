@@ -2,15 +2,11 @@
 
 use crate::common::WrappedRcRefCell;
 use crate::core::CoreRef;
-use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{
     deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, FromDaskTransport,
-    SerializedMemory, ToDaskTransport,
+    ToDaskTransport,
 };
-use crate::scheduler::schedproto::TaskId;
 use crate::scheduler::ToSchedulerMessage;
-use crate::task::TaskRef;
-use crate::worker::{Worker, WorkerId, WorkerRef};
 use bytes::BytesMut;
 use std::io::Cursor;
 use std::net::SocketAddr;
@@ -100,35 +96,6 @@ pub fn bytes_to_msg<T: FromDaskTransport>(data: &[u8]) -> crate::Result<Batch<T>
     let mut bytes = BytesMut::from(data);
     let packet = DaskCodec::default().decode(&mut bytes)?.unwrap();
     deserialize_packet(packet)
-}
-
-pub fn add_worker(
-    core_ref: &CoreRef,
-    id: WorkerId,
-    key: &str,
-) -> (WorkerRef, tokio::sync::mpsc::UnboundedReceiver<DaskPacket>) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let worker_ref = WorkerRef::wrap(Worker {
-        id,
-        ncpus: 1, // TODO: real cpus
-        sender: tx,
-        listen_address: key.to_owned(),
-    });
-    core_ref
-        .get_mut()
-        .register_worker(worker_ref.clone(), &mut Default::default());
-    (worker_ref, rx)
-}
-pub fn add_task(core_ref: &CoreRef, id: TaskId, key: &str) -> TaskRef {
-    let task = TaskRef::new(
-        id,
-        key.to_owned(),
-        ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
-        vec![],
-        0,
-    );
-    core_ref.get_mut().add_task(task.clone());
-    task
 }
 
 pub fn load_bin_test_data(path: &str) -> Vec<u8> {

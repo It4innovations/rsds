@@ -7,7 +7,7 @@ use crate::client::{Client, ClientId};
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::notifications::Notifications;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, ToClientMessage};
-use crate::protocol::workermsg::{TaskFinishedMsg, StealResponseMsg, WorkerState};
+use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
@@ -204,17 +204,29 @@ impl Core {
                         );
                         TaskRuntimeState::Scheduled(worker_ref)
                     }
-                },
+                }
                 TaskRuntimeState::Assigned(wref) => {
-                    log::debug!("Task task={} scheduled to worker={}; stealing (1) from worker={}", assignment.task, assignment.worker, wref.get().id);
+                    log::debug!(
+                        "Task task={} scheduled to worker={}; stealing (1) from worker={}",
+                        assignment.task,
+                        assignment.worker,
+                        wref.get().id
+                    );
                     notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
                     TaskRuntimeState::Stealing(wref.clone(), worker_ref)
-                },
+                }
                 TaskRuntimeState::Stealing(wref1, _) => {
-                    log::debug!("Task task={} scheduled to worker={}; stealing (2) from worker={}", assignment.task, assignment.worker, wref1.get().id);
+                    log::debug!(
+                        "Task task={} scheduled to worker={}; stealing (2) from worker={}",
+                        assignment.task,
+                        assignment.worker,
+                        wref1.get().id
+                    );
                     TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
                 },
-                TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released(_) | TaskRuntimeState::Error(_) => {
+                TaskRuntimeState::Finished(_, _)
+                | TaskRuntimeState::Released(_)
+                | TaskRuntimeState::Error(_) => {
                     log::debug!("Rescheduling non-active task={}", assignment.task);
                     continue;
                 }
@@ -238,7 +250,12 @@ impl Core {
         }
     }
 
-    pub fn on_steal_response(&mut self, worker_ref: &WorkerRef, msg: StealResponseMsg, mut notifications: &mut Notifications) {
+    pub fn on_steal_response(
+        &mut self,
+        worker_ref: &WorkerRef,
+        msg: StealResponseMsg,
+        notifications: &mut Notifications,
+    ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key);
         let mut task = task_ref.get_mut();
         if task.is_done() {
@@ -254,7 +271,7 @@ impl Core {
         // This needs to correspond with behavior in worker!
         let success = match msg.state {
             WorkerState::Waiting | WorkerState::Ready => true,
-            _ => false
+            _ => false,
         };
         notifications.task_steal_response(&worker_ref.get(), &to_w.get(), &task, success);
         if success {
