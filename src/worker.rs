@@ -11,7 +11,7 @@ use crate::protocol::workermsg::Status;
 use crate::protocol::workermsg::{FromWorkerMessage, ToWorkerMessage};
 use crate::task::ErrorInfo;
 use futures::{FutureExt, Sink, Stream, StreamExt};
-use crate::reactor::ReactorRef;
+use crate::comm::CommRef;
 
 pub type WorkerId = u64;
 
@@ -42,11 +42,11 @@ impl Worker {
 
     pub fn send_message(&mut self, messages: Batch<ToWorkerMessage>) -> crate::Result<()> {
         log::debug!("Worker send message {:?}", messages);
-        self.send_dask_message(serialize_batch_packet(messages)?)
+        self.send_dask_packet(serialize_batch_packet(messages)?)
     }
 
-    pub fn send_dask_message(&mut self, message: DaskPacket) -> crate::Result<()> {
-        self.sender.send(message).unwrap(); // TODO: bail!("Send of worker XYZ failed")
+    pub fn send_dask_packet(&mut self, message: DaskPacket) -> crate::Result<()> {
+        self.sender.send(message).expect("Send to worker failed");
         Ok(())
     }
 }
@@ -54,6 +54,15 @@ impl Worker {
 pub type WorkerRef = WrappedRcRefCell<Worker>;
 
 impl WorkerRef {
+    pub fn new(id: WorkerId, ncpus: u32, sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>, listen_address: String) -> Self {
+        WorkerRef::wrap(Worker {
+            id,
+            ncpus,
+            sender,
+            listen_address
+        })
+    }
+
     pub async fn connect(&self) -> crate::Result<tokio::net::TcpStream> {
         // a copy is needed to avoid runtime Borrow errors
         let address: String = {
@@ -67,111 +76,16 @@ impl WorkerRef {
 }
 
 pub(crate) fn create_worker(
-    msg: RegisterWorkerMsg,
     core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
     sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
+    address: String,
 ) -> (WorkerId, WorkerRef) {
     let mut core = core_ref.get_mut();
     let worker_id = core.new_worker_id();
-    let worker_ref = WorkerRef::wrap(Worker {
-        id: worker_id,
-        ncpus: 1, // TODO: real cpus
-        sender,
-        listen_address: msg.address,
-    });
+
+    // TODO: real cpus
+    let worker_ref = WorkerRef::new(worker_id, 1, sender, address);
     core.register_worker(worker_ref.clone());
-    let mut notifications = Notifications::default();
-    notifications.new_worker(&worker_ref.get());
-    reactor_ref.get_mut().send(&mut core, notifications).unwrap();
+
     (worker_id, worker_ref)
-}
-
-pub async fn execute_worker<
-    Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
-    Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
->(
-    core_ref: &CoreRef,
-    reactor_ref: &ReactorRef,
-    address: std::net::SocketAddr,
-    mut receiver: Reader,
-    mut sender: Writer,
-    msg: RegisterWorkerMsg,
-) -> crate::Result<()> {
-    let core_ref2 = core_ref.clone();
-    let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
-
-    let (worker_id, worker_ref) = create_worker(msg, core_ref, reactor_ref, queue_sender);
-
-    log::info!("Worker {} registered from {}", worker_id, address);
-
-    let snd_loop = async move {
-        while let Some(data) = queue_receiver.next().await {
-            if let Err(e) = sender.send(data).await {
-                log::error!("Send to worker failed");
-                return Err(e);
-            }
-        }
-        Ok(())
-    };
-
-    let recv_loop = async move {
-        'outer: while let Some(messages) = receiver.next().await {
-            let mut notifications = Notifications::default();
-
-            let messages = messages?;
-            for message in messages {
-                log::debug!("Worker recv message {:?}", message);
-                match message {
-                    FromWorkerMessage::TaskFinished(msg) => {
-                        assert_eq!(msg.status, Status::Ok); // TODO: handle other cases ??
-                        let mut core = core_ref.get_mut();
-                        core.on_task_finished(&worker_ref, msg, &mut notifications);
-                    }
-                    FromWorkerMessage::AddKeys(msg) => {
-                        let mut core = core_ref.get_mut();
-                        core.on_tasks_transferred(&worker_ref, msg.keys, &mut notifications);
-                    }
-                    FromWorkerMessage::TaskErred(msg) => {
-                        assert_eq!(msg.status, Status::Error); // TODO: handle other cases ??
-                        let error_info = ErrorInfo {
-                            exception: msg.exception,
-                            traceback: msg.traceback,
-                        };
-                        let mut core = core_ref.get_mut();
-                        core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
-                        // TODO: Inform scheduler
-                    }
-                    FromWorkerMessage::StealResponse(msg) => {
-                        let mut core = core_ref.get_mut();
-                        core.on_steal_response(&worker_ref, msg, &mut notifications);
-                    }
-                    FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
-                    FromWorkerMessage::Release(_) => { /* Do nothing TODO */ }
-                    FromWorkerMessage::Unregister => break 'outer,
-                }
-            }
-            let mut core = core_ref.get_mut();
-            reactor_ref.get_mut().send(&mut core, notifications).unwrap();
-        }
-        Ok(())
-    };
-
-    let result = futures::future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
-    if let Err(e) = result.factor_first().0 {
-        log::error!(
-            "Error in worker connection (id={}, connection={}): {}",
-            worker_id,
-            address,
-            e
-        );
-    }
-    log::info!(
-        "Worker {} connection closed (connection: {})",
-        worker_id,
-        address
-    );
-    let mut core = core_ref2.get_mut();
-    core.unregister_worker(worker_id);
-    Ok(())
 }

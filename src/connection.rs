@@ -7,31 +7,31 @@ use tokio::net::TcpListener;
 use smallvec::smallvec;
 
 use crate::core::CoreRef;
-use crate::reactor::{gather, get_ncores, scatter, who_has, ReactorRef};
+use crate::reactor::{gather, get_ncores, scatter, who_has};
+use crate::comm::CommRef;
 
-use crate::client::execute_client;
 use crate::protocol::generic::{GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet,
 };
 use crate::protocol::workermsg::RegisterWorkerResponseMsg;
-use crate::worker::execute_worker;
+use crate::comm::{worker_rpc_loop, client_rpc_loop};
 
 /// Must be called within a LocalTaskSet
 pub async fn connection_initiator(
     mut listener: TcpListener,
     core_ref: CoreRef,
-    reactor_ref: ReactorRef,
+    comm_ref: CommRef,
 ) -> crate::Result<()> {
     loop {
         let (socket, address) = listener.accept().await?;
         socket.set_nodelay(true)?;
         let core_ref = core_ref.clone();
-        let reactor_ref = reactor_ref.clone();
+        let comm_ref = comm_ref.clone();
         tokio::task::spawn_local(async move {
             log::debug!("New connection: {}", address);
-            handle_connection(core_ref, reactor_ref, socket, address)
+            handle_connection(core_ref, comm_ref, socket, address)
                 .await
                 .expect("Connection failed");
             log::debug!("Connection ended: {}", address);
@@ -41,7 +41,7 @@ pub async fn connection_initiator(
 
 pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
-    reactor_ref: ReactorRef,
+    comm_ref: CommRef,
     stream: T,
     address: std::net::SocketAddr,
 ) -> crate::Result<()> {
@@ -64,9 +64,9 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                         worker_plugins: Vec::new(),
                     };
                     writer.send(serialize_single_packet(hb)?).await?;
-                    execute_worker(
+                    worker_rpc_loop(
                         &core_ref,
-                        &reactor_ref,
+                        &comm_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
                         writer,
@@ -84,9 +84,9 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                     // this has to be a list
                     writer.send(serialize_batch_packet(smallvec!(rsp))?).await?;
 
-                    execute_client(
+                    client_rpc_loop(
                         &core_ref,
-                        &reactor_ref,
+                        &comm_ref,
                         address,
                         dask_parse_stream(reader.into_inner()),
                         writer,
@@ -132,19 +132,19 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::WhoHas(msg) => {
                     log::debug!("WhoHas request from {} (keys={:?})", &address, msg.keys);
-                    who_has(&core_ref, &reactor_ref, &mut writer, msg.keys).await?;
+                    who_has(&core_ref, &comm_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
-                    gather(&core_ref, &reactor_ref, address, &mut writer, msg.keys).await?;
+                    gather(&core_ref, &comm_ref, address, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Scatter(msg) => {
                     log::debug!("Scatter request from {}", &address);
-                    scatter(&core_ref, &reactor_ref, &mut writer, msg).await?;
+                    scatter(&core_ref, &comm_ref, &mut writer, msg).await?;
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
-                    get_ncores(&core_ref, &reactor_ref, &mut writer).await?;
+                    get_ncores(&core_ref, &comm_ref, &mut writer).await?;
                 }
                 _ => panic!("Unhandled generic message: {:?}", message),
             }
