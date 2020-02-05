@@ -3,6 +3,7 @@ orco
 pytest
 seaborn
 pandas
+bokeh==1.4.0
 click
 tqdm
 joblib
