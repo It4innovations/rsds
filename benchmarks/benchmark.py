@@ -128,7 +128,7 @@ class Cluster:
         env = os.environ.copy()
         env["OMP_NUM_THREADS"] = "1"  # TODO
 
-        if count == 1:
+        if count == "local":
             return [Process(get_args(cores), env=env, workdir=workdir, tag="worker-0")]
         else:
             nodes = get_pbs_nodes()
