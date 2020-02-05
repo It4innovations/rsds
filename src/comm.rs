@@ -301,16 +301,15 @@ pub async fn worker_rpc_loop<
             let mut notifications = Notifications::default();
 
             let messages = messages?;
+            let mut core = core_ref.get_mut();
             for message in messages {
                 log::debug!("Worker recv message {:?}", message);
                 match message {
                     FromWorkerMessage::TaskFinished(msg) => {
                         assert_eq!(msg.status, Status::Ok); // TODO: handle other cases ??
-                        let mut core = core_ref.get_mut();
                         core.on_task_finished(&worker_ref, msg, &mut notifications);
                     }
                     FromWorkerMessage::AddKeys(msg) => {
-                        let mut core = core_ref.get_mut();
                         core.on_tasks_transferred(&worker_ref, msg.keys, &mut notifications);
                     }
                     FromWorkerMessage::TaskErred(msg) => {
@@ -319,12 +318,10 @@ pub async fn worker_rpc_loop<
                             exception: msg.exception,
                             traceback: msg.traceback,
                         };
-                        let mut core = core_ref.get_mut();
                         core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
                         // TODO: Inform scheduler
                     }
                     FromWorkerMessage::StealResponse(msg) => {
-                        let mut core = core_ref.get_mut();
                         core.on_steal_response(&worker_ref, msg, &mut notifications);
                     }
                     FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
@@ -332,7 +329,6 @@ pub async fn worker_rpc_loop<
                     FromWorkerMessage::Unregister => break 'outer,
                 }
             }
-            let mut core = core_ref.get_mut();
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();
         }
         Ok(())
