@@ -18,10 +18,12 @@ import psutil
 import seaborn as sns
 import tqdm
 from distributed import Client
+from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
 from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench_tree, bench_xarray
 
-BUILD_DIR = pathlib.Path(os.path.abspath(__file__)).parent.parent
+CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
+BUILD_DIR = CURRENT_DIR.parent
 
 USECASES = {
     "xarray": bench_xarray,
@@ -33,55 +35,7 @@ USECASES = {
 }
 
 
-class Process:
-    def __init__(self, args, node="localhost", remote=False, env=None, workdir=None, tag=None):
-        file_path = os.path.join(workdir, tag)
-
-        environment = os.environ.copy()
-        if env is not None:
-            environment.update(env)
-        environment["RUST_BACKTRACE"] = "full"
-
-        self.args = args
-        self.command = f"""
-source ~/.bashrc
-workon dask
-cd /tmp
-{" ".join(args)} > {file_path}.out 2> {file_path}.err &
-ps -ho pgid $!
-""".strip()
-        args = []
-        if remote:
-            args += ["ssh", node]
-        else:
-            args += ["setsid"]
-        args += ["/bin/bash"]
-
-        logging.debug(f"Starting {'remote' if remote else 'local'} process: {self.command}")
-        self.node = node
-        self.remote = remote
-        self.process = subprocess.Popen(args,
-                                        stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE,
-                                        env=environment,
-                                        cwd=workdir)
-        out, err = self.process.communicate(self.command.encode())
-        self.pid = int(out.decode().strip())
-        if not self.pid:
-            raise Exception(f"Could not start process {self.args}: {out.decode()}, {err.decode()}")
-        logging.debug(f"Started {self.args} at {self.node}: {self.pid}")
-
-    def kill(self, soft=False):
-        args = ["kill", "-INT" if soft else "-TERM", f"-{self.pid}"]
-        if self.remote:
-            args = ["ssh", self.node, "--"] + args
-        res = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
-        if res.returncode != 0:
-            logging.error(f"Could not kill process {self.args} ({self.pid}) at {self.node}: {res.stdout}, {res.stderr}")
-
-
-class Cluster:
+class DaskCluster:
     def __init__(self, cluster_info, workdir, profile=False, port=None):
         if port is None:
             port = generate_port()
@@ -92,21 +46,40 @@ class Cluster:
         self.port = port
         self.profile = profile
         self.workdir = workdir
+        self.init_cmd = (
+            "source ~/.bashrc",
+            "workon dask"
+        )
 
         self.scheduler_address = f"{socket.gethostname()}:{port}"
-        self.scheduler_process = self._start_scheduler()
-        logging.info(f"Starting a cluster at {self.scheduler_address}, workers: {self.workers}")
+        self.cluster = Cluster(self.workdir)
 
-        self.worker_processes = self._start_workers(self.workers, self.scheduler_address, workdir)
+        logging.info(f"Starting a cluster at {self.scheduler_address}, workers: {self.workers}")
+        self._start_scheduler()
+        self._start_workers(self.workers, self.scheduler_address)
+        if profile:
+            self._start_monitors()
+
+        with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
+            self.cluster.serialize(f)
 
         self.client = Client(f"tcp://{self.scheduler_address}", timeout=60)
-        self.client.wait_for_workers(self.workers["count"])
+        self.client.wait_for_workers(worker_count(self.workers["count"]))
+
+    def start(self, args, name, host=None, env=None):
+        pid, cmd = start_process(args, host=host, workdir=self.workdir, name=name, env=env, init_cmd=self.init_cmd)
+        self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
 
     def kill(self):
-        for process in self.worker_processes:
-            process.kill()
+        def kill_fn(node, process):
+            signal = "TERM"
+            if process["key"].startswith("scheduler") and self.profile:
+                signal = "INT"
+
+            assert kill_process(node, process["pid"], signal=signal)
+
+        self.cluster.kill(kill_fn)
         self.client.close()
-        self.scheduler_process.kill(soft=self.profile)
 
     def name(self):
         return f"{self.scheduler}-{self.workers}"
@@ -116,26 +89,40 @@ class Cluster:
         if self.profile:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
-        return Process(args, workdir=self.workdir, tag="scheduler")
+        self.start(args, name="scheduler", env={
+            "RUST_BACKTRACE": "full"
+        })
 
-    def _start_workers(self, workers, scheduler_address, workdir):
+    def _start_workers(self, workers, scheduler_address):
         count = workers["count"]
         cores = workers["cores"]
 
         def get_args(cores):
-            return ("dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores))
+            return ("dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores), "--no-dashboard")
 
-        env = os.environ.copy()
-        env["OMP_NUM_THREADS"] = "1"  # TODO
+        env = {"OMP_NUM_THREADS": "1"}  # TODO
 
         if count == "local":
-            return [Process(get_args(cores), env=env, workdir=workdir, tag="worker-0")]
+            self.start(get_args(cores), env=env, name="worker-0")
         else:
             nodes = get_pbs_nodes()
             if count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
-            return [Process(get_args(cores), node=node, env=env, remote=True, workdir=workdir, tag=f"worker-{i}") for
-                    i, node in enumerate(nodes[1:])]
+            for i, node in zip(range(count), nodes[1:]):
+                self.start(get_args(cores), host=node, env=env, name=f"worker-{i}")
+
+    def _start_monitors(self):
+        monitor_script = os.path.join(CURRENT_DIR, "monitor", "monitor.py")
+
+        def start(node=None):
+            path = os.path.join(self.workdir, f"monitor-{node if node else HOSTNAME}.trace")
+            self.start(("python", monitor_script, path), host=node, name="monitor")
+
+        if is_inside_pbs():
+            for node in get_pbs_nodes():
+                start(node)
+        else:
+            start()
 
     def __enter__(self):
         return self
@@ -196,7 +183,7 @@ class Benchmark:
 
         profile = self.profile and 'rsds' in configuration['cluster']['scheduler']
 
-        with Cluster(configuration["cluster"], workdir, profile=profile):
+        with DaskCluster(configuration["cluster"], workdir, profile=profile):
             start = time.time()
             result = configuration["function"]()
             duration = time.time() - start
@@ -215,6 +202,12 @@ class Benchmark:
             }
 
 
+def worker_count(workers):
+    if workers == "local":
+        return 1
+    return workers
+
+
 def check_free_port(port):
     assert isinstance(port, int)
     for conn in psutil.net_connections('tcp'):
@@ -231,9 +224,12 @@ def generate_port():
             return port
 
 
+def is_inside_pbs():
+    return "PBS_NODEFILE" in os.environ
+
+
 def get_pbs_nodes():
-    if "PBS_NODEFILE" not in os.environ:
-        raise Exception("Not in a PBS job!")
+    assert is_inside_pbs()
 
     with open(os.environ["PBS_NODEFILE"]) as f:
         return [line.strip() for line in f]
