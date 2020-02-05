@@ -83,7 +83,6 @@ impl Scheduler {
                 protocol_version: 0,
                 scheduler_name: "test_scheduler".into(),
                 scheduler_version: "0.0".into(),
-                reassigning: false,
             }))
             .expect("Scheduler start send failed");
 

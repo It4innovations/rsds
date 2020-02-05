@@ -57,7 +57,6 @@ pub struct SchedulerRegistration {
     pub protocol_version: u32,
     pub scheduler_name: String,
     pub scheduler_version: String,
-    pub reassigning: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
