@@ -48,11 +48,6 @@ pub struct Core {
     worker_id_counter: IdCounter,
     client_id_counter: IdCounter,
     uid: String,
-
-    // This is reference to itself
-    // For real cleanup you have to remove this cycle
-    // However, since Core practically global object, it is never done
-    self_ref: Option<CoreRef>,
 }
 
 pub type CoreRef = WrappedRcRefCell<Core>;
@@ -71,7 +66,6 @@ impl Core {
             clients: KeyIdMap::new(),
 
             uid: "123_TODO".into(),
-            self_ref: None,
         }
     }
 
@@ -421,12 +415,7 @@ impl Core {
 
 impl CoreRef {
     pub fn new() -> Self {
-        let core_ref = Self::wrap(Core::new());
-        {
-            let mut core = core_ref.get_mut();
-            core.self_ref = Some(core_ref.clone());
-        }
-        core_ref
+        Self::wrap(Core::new())
     }
 }
 
