@@ -86,7 +86,7 @@ class DaskCluster:
 
     def _start_scheduler(self):
         args = [self.scheduler, "--port", str(self.port)]
-        if self.profile:
+        if self.profile and "rsds" in self.scheduler:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
         self.start(args, name="scheduler", env={
@@ -181,9 +181,7 @@ class Benchmark:
                                f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}")
         os.makedirs(workdir, exist_ok=True)
 
-        profile = self.profile and 'rsds' in configuration['cluster']['scheduler']
-
-        with DaskCluster(configuration["cluster"], workdir, profile=profile):
+        with DaskCluster(configuration["cluster"], workdir, profile=self.profile):
             start = time.time()
             result = configuration["function"]()
             duration = time.time() - start
