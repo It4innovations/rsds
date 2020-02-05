@@ -72,8 +72,8 @@ ps -ho pgid $!
             raise Exception(f"Could not start process {self.args}: {out.decode()}, {err.decode()}")
         logging.debug(f"Started {self.args} at {self.node}: {self.pid}")
 
-    def kill(self):
-        args = ["kill", "-TERM", f"-{self.pid}"]
+    def kill(self, soft=False):
+        args = ["kill", "-INT" if soft else "-TERM", f"-{self.pid}"]
         if self.remote:
             args = ["ssh", self.node, "--"] + args
         res = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
@@ -82,7 +82,7 @@ ps -ho pgid $!
 
 
 class Cluster:
-    def __init__(self, cluster_info, workdir, port=None):
+    def __init__(self, cluster_info, workdir, profile=False, port=None):
         if port is None:
             port = generate_port()
 
@@ -90,9 +90,11 @@ class Cluster:
         self.workers = cluster_info["workers"]
 
         self.port = port
+        self.profile = profile
+        self.workdir = workdir
 
         self.scheduler_address = f"{socket.gethostname()}:{port}"
-        self.scheduler_process = Process((self.scheduler, "--port", str(port)), workdir=workdir, tag="scheduler")
+        self.scheduler_process = self._start_scheduler()
         logging.info(f"Starting a cluster at {self.scheduler_address}, workers: {self.workers}")
 
         self.worker_processes = self._start_workers(self.workers, self.scheduler_address, workdir)
@@ -104,10 +106,17 @@ class Cluster:
         for process in self.worker_processes:
             process.kill()
         self.client.close()
-        self.scheduler_process.kill()
+        self.scheduler_process.kill(soft=self.profile)
 
     def name(self):
         return f"{self.scheduler}-{self.workers}"
+
+    def _start_scheduler(self):
+        args = [self.scheduler, "--port", str(self.port)]
+        if self.profile:
+            args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
+
+        return Process(args, workdir=self.workdir, tag="scheduler")
 
     def _start_workers(self, workers, scheduler_address, workdir):
         count = workers["count"]
@@ -136,18 +145,62 @@ class Cluster:
 
 
 class Benchmark:
-    def __init__(self, config, workdir):
+    def __init__(self, config, workdir, profile):
         self.configurations = tuple(self._gen_configurations(config.get("configurations", ())))
         self.repeat = config.get("repeat", 1)
         self.reference = config.get("reference")
-        self.workdir = os.path.join(workdir, "work")
+        self.workdir = workdir
+        self.profile = profile
 
     def run(self):
         os.makedirs(self.workdir, exist_ok=True)
 
-        results = benchmark_configurations(self.configurations, self.repeat, self.workdir)
+        results = self.benchmark_configurations()
         check_results(results, self.reference)
         return results
+
+    def benchmark_configurations(self):
+        def repeat_configs():
+            for config in self.configurations:
+                for i in range(self.repeat):
+                    yield (i, config)
+
+        results = {
+            "cluster": [],
+            "function": [],
+            "result": [],
+            "time": []
+        }
+        for repeat_index, configuration in tqdm.tqdm(repeat_configs(), total=len(self.configurations) * self.repeat):
+            logging.info(
+                f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
+
+            try:
+                configuration, result, duration = self.benchmark_configuration(configuration, repeat_index)
+
+                results["cluster"].append(format_cluster_info(configuration["cluster"]))
+                results["function"].append(configuration["name"])
+                results["result"].append(result)
+                results["time"].append(duration)
+            except KeyboardInterrupt:
+                break
+            except:
+                print(f"Error while processing {configuration}", file=sys.stderr)
+                traceback.print_exc()
+        return pd.DataFrame(results)
+
+    def benchmark_configuration(self, configuration, index):
+        workdir = os.path.join(self.workdir,
+                               f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}")
+        os.makedirs(workdir, exist_ok=True)
+
+        profile = self.profile and 'rsds' in configuration['cluster']['scheduler']
+
+        with Cluster(configuration["cluster"], workdir, profile=profile):
+            start = time.time()
+            result = configuration["function"]()
+            duration = time.time() - start
+            return (configuration, result, duration)
 
     def _gen_configurations(self, configurations):
         for configuration in configurations:
@@ -162,51 +215,10 @@ class Benchmark:
             }
 
 
-def benchmark_configurations(configurations, repeat, workdir):
-    def repeat_configs():
-        for config in configurations:
-            for i in range(repeat):
-                yield (i, config)
-
-    results = {
-        "cluster": [],
-        "function": [],
-        "result": [],
-        "time": []
-    }
-    for repeat_index, configuration in tqdm.tqdm(repeat_configs(), total=len(configurations) * repeat):
-        logging.info(
-            f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
-
-        try:
-            configuration, result, duration = benchmark_configuration(configuration, workdir)
-
-            results["cluster"].append(format_cluster_info(configuration["cluster"]))
-            results["function"].append(configuration["name"])
-            results["result"].append(result)
-            results["time"].append(duration)
-        except KeyboardInterrupt:
-            break
-        except:
-            error_dir = f"error-{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{repeat_index}"
-            print(f"Error while processing {configuration}, writing into {error_dir}", file=sys.stderr)
-            traceback.print_exc()
-            shutil.copytree(workdir, os.path.join(os.path.dirname(workdir), error_dir))
-    return pd.DataFrame(results)
-
-
-def benchmark_configuration(configuration, workdir):
-    with Cluster(configuration["cluster"], workdir):
-        start = time.time()
-        result = configuration["function"]()
-        duration = time.time() - start
-        return (configuration, result, duration)
-
-
 def check_free_port(port):
     assert isinstance(port, int)
     for conn in psutil.net_connections('tcp'):
-        if conn.laddr.port == port and conn.status == "LISTEN":
+        if conn.laddr.port == port:
             return False
     return True
 
@@ -312,9 +324,10 @@ def save_results(frame, directory):
 @click.command()
 @click.argument("input")
 @click.argument("output-dir")
-def benchmark(input, output_dir):
+@click.option("--profile/--no-profile", default=False)
+def benchmark(input, output_dir, profile):
     output_dir = os.path.abspath(output_dir)
-    benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir)
+    benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir, profile)
     frame = benchmark.run()
     frame.drop(columns=["result"], inplace=True)
     save_results(frame, output_dir)
@@ -328,7 +341,8 @@ def benchmark(input, output_dir):
 @click.option("--walltime", default="01:00:00")
 @click.option("--project", default="")
 @click.option("--workdir", default="runs")
-def submit(input, name, nodes, queue, walltime, workdir, project):
+@click.option("--profile/--no-profile", default=False)
+def submit(input, name, nodes, queue, walltime, workdir, project, profile):
     if name is None:
         name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
 
@@ -343,6 +357,9 @@ def submit(input, name, nodes, queue, walltime, workdir, project):
 
     shutil.copyfile(input, os.path.join(directory, os.path.basename(input)))
     script_path = os.path.abspath(__file__)
+    args = []
+    if profile:
+        args += ["--profile"]
 
     command = f"""#!/bin/bash
 
@@ -355,7 +372,8 @@ def submit(input, name, nodes, queue, walltime, workdir, project):
 source ~/.bashrc || exit 1
 workon dask || exit 1
 
-python {script_path} benchmark {input} {directory}"""
+python {script_path} benchmark {input} {directory} {" ".join(args)}
+"""
     fpath = f"/tmp/pbs-{name}.sh"
     with open(fpath, "w") as f:
         f.write(command)
