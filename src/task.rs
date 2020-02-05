@@ -309,53 +309,26 @@ impl TaskRef {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::ClientTaskSpec;
-    use crate::protocol::protocol::SerializedMemory;
-    use crate::scheduler::schedproto::TaskId;
-    use crate::task::TaskRef;
     use std::default::Default;
+    use crate::test_util::{task, task_deps};
 
     #[test]
     fn task_consumers_empty() {
-        let a = make(0);
+        let a = task(0);
         assert_eq!(a.get().collect_consumers(), Default::default());
     }
 
     #[test]
     fn task_recursive_consumers() {
-        let a = make(0);
-        let b = make_deps(1, vec![&a]);
-        let c = make_deps(2, vec![&b]);
-        let d = make_deps(3, vec![&b]);
-        let e = make_deps(4, vec![&c, &d]);
+        let a = task(0);
+        let b = task_deps(1, &[&a]);
+        let c = task_deps(2, &[&b]);
+        let d = task_deps(3, &[&b]);
+        let e = task_deps(4, &[&c, &d]);
 
         assert_eq!(
             a.get().collect_consumers(),
             vec!(b, c, d, e).into_iter().collect()
         );
-    }
-
-    fn make(id: TaskId) -> TaskRef {
-        TaskRef::new(
-            id,
-            id.to_string(),
-            ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
-            vec![],
-            0,
-        )
-    }
-    fn make_deps(id: TaskId, dependencies: Vec<&TaskRef>) -> TaskRef {
-        let task = TaskRef::new(
-            id,
-            id.to_string(),
-            ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
-            dependencies.iter().map(|t| t.get().id).collect(),
-            dependencies.len() as u32,
-        );
-
-        for dep in dependencies {
-            dep.get_mut().consumers.insert(task.clone());
-        }
-        task
     }
 }
