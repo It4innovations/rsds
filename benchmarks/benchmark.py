@@ -66,8 +66,11 @@ class DaskCluster:
         self.client = Client(f"tcp://{self.scheduler_address}", timeout=60)
         self.client.wait_for_workers(worker_count(self.workers["count"]))
 
-    def start(self, args, name, host=None, env=None):
-        pid, cmd = start_process(args, host=host, workdir=self.workdir, name=name, env=env, init_cmd=self.init_cmd)
+    def start(self, args, name, host=None, env=None, workdir=None):
+        if workdir is None:
+            workdir = self.workdir
+
+        pid, cmd = start_process(args, host=host, workdir=workdir, name=name, env=env, init_cmd=self.init_cmd)
         self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
 
     def kill(self):
@@ -103,13 +106,13 @@ class DaskCluster:
         env = {"OMP_NUM_THREADS": "1"}  # TODO
 
         if count == "local":
-            self.start(get_args(cores), env=env, name="worker-0")
+            self.start(get_args(cores), env=env, name="worker-0", workdir="/tmp")
         else:
             nodes = get_pbs_nodes()
             if count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
             for i, node in zip(range(count), nodes[1:]):
-                self.start(get_args(cores), host=node, env=env, name=f"worker-{i}")
+                self.start(get_args(cores), host=node, env=env, name=f"worker-{i}", workdir="/tmp")
 
     def _start_monitors(self):
         monitor_script = os.path.join(CURRENT_DIR, "monitor", "monitor.py")
