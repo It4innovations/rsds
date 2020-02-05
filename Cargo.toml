@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 futures = "0.3"
-tokio = { version= "0.2.9", features = ["full"] }
+tokio = { version= "0.2", features = ["full"] }
 tokio-util = { version = "0.2", features = ["codec"] }
 bytes = "0.5"
 byteorder = "1.3"
@@ -23,7 +23,6 @@ thiserror = "1"
 rand = "0.7.0"
 structopt = "0.3"
 jemallocator = "0.3.2"
-async-stream = "0.2"
 hashbrown = { version = "0.6", features = ["serde"] }
 
 [dev-dependencies]
