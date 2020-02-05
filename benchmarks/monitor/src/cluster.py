@@ -125,7 +125,7 @@ ps -ho pgid $!
 
 def kill_process(host, pid, signal="TERM"):
     assert signal in ("TERM", "KILL", "INT")
-    logging.info(f"Killing PGID {pid} on {host}")
+    logging.debug(f"Killing PGID {pid} on {host}")
     args = ["kill", f"-{signal}", f"-{pid}"]
     if not is_local(host):
         args = ["ssh", host, "--"] + args
