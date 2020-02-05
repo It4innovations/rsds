@@ -3,6 +3,7 @@ use crate::protocol::protocol::{
     map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
 };
 use serde::{Deserialize, Serialize};
+use crate::protocol::key::DaskKey;
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
@@ -13,8 +14,8 @@ pub struct IdentityMsg {
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct BandwidthInfo {
     pub total: u64,
-    pub types: Map<String, String>,
-    pub workers: Map<String, u64>,
+    pub types: Map<DaskKey, DaskKey>,
+    pub workers: Map<DaskKey, u64>,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -33,39 +34,39 @@ pub struct WorkerMetrics {
 
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
-    pub host: String,
-    pub id: String,
+    pub host: DaskKey,
+    pub id: DaskKey,
     pub last_seen: f64,
-    pub local_directory: String,
+    pub local_directory: DaskKey,
     pub memory_limit: u64,
     pub metrics: WorkerMetrics,
-    pub name: String,
-    pub nanny: String,
+    pub name: DaskKey,
+    pub nanny: DaskKey,
     pub nthreads: u64,
-    pub resources: Map<String, String>,
-    pub services: Map<String, u64>,
-    pub r#type: String,
+    pub resources: Map<DaskKey, DaskKey>,
+    pub services: Map<DaskKey, u64>,
+    pub r#type: DaskKey,
 }
 
 #[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 pub struct IdentityResponse {
     #[serde(rename = "type")]
-    pub r#type: String,
-    pub id: String,
-    pub workers: Map<String, WorkerInfo>,
+    pub r#type: DaskKey,
+    pub id: DaskKey,
+    pub workers: Map<DaskKey, WorkerInfo>,
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct RegisterClientMsg {
-    pub client: String,
+    pub client: DaskKey,
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
-    pub address: String,
+    pub address: DaskKey,
     /*pub nthreads: u32,
     pub memorylimit: u64,
     pub nanny: String,*/
@@ -83,28 +84,28 @@ pub struct HeartbeatWorkerMsg {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct GatherMsg {
-    pub keys: Vec<String>,
+    pub keys: Vec<DaskKey>,
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct ScatterMsg<T = SerializedMemory> {
-    pub client: String,
+    pub client: DaskKey,
     pub broadcast: bool,
-    pub data: Map<String, T>,
+    pub data: Map<DaskKey, T>,
     pub reply: bool,
     pub timeout: u64,
-    pub workers: Option<Vec<String>>,
+    pub workers: Option<Vec<DaskKey>>,
 }
 
-pub type ScatterResponse = Vec<String>;
+pub type ScatterResponse = Vec<DaskKey>;
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct CancelKeysMsg {
-    keys: Vec<String>,
-    client: String,
+    keys: Vec<DaskKey>,
+    client: DaskKey,
     force: bool,
     reply: bool,
 }
@@ -112,10 +113,10 @@ pub struct CancelKeysMsg {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct WhoHasMsg {
-    pub keys: Vec<String>,
+    pub keys: Vec<DaskKey>,
 }
 
-pub type WhoHasMsgResponse = Map<String, Vec<String>>; // key -> [worker address]
+pub type WhoHasMsgResponse = Map<DaskKey, Vec<DaskKey>>; // key -> [worker address]
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
@@ -163,7 +164,7 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
 #[cfg_attr(test, derive(Deserialize))]
 #[derive(Serialize, Debug)]
 pub struct SimpleMessage {
-    pub op: String,
+    pub op: DaskKey,
 }
 
 #[cfg(test)]

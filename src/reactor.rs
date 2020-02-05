@@ -25,6 +25,7 @@ use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::net::TcpStream;
+use crate::protocol::key::{DaskKey, to_dask_key};
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -37,7 +38,7 @@ pub fn update_graph(
     let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
-    let mut new_task_ids: Map<String, TaskId> = Default::default();
+    let mut new_task_ids: Map<DaskKey, TaskId> = Default::default();
 
     let lowest_id = core.new_task_id();
     for task_key in update.tasks.keys() {
@@ -136,8 +137,8 @@ pub fn update_graph(
 pub fn release_keys(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
-    client_key: String,
-    task_keys: Vec<String>,
+    client_key: DaskKey,
+    task_keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
     let mut core = core_ref.get_mut();
     let client_id = core.get_client_id_by_key(&client_key);
@@ -161,9 +162,9 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     _comm_ref: &CommRef,
     address: std::net::SocketAddr,
     sink: &mut W,
-    keys: Vec<String>,
+    keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
-    let mut worker_map: Map<String, Vec<&str>> = Default::default();
+    let mut worker_map: Map<DaskKey, Vec<&str>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
@@ -172,15 +173,15 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
             task_ref.get().get_workers().map(|ws| {
                 ws.choose(&mut rng).map(|w| {
                     worker_map
-                        .entry(w.get().address().to_owned())
+                        .entry(w.get().address().into())
                         .or_default()
-                        .push(key);
+                        .push(key.as_str());
                 })
             });
         }
     }
 
-    let mut result_map: Map<String, SerializedMemory> = Map::with_capacity(keys.len());
+    let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
             .iter()
@@ -203,7 +204,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     log::debug!("Sending gathered data {}", address);
 
     let msg = GetDataResponse {
-        status: "OK".to_owned(),
+        status: to_dask_key("OK"),
         data: result_map,
     };
     sink.send(serialize_single_packet(msg)?).await?;
@@ -249,7 +250,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         // TODO: round-robin
         let mut worker_futures: FuturesUnordered<_> =
             FuturesUnordered::from_iter(workers.into_iter().map(|worker| {
-                update_data_on_worker(worker.get().address().to_owned(), &message.data)
+                update_data_on_worker(worker.get().address().into(), &message.data)
             }));
 
         while let Some(data) = worker_futures.next().await {
@@ -288,10 +289,10 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 }
 
 pub async fn get_data_from_worker(
-    worker_address: String,
+    worker_address: DaskKey,
     keys: &[&str],
 ) -> crate::Result<DaskPacket> {
-    let mut connection = connect_to_worker(worker_address).await?;
+    let mut connection = connect_to_worker(worker_address.to_string()).await?;
     let msg = ToWorkerMessage::GetData(GetDataMsg {
         keys,
         who: None,
@@ -313,10 +314,10 @@ pub async fn get_data_from_worker(
 }
 
 pub async fn update_data_on_worker(
-    worker_address: String,
-    data: &Map<String, SerializedMemory>,
+    worker_address: DaskKey,
+    data: &Map<DaskKey, SerializedMemory>,
 ) -> crate::Result<()> {
-    let mut connection = connect_to_worker(worker_address).await?;
+    let mut connection = connect_to_worker(worker_address.to_string()).await?;
 
     let mut builder = MessageBuilder::<ToWorkerMessage>::new();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
@@ -341,7 +342,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,
-    keys: Vec<String>,
+    keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
     let core = core_ref.get();
     let response: WhoHasMsgResponse = keys
@@ -349,7 +350,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         .map(|key| {
             let task = core.get_task_by_key_or_panic(&key);
             let workers = match task.get().get_workers() {
-                Some(ws) => ws.iter().map(|w| w.get().key().to_owned()).collect(),
+                Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
                 None => vec![],
             };
             (key, workers)

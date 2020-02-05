@@ -4,6 +4,7 @@ use crate::protocol::protocol::{
     SerializedMemory, SerializedTransport, ToDaskTransport,
 };
 use serde::{Deserialize, Serialize};
+use crate::protocol::key::DaskKey;
 
 fn binary_is_empty(transport: &SerializedTransport) -> bool {
     match transport {
@@ -17,16 +18,16 @@ fn binary_is_empty(transport: &SerializedTransport) -> bool {
 
 #[derive(Serialize, Debug)]
 pub struct ComputeTaskMsg {
-    pub key: String,
+    pub key: DaskKey,
     pub duration: f32, // estimated duration, [in seconds?]
 
     #[serde(with = "tuple_vec_map")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub who_has: Vec<(String, Vec<String>)>,
+    pub who_has: Vec<(DaskKey, Vec<DaskKey>)>,
 
     #[serde(with = "tuple_vec_map")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub nbytes: Vec<(String, u64)>,
+    pub nbytes: Vec<(DaskKey, u64)>,
 
     #[serde(skip_serializing_if = "binary_is_empty")]
     pub function: SerializedTransport,
@@ -43,7 +44,7 @@ pub struct ComputeTaskMsg {
 
 #[derive(Serialize, Debug)]
 pub struct DeleteDataMsg {
-    pub keys: Vec<String>,
+    pub keys: Vec<DaskKey>,
     pub report: bool,
 }
 
@@ -59,14 +60,14 @@ pub struct GetDataMsg<'a> {
 
 #[derive(Serialize, Debug)]
 pub struct UpdateDataMsg {
-    pub data: Map<String, SerializedTransport>,
+    pub data: Map<DaskKey, SerializedTransport>,
     pub reply: bool,
     pub report: bool,
 }
 
 #[derive(Serialize, Debug)]
 pub struct StealRequestMsg {
-    pub key: String,
+    pub key: DaskKey,
 }
 
 #[derive(Serialize, Debug)]
@@ -86,7 +87,7 @@ pub enum ToWorkerMessage<'a> {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct RegisterWorkerResponseMsg {
-    pub status: String,
+    pub status: DaskKey,
     pub time: f64,
     pub heartbeat_interval: f64,
     pub worker_plugins: Vec<()>, // type of plugins??
@@ -105,7 +106,7 @@ pub enum Status {
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub status: Status,
-    pub key: String,
+    pub key: DaskKey,
     pub nbytes: u64,
 
     #[serde(with = "serde_bytes")]
@@ -116,7 +117,7 @@ pub struct TaskFinishedMsg {
 #[derive(Deserialize, Debug)]
 pub struct TaskErredMsg<T = SerializedMemory> {
     pub status: Status,
-    pub key: String,
+    pub key: DaskKey,
     pub thread: u64,
     pub exception: T,
     pub traceback: T,
@@ -125,7 +126,7 @@ pub struct TaskErredMsg<T = SerializedMemory> {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct AddKeysMsg {
-    pub keys: Vec<String>,
+    pub keys: Vec<DaskKey>,
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -145,14 +146,14 @@ pub enum WorkerState {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct StealResponseMsg {
-    pub key: String,
+    pub key: DaskKey,
     pub state: WorkerState,
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct ReleaseMsg {
-    pub key: String,
+    pub key: DaskKey,
 }
 
 /*#[derive(Deserialize, Debug)]
@@ -204,8 +205,8 @@ pub struct Empty;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct GetDataResponse<T = SerializedMemory> {
-    pub status: String, // TODO: Migrate to enum Status
-    pub data: Map<String, T>,
+    pub status: DaskKey, // TODO: Migrate to enum Status
+    pub data: Map<DaskKey, T>,
 }
 
 impl FromDaskTransport for GetDataResponse<SerializedMemory> {
@@ -232,6 +233,6 @@ impl ToDaskTransport for GetDataResponse<SerializedMemory> {
 
 #[derive(Deserialize, Debug)]
 pub struct UpdateDataResponse {
-    pub status: String,
-    pub nbytes: Map<String, u64>,
+    pub status: DaskKey,
+    pub nbytes: Map<DaskKey, u64>,
 }

@@ -23,6 +23,7 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::codec::{Decoder, Encoder};
+use crate::protocol::key::to_dask_key;
 
 /// Memory stream for reading and writing at the same time.
 pub struct MemoryStream {
@@ -94,7 +95,7 @@ pub fn task(id: TaskId) -> TaskRef {
 pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
     let task = TaskRef::new(
         id,
-        format!("{}", id),
+        format!("{}", id).into(),
         ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
         deps.iter().map(|t| t.get().id).collect(),
         deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
@@ -106,12 +107,12 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
 }
 pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, UnboundedReceiver<DaskPacket>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let worker = create_worker(core, tx, address.to_owned());
+    let worker = create_worker(core, tx, to_dask_key(address));
     (worker, rx)
 }
 pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (Client::new(id, format!("client-{}", id), tx), rx)
+    (Client::new(id, format!("client-{}", id).into(), tx), rx)
 }
 
 pub(crate) fn task_add(core: &mut Core, id: TaskId) -> TaskRef {

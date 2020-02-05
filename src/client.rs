@@ -1,19 +1,20 @@
 use crate::protocol::protocol::DaskPacket;
 
 use tokio::sync::mpsc::UnboundedSender;
+use crate::protocol::key::{DaskKeyRef, DaskKey};
 
 pub type ClientId = u64;
 
 #[derive(Debug)]
 pub struct Client {
     id: ClientId,
-    key: String,
+    key: DaskKey,
     sender: UnboundedSender<DaskPacket>,
 }
 
 impl Client {
     #[inline]
-    pub fn new(id: ClientId, key: String, sender: UnboundedSender<DaskPacket>) -> Self {
+    pub fn new(id: ClientId, key: DaskKey, sender: UnboundedSender<DaskPacket>) -> Self {
         Client { id, key, sender }
     }
 
@@ -23,7 +24,7 @@ impl Client {
     }
 
     #[inline]
-    pub fn key(&self) -> &str {
+    pub fn key(&self) -> &DaskKeyRef {
         &self.key
     }
 

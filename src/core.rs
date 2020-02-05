@@ -6,12 +6,13 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
-use crate::task::{DataInfo, ErrorInfo, Task, TaskKey, TaskRef, TaskRuntimeState};
+use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
+use crate::protocol::key::{DaskKey, DaskKeyRef, dask_key_ref_to_string};
 
 impl Identifiable for Client {
     type Id = ClientId;
-    type Key = String;
+    type Key = DaskKey;
 
     #[inline]
     fn get_id(&self) -> Self::Id {
@@ -20,12 +21,12 @@ impl Identifiable for Client {
 
     #[inline]
     fn get_key(&self) -> Self::Key {
-        self.key().to_owned()
+        self.key().into()
     }
 }
 impl Identifiable for WorkerRef {
     type Id = WorkerId;
-    type Key = String;
+    type Key = DaskKey;
 
     #[inline]
     fn get_id(&self) -> Self::Id {
@@ -34,20 +35,20 @@ impl Identifiable for WorkerRef {
 
     #[inline]
     fn get_key(&self) -> Self::Key {
-        self.get().key().to_owned()
+        self.get().key().into()
     }
 }
 
 pub struct Core {
     tasks_by_id: Map<TaskId, TaskRef>,
-    tasks_by_key: Map<TaskKey, TaskRef>,
-    clients: KeyIdMap<ClientId, Client>,
-    workers: KeyIdMap<WorkerId, WorkerRef>,
+    tasks_by_key: Map<DaskKey, TaskRef>,
+    clients: KeyIdMap<ClientId, Client, DaskKey>,
+    workers: KeyIdMap<WorkerId, WorkerRef, DaskKey>,
 
     task_id_counter: IdCounter,
     worker_id_counter: IdCounter,
     client_id_counter: IdCounter,
-    uid: String,
+    uid: DaskKey,
 }
 
 pub type CoreRef = WrappedRcRefCell<Core>;
@@ -70,7 +71,7 @@ impl Core {
     }
 
     #[inline]
-    pub fn uid(&self) -> &str {
+    pub fn uid(&self) -> &DaskKeyRef {
         &self.uid
     }
 
@@ -127,7 +128,7 @@ impl Core {
     }
 
     #[inline]
-    pub fn get_task_by_key_or_panic(&self, key: &str) -> &TaskRef {
+    pub fn get_task_by_key_or_panic(&self, key: &DaskKeyRef) -> &TaskRef {
         self.tasks_by_key.get(key).unwrap()
     }
 
@@ -151,9 +152,9 @@ impl Core {
     }
 
     #[inline]
-    pub fn get_client_id_by_key(&self, key: &str) -> ClientId {
+    pub fn get_client_id_by_key(&self, key: &DaskKeyRef) -> ClientId {
         self.clients.get_id_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid client key={}", key);
+            panic!("Asking for invalid client key={:?}", key);
         })
     }
 
@@ -165,16 +166,16 @@ impl Core {
     }
 
     #[inline]
-    pub fn get_worker_by_key_or_panic(&self, key: &str) -> &WorkerRef {
+    pub fn get_worker_by_key_or_panic(&self, key: &DaskKeyRef) -> &WorkerRef {
         self.workers.get_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid worker key={}", key);
+            panic!("Asking for invalid worker key={}", dask_key_ref_to_string(key));
         })
     }
 
     #[inline]
-    pub fn get_worker_id_by_key(&self, key: &str) -> WorkerId {
+    pub fn get_worker_id_by_key(&self, key: &DaskKeyRef) -> WorkerId {
         self.workers.get_id_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid worker key={}", key);
+            panic!("Asking for invalid worker key={}", dask_key_ref_to_string(key));
         })
     }
 
@@ -183,12 +184,12 @@ impl Core {
         self.workers.values().cloned().collect()
     }
 
-    pub fn get_worker_cores(&self) -> Map<String, u64> {
+    pub fn get_worker_cores(&self) -> Map<DaskKey, u64> {
         self.workers
             .values()
             .map(|w| {
                 let w = w.get();
-                (w.key().to_owned(), w.ncpus as u64)
+                (w.key().into(), w.ncpus as u64)
             })
             .collect()
     }
@@ -294,7 +295,7 @@ impl Core {
     pub fn on_task_error(
         &mut self,
         worker: &WorkerRef,
-        task_key: TaskKey,
+        task_key: DaskKey,
         error_info: ErrorInfo,
         mut notifications: &mut Notifications,
     ) {
@@ -318,7 +319,7 @@ impl Core {
     pub fn on_tasks_transferred(
         &mut self,
         worker_ref: &WorkerRef,
-        keys: Vec<String>,
+        keys: Vec<DaskKey>,
         notifications: &mut Notifications,
     ) {
         let worker = worker_ref.get();
