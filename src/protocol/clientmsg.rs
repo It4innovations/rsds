@@ -2,6 +2,7 @@ use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, Ser
 
 use crate::common::Map;
 use serde::{Deserialize, Serialize};
+use crate::protocol::key::DaskKey;
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
@@ -18,16 +19,16 @@ pub enum ClientTaskSpec<T = SerializedMemory> {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct UpdateGraphMsg<T = SerializedMemory> {
-    pub tasks: Map<String, ClientTaskSpec<T>>,
-    pub dependencies: Map<String, Vec<String>>,
-    pub keys: Vec<String>,
+    pub tasks: Map<DaskKey, ClientTaskSpec<T>>,
+    pub dependencies: Map<DaskKey, Vec<DaskKey>>,
+    pub keys: Vec<DaskKey>,
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct ClientReleasesKeysMsg {
-    pub keys: Vec<String>,
-    pub client: String,
+    pub keys: Vec<DaskKey>,
+    pub client: DaskKey,
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -87,7 +88,7 @@ impl FromDaskTransport for FromClientMessage<SerializedMemory> {
 #[cfg_attr(test, derive(Deserialize, PartialEq))]
 #[derive(Serialize, Debug)]
 pub struct KeyInMemoryMsg {
-    pub key: String,
+    pub key: DaskKey,
     #[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,
 }
@@ -95,7 +96,7 @@ pub struct KeyInMemoryMsg {
 #[cfg_attr(test, derive(Deserialize, PartialEq))]
 #[derive(Serialize, Debug)]
 pub struct TaskErredMsg {
-    pub key: String,
+    pub key: DaskKey,
     pub exception: SerializedTransport,
     pub traceback: SerializedTransport,
 }

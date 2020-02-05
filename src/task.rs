@@ -12,8 +12,7 @@ use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTran
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerRef;
-
-pub type TaskKey = String;
+use crate::protocol::key::DaskKey;
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -57,7 +56,7 @@ pub struct Task {
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
     consumers: Set<TaskRef>,
-    pub key: TaskKey,
+    pub key: DaskKey,
     pub dependencies: Vec<TaskId>,
 
     pub spec: ClientTaskSpec,
@@ -167,7 +166,7 @@ impl Task {
             .iter()
             .map(|task_ref| {
                 let task = task_ref.get();
-                let addresses: Vec<String> = task
+                let addresses: Vec<_> = task
                     .get_workers()
                     .unwrap()
                     .iter()
@@ -289,7 +288,7 @@ impl Task {
 impl TaskRef {
     pub fn new(
         id: TaskId,
-        key: String,
+        key: DaskKey,
         spec: ClientTaskSpec,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,

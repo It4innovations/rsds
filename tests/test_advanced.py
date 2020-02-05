@@ -24,6 +24,8 @@ def test_bag(rsds_env):
     url = rsds_env.start([2])
     _ = Client(url)
 
+    _ = pytest.importorskip("mimesis")
+
     b = dask.datasets.make_people(seed=0, npartitions=10, records_per_partition=10)
     res = b.filter(lambda record: record['age'] > 30) \
         .map(lambda record: record['occupation']) \

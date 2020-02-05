@@ -20,7 +20,7 @@ use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, wh
 use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::TaskRuntimeState;
-use crate::task::{ErrorInfo, Task, TaskKey, TaskRef};
+use crate::task::{ErrorInfo, Task, TaskRef};
 use crate::worker::Worker;
 use crate::worker::{create_worker, WorkerRef};
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
@@ -29,6 +29,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::protocol::key::{DaskKey, to_dask_key};
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -147,7 +148,7 @@ impl CommRef {
 #[derive(Default, Debug)]
 pub(crate) struct WorkerNotification {
     pub(crate) compute_tasks: Vec<TaskRef>,
-    pub(crate) delete_keys: Vec<TaskKey>,
+    pub(crate) delete_keys: Vec<DaskKey>,
     pub(crate) steal_tasks: Vec<TaskRef>,
 }
 
@@ -365,7 +366,7 @@ pub async fn client_rpc_loop<
     address: std::net::SocketAddr,
     mut receiver: Reader,
     mut sender: Writer,
-    client_key: String,
+    client_key: DaskKey,
 ) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
@@ -504,7 +505,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 GenericMessage::RegisterWorker(msg) => {
                     log::debug!("Worker registration from {}", address);
                     let hb = RegisterWorkerResponseMsg {
-                        status: "OK".to_owned(),
+                        status: to_dask_key("OK"),
                         time: 0.0,
                         heartbeat_interval: 1.0,
                         worker_plugins: Vec::new(),
@@ -524,7 +525,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 GenericMessage::RegisterClient(msg) => {
                     log::debug!("Client registration from {}", address);
                     let rsp = SimpleMessage {
-                        op: "stream-start".to_owned(),
+                        op: to_dask_key("stream-start"),
                     };
 
                     // this has to be a list
@@ -545,8 +546,8 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     log::debug!("Identity request from {}", address);
                     // TODO: get actual values
                     let rsp = IdentityResponse {
-                        r#type: "Scheduler".to_owned(),
-                        id: core_ref.get().uid().to_owned(),
+                        r#type: to_dask_key("Scheduler"),
+                        id: core_ref.get().uid().into(),
                         workers: core_ref
                             .get()
                             .get_workers()
@@ -557,15 +558,15 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                                 (
                                     address.clone(),
                                     WorkerInfo {
-                                        r#type: "worker".to_string(),
+                                        r#type: to_dask_key("worker"),
                                         host: address,
-                                        id: worker.id.to_string(),
+                                        id: worker.id.to_string().into(),
                                         last_seen: 0.0,
                                         local_directory: Default::default(),
                                         memory_limit: 0,
                                         metrics: Default::default(),
-                                        name: "".to_string(),
-                                        nanny: "".to_string(),
+                                        name: to_dask_key(""),
+                                        nanny: to_dask_key(""),
                                         nthreads: 0,
                                         resources: Default::default(),
                                         services: Default::default(),
@@ -619,6 +620,7 @@ mod tests {
         packet_to_msg, packets_to_bytes, task_add, worker, MemoryStream,
     };
     use futures::StreamExt;
+    use crate::protocol::key::to_dask_key;
 
     #[tokio::test]
     async fn respond_to_identity() -> crate::Result<()> {
@@ -628,7 +630,7 @@ mod tests {
         generic_rpc_loop(core, comm, stream, dummy_address()).await?;
         let res: Batch<IdentityResponse> = bytes_to_msg(&msg_rx.get())?;
         assert_eq!(res.len(), 1);
-        assert_eq!(res[0].r#type, "Scheduler");
+        assert_eq!(res[0].r#type.as_bytes(), b"Scheduler");
 
         Ok(())
     }
@@ -638,7 +640,7 @@ mod tests {
         let packets = vec![
             serialize_single_packet(GenericMessage::<SerializedTransport>::RegisterClient(
                 RegisterClientMsg {
-                    client: "test-client".to_string(),
+                    client: to_dask_key("test-client"),
                 },
             ))?,
             serialize_single_packet(FromClientMessage::CloseClient::<SerializedTransport>)?,
@@ -648,7 +650,7 @@ mod tests {
         generic_rpc_loop(core, comm, stream, dummy_address()).await?;
         let res: Batch<SimpleMessage> = bytes_to_msg(&msg_rx.get())?;
         assert_eq!(res.len(), 1);
-        assert_eq!(res[0].op, "stream-start".to_owned());
+        assert_eq!(res[0].op.as_bytes(), b"stream-start");
 
         Ok(())
     }
@@ -658,7 +660,7 @@ mod tests {
         let packets = vec![
             serialize_single_packet(GenericMessage::<SerializedTransport>::RegisterWorker(
                 RegisterWorkerMsg {
-                    address: "127.0.0.1".to_string(),
+                    address: to_dask_key("127.0.0.1"),
                 },
             ))?,
             serialize_single_packet(FromWorkerMessage::<SerializedTransport>::Unregister)?,
@@ -668,7 +670,7 @@ mod tests {
         generic_rpc_loop(core, comm, stream, dummy_address()).await?;
         let res: Batch<RegisterWorkerResponseMsg> = bytes_to_msg(&msg_rx.get())?;
         assert_eq!(res.len(), 1);
-        assert_eq!(res[0].status, "OK".to_owned());
+        assert_eq!(res[0].status.as_bytes(), b"OK");
 
         Ok(())
     }
@@ -699,7 +701,7 @@ mod tests {
         let msg: Batch<ToClientMessage> = packet_to_msg(rx.next().await.unwrap())?;
         assert_eq!(
             msg[0],
-            ToClientMessage::KeyInMemory(KeyInMemoryMsg { key, r#type })
+            ToClientMessage::KeyInMemory(KeyInMemoryMsg { key: key.into(), r#type })
         );
 
         Ok(())

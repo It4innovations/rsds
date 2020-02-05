@@ -440,6 +440,7 @@ mod tests {
     use std::hash::Hasher;
     use std::io::Cursor;
     use tokio_util::codec::{Decoder, Encoder, Framed};
+    use crate::protocol::key::to_dask_key;
 
     #[tokio::test]
     async fn parse_message_simple() -> Result<()> {
@@ -553,21 +554,21 @@ mod tests {
             FromClientMessage::UpdateGraph(msg) => {
                 assert_eq!(
                     msg.keys,
-                    vec!("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)")
+                    vec!("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".into())
                 );
                 assert_eq!(
                     msg.dependencies,
                     hashmap! {
-                    "('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".to_owned() => vec!["('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".to_owned()],
-                    "('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".to_owned() => vec![]
+                    to_dask_key("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)") => vec![to_dask_key("('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)")],
+                    to_dask_key("('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)") => vec![]
                     }.into_iter().collect()
                 );
-                match &msg.tasks["('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)"] {
+                match &msg.tasks[b"('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
                 match &msg.tasks
-                    ["('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)"]
+                    [b"('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()]
                 {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
@@ -588,9 +589,9 @@ mod tests {
             FromClientMessage::UpdateGraph(msg) => {
                 assert_eq!(
                     msg.keys,
-                    vec!("('truediv-fb32c371476f0df11c512c4c98d6380d', 0)")
+                    vec!(to_dask_key("('truediv-fb32c371476f0df11c512c4c98d6380d', 0)"))
                 );
-                match &msg.tasks["('truediv-fb32c371476f0df11c512c4c98d6380d', 0)"] {
+                match &msg.tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
                     ClientTaskSpec::Direct {
                         function,
                         args,
@@ -602,7 +603,7 @@ mod tests {
                     }
                     _ => panic!(),
                 }
-                match &msg.tasks["('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)"] {
+                match &msg.tasks[b"('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)".as_ref()] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
@@ -616,7 +617,7 @@ mod tests {
     #[tokio::test]
     async fn serialize_key_in_memory() -> Result<()> {
         let msg = ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-            key: "hello".to_owned(),
+            key: "hello".into(),
             r#type: vec![1, 2, 3],
         });
 
