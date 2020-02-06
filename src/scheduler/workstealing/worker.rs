@@ -1,5 +1,5 @@
-use super::task::TaskRef;
 use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
+use crate::scheduler::workstealing::task::TaskRef;
 use std::collections::HashSet;
 
 pub struct Worker {

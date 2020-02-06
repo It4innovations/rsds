@@ -94,7 +94,7 @@ class RsdsEnv(Env):
 
         env = os.environ.copy()
         env["RUST_LOG"] = "trace"
-        env["RUST_BACKTRACE"] = "1"
+        env["RUST_BACKTRACE"] = "FULL"
 
         args = (RSDS_BIN, "--port", str(port))
         self.server = self.start_process("server", args, env=env)

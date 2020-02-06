@@ -5,7 +5,15 @@ use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {
     pub(crate) recv: UnboundedReceiver<Vec<ToSchedulerMessage>>,
-    pub(crate) send: UnboundedSender<FromSchedulerMessage>,
+    send: UnboundedSender<FromSchedulerMessage>,
+}
+
+impl SchedulerComm {
+    pub fn send(&mut self, message: FromSchedulerMessage) {
+        self.send
+            .send(message)
+            .expect("Couldn't send scheduler message")
+    }
 }
 
 pub fn prepare_scheduler_comm() -> (
