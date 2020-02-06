@@ -62,7 +62,7 @@ async fn main() -> rsds::Result<()> {
 
     let opt = Opt::from_args();
 
-    log::info!("rsds v0.0 started");
+    log::info!("rsds v0.1 started: {:?}", opt);
 
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), opt.port);
     log::info!("listening on port {}", address);

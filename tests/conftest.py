@@ -77,7 +77,8 @@ class RsdsEnv(Env):
 
     def start(self,
               workers=(),
-              port=None):
+              port=None,
+              scheduler=None):
         print("Starting rsds env in ", self.work_path)
 
         """
@@ -96,7 +97,9 @@ class RsdsEnv(Env):
         env["RUST_LOG"] = "trace"
         env["RUST_BACKTRACE"] = "FULL"
 
-        args = (RSDS_BIN, "--port", str(port))
+        args = [RSDS_BIN, "--port", str(port)]
+        if scheduler:
+            args += ["--scheduler", scheduler]
         self.server = self.start_process("server", args, env=env)
         assert self.server is not None
 

@@ -24,6 +24,7 @@ from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
+HOSTNAME = socket.gethostname()
 
 USECASES = {
     "xarray": bench_xarray,
@@ -36,26 +37,26 @@ USECASES = {
 
 
 class DaskCluster:
-    def __init__(self, cluster_info, workdir, profile=False, port=None):
+    def __init__(self, cluster_info, workdir, port=None, profile=False):
         if port is None:
             port = generate_port()
 
-        self.scheduler = cluster_info["scheduler"].replace("$BUILD", str(BUILD_DIR))
+        self.scheduler = cluster_info["scheduler"]
         self.workers = cluster_info["workers"]
 
+        self.workdir = workdir
         self.port = port
         self.profile = profile
-        self.workdir = workdir
         self.init_cmd = (
             "source ~/.bashrc",
             "workon dask"
         )
 
-        self.scheduler_address = f"{socket.gethostname()}:{port}"
+        self.scheduler_address = f"{HOSTNAME}:{port}"
         self.cluster = Cluster(self.workdir)
 
         logging.info(f"Starting a cluster at {self.scheduler_address}, workers: {self.workers}")
-        self._start_scheduler()
+        self._start_scheduler(self.scheduler)
         self._start_workers(self.workers, self.scheduler_address)
         if profile:
             self._start_monitors()
@@ -63,7 +64,7 @@ class DaskCluster:
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
             self.cluster.serialize(f)
 
-        self.client = Client(f"tcp://{self.scheduler_address}", timeout=60)
+        self.client = Client(f"tcp://{self.scheduler_address}", timeout=30)
         self.client.wait_for_workers(worker_count(self.workers["count"]))
 
     def start(self, args, name, host=None, env=None, workdir=None):
@@ -87,8 +88,10 @@ class DaskCluster:
     def name(self):
         return f"{self.scheduler}-{self.workers}"
 
-    def _start_scheduler(self):
-        args = [self.scheduler, "--port", str(self.port)]
+    def _start_scheduler(self, scheduler):
+        binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
+
+        args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
         if self.profile and "rsds" in self.scheduler:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
@@ -239,8 +242,8 @@ def get_pbs_nodes():
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
     workers = f"{workers['count']}-{workers['cores']}"
-    scheduler = cluster_info['scheduler']
-    return f"{os.path.basename(scheduler)}-{workers}"
+    scheduler = cluster_info['scheduler']['name']
+    return f"{scheduler}-{workers}"
 
 
 def check_results(frame, reference):
