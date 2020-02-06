@@ -18,6 +18,7 @@ use crate::protocol::workermsg::{
     ToWorkerMessage,
 };
 use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
+use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
 use crate::scheduler::schedproto::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
@@ -65,7 +66,7 @@ impl Comm {
                     let exception = mbuilder.copy_serialized(&error_info.exception);
                     let traceback = mbuilder.copy_serialized(&error_info.traceback);
                     mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key.clone(),
+                        key: task.key().into(),
                         exception,
                         traceback,
                     }));
@@ -77,7 +78,7 @@ impl Comm {
             for task_ref in c_update.in_memory_tasks {
                 let task = task_ref.get();
                 mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key.clone(),
+                    key: task.key().into(),
                     r#type: task.data_info().unwrap().r#type.clone(),
                 }));
             }
@@ -113,7 +114,7 @@ impl Comm {
             for tref in w_update.steal_tasks {
                 let task = tref.get();
                 mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key.clone(),
+                    key: task.key().into(),
                 }));
             }
 
@@ -212,7 +213,7 @@ impl Notifications {
             .entry(worker_ref)
             .or_default()
             .delete_keys
-            .push(task.key.clone());
+            .push(task.key().into());
     }
 
     pub fn task_placed(&mut self, worker: &Worker, task: &Task) {
@@ -633,7 +634,7 @@ mod tests {
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };
-    use crate::protocol::key::to_dask_key;
+    use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::{serialize_single_packet, Batch, Frames, SerializedTransport};
     use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::task::{DataInfo, TaskRuntimeState};
@@ -682,7 +683,7 @@ mod tests {
             serialize_single_packet(GenericMessage::<SerializedTransport>::RegisterWorker(
                 RegisterWorkerMsg {
                     address: to_dask_key("127.0.0.1"),
-                    nthreads: 2,
+                    nthreads: 1,
                 },
             ))?,
             serialize_single_packet(FromWorkerMessage::<SerializedTransport>::Unregister)?,
@@ -714,7 +715,7 @@ mod tests {
             },
             vec![],
         );
-        let key = t.get().key.to_owned();
+        let key: DaskKey = t.get().key().into();
 
         let mut notifications = Notifications::default();
         notifications.notify_client_key_in_memory(id, t.clone());
