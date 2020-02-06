@@ -7,16 +7,50 @@ use tokio::net::TcpListener;
 
 use rsds::comm::{observe_scheduler, CommRef};
 use rsds::core::CoreRef;
-use rsds::scheduler::interface::prepare_scheduler_comm;
+use rsds::scheduler::comm::{prepare_scheduler_comm, SchedulerComm};
+use std::future::Future;
+use std::pin::Pin;
+use std::str::FromStr;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+fn create_scheduler(
+    r#type: SchedulerType,
+    comm: SchedulerComm,
+) -> Pin<Box<dyn Future<Output = rsds::Result<()>>>> {
+    match r#type {
+        SchedulerType::Workstealing => {
+            Box::pin(rsds::scheduler::workstealing::Scheduler::new().start(comm))
+        }
+        SchedulerType::Random => Box::pin(rsds::scheduler::random::Scheduler::new().start(comm)),
+    }
+}
+
+#[derive(Debug)]
+enum SchedulerType {
+    Workstealing,
+    Random,
+}
+
+impl FromStr for SchedulerType {
+    type Err = String;
+    fn from_str(scheduler: &str) -> Result<Self, Self::Err> {
+        match scheduler {
+            "workstealing" => Ok(SchedulerType::Workstealing),
+            "random" => Ok(SchedulerType::Random),
+            _ => Err(format!("Scheduler '{}' does not exist", scheduler)),
+        }
+    }
+}
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
 struct Opt {
-    #[structopt(long, default_value = "7070")]
+    #[structopt(long, default_value = "8786")]
     port: u16,
+    #[structopt(long, default_value = "workstealing")]
+    scheduler: SchedulerType,
 }
 
 #[tokio::main(basic_scheduler)]
@@ -37,14 +71,12 @@ async fn main() -> rsds::Result<()> {
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
     thread::spawn(move || {
-        let scheduler = rsds::scheduler::implementation::Scheduler::new();
         let mut runtime = tokio::runtime::Builder::new()
-            .enable_all()
             .basic_scheduler()
             .build()
             .expect("Runtime creation failed");
         runtime
-            .block_on(scheduler.start(comm))
+            .block_on(create_scheduler(opt.scheduler, comm))
             .expect("Scheduler failed");
     });
 

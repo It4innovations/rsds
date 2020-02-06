@@ -1,4 +1,4 @@
-use crate::scheduler::implementation::task::TaskRef;
+use super::task::TaskRef;
 use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
 use std::collections::HashSet;
 

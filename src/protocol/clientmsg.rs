@@ -1,8 +1,8 @@
 use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 
 use crate::common::Map;
-use serde::{Deserialize, Serialize};
 use crate::protocol::key::DaskKey;
+use serde::{Deserialize, Serialize};
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]

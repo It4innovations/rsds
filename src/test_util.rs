@@ -5,6 +5,7 @@ use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
 use crate::core::{Core, CoreRef};
 use crate::protocol::clientmsg::ClientTaskSpec;
+use crate::protocol::key::to_dask_key;
 use crate::protocol::protocol::{
     deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame,
     FromDaskTransport, SerializedMemory, ToDaskTransport,
@@ -23,7 +24,6 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::codec::{Decoder, Encoder};
-use crate::protocol::key::to_dask_key;
 
 /// Memory stream for reading and writing at the same time.
 pub struct MemoryStream {

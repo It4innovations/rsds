@@ -1,10 +1,10 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::de::Visitor;
 use serde::export::Formatter;
-use std::ops::Deref;
-use std::error::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
+use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::ops::Deref;
 
 /*pub type DaskKey = String;
 pub type DaskKeyRef = str;
@@ -22,7 +22,7 @@ pub type DaskKeyRef = [u8];
 
 #[derive(Hash, PartialEq, Eq, Clone, Default)]
 pub struct DaskKey {
-    bytes: Box<[u8]>
+    bytes: Box<[u8]>,
 }
 
 #[inline]
@@ -70,19 +70,25 @@ impl From<String> for DaskKey {
 impl From<Vec<u8>> for DaskKey {
     #[inline]
     fn from(data: Vec<u8>) -> Self {
-        DaskKey { bytes: data.into_boxed_slice() }
+        DaskKey {
+            bytes: data.into_boxed_slice(),
+        }
     }
 }
 impl From<&DaskKeyRef> for DaskKey {
     #[inline]
     fn from(data: &DaskKeyRef) -> Self {
-        DaskKey { bytes: Box::from(data) }
+        DaskKey {
+            bytes: Box::from(data),
+        }
     }
 }
 impl From<&str> for DaskKey {
     #[inline]
     fn from(data: &str) -> Self {
-        DaskKey { bytes: Box::from(data.as_bytes()) }
+        DaskKey {
+            bytes: Box::from(data.as_bytes()),
+        }
     }
 }
 
@@ -117,14 +123,16 @@ impl Deref for DaskKey {
 
 impl Serialize for DaskKey {
     #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-        S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(self.as_str())
     }
 }
 
 struct DaskKeyVisitor;
-impl <'a> Visitor<'a> for DaskKeyVisitor {
+impl<'a> Visitor<'a> for DaskKeyVisitor {
     type Value = DaskKey;
 
     #[inline]
@@ -133,40 +141,52 @@ impl <'a> Visitor<'a> for DaskKeyVisitor {
     }
 
     #[inline]
-    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E> where
-        E: Error, {
+    fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
         Ok(v.into())
     }
 
     #[inline]
-    fn visit_string<E>(self, v: String) -> Result<Self::Value, E> where
-        E: Error, {
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
         Ok(v.into())
     }
 
     #[inline]
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E> where
-        E: Error, {
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
         Ok(v.into())
     }
 
     #[inline]
-    fn visit_borrowed_bytes<E>(self, v: &'a [u8]) -> Result<Self::Value, E> where
-        E: Error, {
+    fn visit_borrowed_bytes<E>(self, v: &'a [u8]) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
         Ok(v.into())
     }
 
     #[inline]
-    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E> where
-        E: Error, {
+    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
         Ok(v.into())
     }
 }
 
-impl <'de> Deserialize<'de> for DaskKey {
+impl<'de> Deserialize<'de> for DaskKey {
     #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
         deserializer.deserialize_str(DaskKeyVisitor)
     }
 }

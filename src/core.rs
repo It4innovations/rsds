@@ -6,9 +6,9 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
+use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
-use crate::protocol::key::{DaskKey, DaskKeyRef, dask_key_ref_to_string};
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -168,14 +168,20 @@ impl Core {
     #[inline]
     pub fn get_worker_by_key_or_panic(&self, key: &DaskKeyRef) -> &WorkerRef {
         self.workers.get_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid worker key={}", dask_key_ref_to_string(key));
+            panic!(
+                "Asking for invalid worker key={}",
+                dask_key_ref_to_string(key)
+            );
         })
     }
 
     #[inline]
     pub fn get_worker_id_by_key(&self, key: &DaskKeyRef) -> WorkerId {
         self.workers.get_id_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid worker key={}", dask_key_ref_to_string(key));
+            panic!(
+                "Asking for invalid worker key={}",
+                dask_key_ref_to_string(key)
+            );
         })
     }
 

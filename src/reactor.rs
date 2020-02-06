@@ -19,13 +19,13 @@ use crate::scheduler::schedproto::TaskId;
 
 use crate::task::TaskRef;
 
+use crate::protocol::key::{to_dask_key, DaskKey};
 use crate::util::OptionExt;
 use futures::stream::FuturesUnordered;
 use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::net::TcpStream;
-use crate::protocol::key::{DaskKey, to_dask_key};
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -248,10 +248,11 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
     {
         // TODO: round-robin
-        let mut worker_futures: FuturesUnordered<_> =
-            FuturesUnordered::from_iter(workers.into_iter().map(|worker| {
-                update_data_on_worker(worker.get().address().into(), &message.data)
-            }));
+        let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
+            workers
+                .into_iter()
+                .map(|worker| update_data_on_worker(worker.get().address().into(), &message.data)),
+        );
 
         while let Some(data) = worker_futures.next().await {
             data.unwrap();
