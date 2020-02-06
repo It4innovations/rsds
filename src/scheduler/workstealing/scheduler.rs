@@ -327,9 +327,11 @@ impl Scheduler {
                 }
                 ToSchedulerMessage::RemoveTask(task_id) => {
                     log::debug!("Remove task {}", task_id);
-                    let tref = self.get_task(task_id).clone();
-                    let task = tref.get();
-                    assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
+                    {
+                        let tref = self.get_task(task_id);
+                        let task = tref.get();
+                        assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
+                    }
                     assert!(self.tasks.remove(&task_id).is_some());
                 }
                 ToSchedulerMessage::NewFinishedTask(ti) => {
@@ -352,27 +354,6 @@ impl Scheduler {
             }
         }
         invoke_scheduling
-
-        // HACK, random scheduler
-        /*if !self.workers.is_empty() {
-            use rand::seq::SliceRandom;
-            let mut result = Vec::new();
-            let mut rng = rand::thread_rng();
-            let ws: Vec<WorkerId> = self.workers.values().map(|w| w.get().id).collect();
-            // TMP HACK
-            for task_id in &self._tmp_hack {
-                result.push(TaskAssignment {
-                    task: *task_id,
-                    worker: *ws.choose(&mut rng).unwrap(),
-                    priority: 0,
-                });
-            }
-            self._tmp_hack.clear();
-
-            sender
-                .send(FromSchedulerMessage::TaskAssignments(result))
-                .unwrap();
-        }*/
     }
 
     fn choose_worker_for_task(&mut self, task: &Task) -> WorkerRef {

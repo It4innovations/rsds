@@ -9,7 +9,7 @@ use crate::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 
-use crate::protocol::key::DaskKey;
+use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerRef;
@@ -56,7 +56,7 @@ pub struct Task {
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
     consumers: Set<TaskRef>,
-    pub key: DaskKey,
+    key: DaskKey,
     pub dependencies: Vec<TaskId>,
 
     pub spec: Option<ClientTaskSpec>,
@@ -69,6 +69,11 @@ impl Task {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_inputs == 0
+    }
+
+    #[inline]
+    pub fn key(&self) -> &DaskKeyRef {
+        &self.key
     }
 
     #[inline]
