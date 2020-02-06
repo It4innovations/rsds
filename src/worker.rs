@@ -1,8 +1,8 @@
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 
+use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::protocol::DaskPacket;
-use crate::protocol::key::{DaskKeyRef, DaskKey};
 
 pub type WorkerId = u64;
 

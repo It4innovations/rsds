@@ -1,5 +1,5 @@
+use super::task::TaskRef;
 use crate::common::Map;
-use crate::scheduler::implementation::task::TaskRef;
 use crate::scheduler::schedproto::TaskId;
 
 pub fn compute_b_level(tasks: &Map<TaskId, TaskRef>) {

@@ -1,6 +1,7 @@
 pub use schedproto::{FromSchedulerMessage, ToSchedulerMessage};
 
-pub mod implementation;
-pub mod interface;
+pub mod random;
+pub mod workstealing;
 
+pub mod comm;
 pub mod schedproto;

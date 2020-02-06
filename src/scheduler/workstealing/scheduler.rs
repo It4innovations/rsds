@@ -1,10 +1,10 @@
 use tokio::sync::mpsc::UnboundedSender;
 
+use super::task::{SchedulerTaskState, Task, TaskRef};
+use super::utils::compute_b_level;
+use super::worker::{Worker, WorkerRef};
 use crate::common::{Map, Set};
-use crate::scheduler::implementation::task::{SchedulerTaskState, Task, TaskRef};
-use crate::scheduler::implementation::utils::compute_b_level;
-use crate::scheduler::implementation::worker::{Worker, WorkerRef};
-use crate::scheduler::interface::SchedulerComm;
+use crate::scheduler::comm::SchedulerComm;
 use crate::scheduler::schedproto::{
     SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
     WorkerId,
@@ -31,7 +31,7 @@ const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
 
 impl Scheduler {
     pub fn new() -> Self {
-        Scheduler {
+        Self {
             workers: Default::default(),
             tasks: Default::default(),
             ready_to_assign: Default::default(),
@@ -78,12 +78,12 @@ impl Scheduler {
     }
 
     pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
-        log::debug!("Scheduler initialized");
+        log::debug!("Workstealing scheduler initialized");
 
         comm.send
             .send(FromSchedulerMessage::Register(SchedulerRegistration {
                 protocol_version: 0,
-                scheduler_name: "test_scheduler".into(),
+                scheduler_name: "workstealing-scheduler".into(),
                 scheduler_version: "0.0".into(),
             }))
             .expect("Scheduler start send failed");

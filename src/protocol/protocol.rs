@@ -435,12 +435,12 @@ mod tests {
     use futures::SinkExt;
     use maplit::hashmap;
 
+    use crate::protocol::key::to_dask_key;
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
     use std::io::Cursor;
     use tokio_util::codec::{Decoder, Encoder, Framed};
-    use crate::protocol::key::to_dask_key;
 
     #[tokio::test]
     async fn parse_message_simple() -> Result<()> {
@@ -589,7 +589,9 @@ mod tests {
             FromClientMessage::UpdateGraph(msg) => {
                 assert_eq!(
                     msg.keys,
-                    vec!(to_dask_key("('truediv-fb32c371476f0df11c512c4c98d6380d', 0)"))
+                    vec!(to_dask_key(
+                        "('truediv-fb32c371476f0df11c512c4c98d6380d', 0)"
+                    ))
                 );
                 match &msg.tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
                     ClientTaskSpec::Direct {

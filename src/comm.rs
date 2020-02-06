@@ -7,6 +7,7 @@ use crate::protocol::clientmsg::{
 use crate::protocol::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
 };
+use crate::protocol::key::{to_dask_key, DaskKey};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, MessageBuilder,
@@ -29,7 +30,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::protocol::key::{DaskKey, to_dask_key};
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -606,9 +606,8 @@ mod tests {
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };
-    use crate::protocol::protocol::{
-        serialize_single_packet, Batch, Frames, SerializedTransport,
-    };
+    use crate::protocol::key::to_dask_key;
+    use crate::protocol::protocol::{serialize_single_packet, Batch, Frames, SerializedTransport};
     use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::task::{DataInfo, TaskRuntimeState};
     use crate::test_util::{
@@ -616,7 +615,6 @@ mod tests {
         packet_to_msg, packets_to_bytes, task_add, worker, MemoryStream,
     };
     use futures::StreamExt;
-    use crate::protocol::key::to_dask_key;
 
     #[tokio::test]
     async fn respond_to_identity() -> crate::Result<()> {
@@ -697,7 +695,10 @@ mod tests {
         let msg: Batch<ToClientMessage> = packet_to_msg(rx.next().await.unwrap())?;
         assert_eq!(
             msg[0],
-            ToClientMessage::KeyInMemory(KeyInMemoryMsg { key: key.into(), r#type })
+            ToClientMessage::KeyInMemory(KeyInMemoryMsg {
+                key: key.into(),
+                r#type
+            })
         );
 
         Ok(())

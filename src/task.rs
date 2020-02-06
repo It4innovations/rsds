@@ -9,10 +9,10 @@ use crate::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 
+use crate::protocol::key::DaskKey;
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerRef;
-use crate::protocol::key::DaskKey;
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -308,8 +308,8 @@ impl TaskRef {
 
 #[cfg(test)]
 mod tests {
-    use std::default::Default;
     use crate::test_util::{task, task_deps};
+    use std::default::Default;
 
     #[test]
     fn task_consumers_empty() {
