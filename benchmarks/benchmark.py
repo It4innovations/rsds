@@ -208,7 +208,7 @@ class Benchmark:
         else:
             t = threading.Thread(target=run, daemon=True)
             t.start()
-            time.sleep(timeout)
+            t.join(timeout)
             if t.is_alive():
                 logging.warning(f"Benchmark did not finish in {timeout} seconds")
                 timeouted = True
@@ -363,14 +363,20 @@ def save_results(frame, directory):
             plot = create_plot(frame, plot_fn)
             plot.savefig(os.path.join(directory, f"{file}.png"))
 
+    def describe(frame, file):
+        s = frame.groupby(["function", "cluster"]).describe()
+        file.write(f"{s}\n")
+        s = frame.groupby(["cluster"]).describe()
+        file.write(f"{s}\n")
+
     with pd.option_context('display.max_rows', None,
                            'display.max_columns', None,
                            'display.expand_frame_repr', False):
         with open(os.path.join(directory, "summary.txt"), "w") as f:
-            s = frame.groupby(["function", "cluster"]).describe()
-            f.write(f"{s}\n")
-            s = frame.groupby(["cluster"]).describe()
-            f.write(f"{s}\n")
+            f.write("All results:\n")
+            describe(frame, f)
+            f.write("Results without first run:\n")
+            describe(frame[frame["index"] != 0], f)
 
 
 def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
