@@ -1,10 +1,8 @@
-use tokio::sync::mpsc::UnboundedSender;
-
 use super::task::{SchedulerTaskState, Task, TaskRef};
 use super::utils::compute_b_level;
-use super::worker::{Worker, WorkerRef};
 use crate::common::{Map, Set};
 use crate::scheduler::comm::SchedulerComm;
+use super::worker::{Worker, WorkerRef};
 use crate::scheduler::schedproto::{
     SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
     WorkerId,
@@ -53,11 +51,7 @@ impl Scheduler {
             .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
     }
 
-    pub fn send_notifications(
-        &self,
-        notifications: Notifications,
-        sender: &mut UnboundedSender<FromSchedulerMessage>,
-    ) {
+    pub fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerComm) {
         let assignments: Vec<_> = notifications
             .into_iter()
             .map(|tr| {
@@ -72,28 +66,24 @@ impl Scheduler {
                 }
             })
             .collect();
-        sender
-            .send(FromSchedulerMessage::TaskAssignments(assignments))
-            .expect("Send failed");
+        sender.send(FromSchedulerMessage::TaskAssignments(assignments));
     }
 
     pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
         log::debug!("Workstealing scheduler initialized");
 
-        comm.send
-            .send(FromSchedulerMessage::Register(SchedulerRegistration {
-                protocol_version: 0,
-                scheduler_name: "workstealing-scheduler".into(),
-                scheduler_version: "0.0".into(),
-            }))
-            .expect("Scheduler start send failed");
+        comm.send(FromSchedulerMessage::Register(SchedulerRegistration {
+            protocol_version: 0,
+            scheduler_name: "workstealing-scheduler".into(),
+            scheduler_version: "0.0".into(),
+        }));
 
         while let Some(msgs) = comm.recv.next().await {
             /* TODO: Add delay that prevents calling scheduler too often */
             if self.update(msgs) {
                 let mut notifications = Notifications::new();
                 self.schedule(&mut notifications);
-                self.send_notifications(notifications, &mut comm.send);
+                self.send_notifications(notifications, &mut comm);
             }
         }
         log::debug!("Scheduler closed");

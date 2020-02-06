@@ -1,5 +1,5 @@
-use super::worker::WorkerRef;
 use crate::common::Set;
+use super::worker::WorkerRef;
 use crate::scheduler::schedproto::{TaskId, TaskInfo};
 
 pub enum SchedulerTaskState {
