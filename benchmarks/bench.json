@@ -34,7 +34,8 @@
   },
   "dask": {
     "name": "dask",
-    "binary": "dask-scheduler"
+    "binary": "dask-scheduler",
+    "args": ["--no-dashboard"]
   },
   "usecases": {"$+": [
     {"$ref": "xarray"},
