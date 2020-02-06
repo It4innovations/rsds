@@ -150,9 +150,7 @@ pub fn release_keys(
         log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
         task.unsubscribe_client(client_id);
 
-        if task.remove_data_if_possible(&mut notifications) {
-            core.remove_task(&task); // TODO: recursively remove dependencies
-        }
+        task.remove_data_if_possible(&mut core, &mut notifications);
     }
     comm_ref.get_mut().notify(&mut core, notifications)
 }

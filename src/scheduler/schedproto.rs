@@ -19,8 +19,6 @@ pub enum TaskUpdateType {
     // Task data are available on worker
     Removed,
     // Task data are no available on worker (or running state is cancelled)
-    Discard, // Task is removed from system, do not schedule it
-             // & it is no longer available on on any worker
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -54,6 +52,7 @@ pub enum ToSchedulerMessage {
     TaskUpdate(TaskUpdate),
     TaskStealResponse(TaskStealResponse),
     NewTask(TaskInfo),
+    RemoveTask(TaskId),
     NewWorker(WorkerInfo),
     NetworkBandwidth(f32),
 }

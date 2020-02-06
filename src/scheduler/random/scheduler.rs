@@ -27,7 +27,6 @@ impl Scheduler {
             protocol_version: 0,
             scheduler_name: "random-scheduler".into(),
             scheduler_version: "0.0".into(),
-            reassigning: false,
         }));
 
         while let Some(msgs) = comm.recv.next().await {
@@ -58,7 +57,7 @@ impl Scheduler {
                 ToSchedulerMessage::NewWorker(worker) => {
                     self.workers.push(worker.id);
                     if !self.pending_tasks.is_empty() {
-                        for task in self.pending_tasks.drain(0..) {
+                        for task in self.pending_tasks.drain(..) {
                             assignments.push(TaskAssignment {
                                 task,
                                 worker: worker.id,

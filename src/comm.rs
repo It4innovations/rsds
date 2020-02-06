@@ -18,7 +18,7 @@ use crate::protocol::workermsg::{
     ToWorkerMessage,
 };
 use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
-use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
+use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType, TaskId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::TaskRuntimeState;
 use crate::task::{ErrorInfo, Task, TaskRef};
@@ -42,9 +42,9 @@ impl Comm {
         if !notifications.scheduler_messages.is_empty() {
             self.sender.send(notifications.scheduler_messages).unwrap();
         }
-
         self.notify_workers(&core, notifications.workers)?;
         self.notify_clients(core, notifications.clients)?;
+
         Ok(())
     }
 
@@ -176,6 +176,11 @@ impl Notifications {
     pub fn new_task(&mut self, task: &Task) {
         self.scheduler_messages
             .push(ToSchedulerMessage::NewTask(task.make_sched_info()));
+    }
+
+    pub fn remove_task(&mut self, task: &Task) {
+        self.scheduler_messages
+            .push(ToSchedulerMessage::RemoveTask(task.id));
     }
 
     pub fn delete_key_from_worker(&mut self, worker_ref: WorkerRef, task: &Task) {

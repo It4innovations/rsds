@@ -123,8 +123,9 @@ impl Core {
 
     pub fn remove_task(&mut self, task: &Task) {
         assert!(!task.has_consumers());
-        self.tasks_by_id.remove(&task.id);
-        self.tasks_by_key.remove(&task.key);
+        assert!(!task.has_subscribed_clients());
+        assert!(self.tasks_by_id.remove(&task.id).is_some());
+        assert!(self.tasks_by_key.remove(&task.key).is_some());
     }
 
     #[inline]
@@ -254,7 +255,7 @@ impl Core {
                     TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
                 }
                 TaskRuntimeState::Finished(_, _)
-                | TaskRuntimeState::Released(_)
+                | TaskRuntimeState::Released
                 | TaskRuntimeState::Error(_) => {
                     log::debug!("Rescheduling non-active task={}", assignment.task);
                     continue;
@@ -383,17 +384,17 @@ impl Core {
                 self.notify_key_in_memory(&task_ref, notifications);
             }
 
-            task_ref.get_mut().remove_data_if_possible(notifications);
+            task_ref.get_mut().remove_data_if_possible(self, notifications);
         }
     }
 
     fn unregister_as_consumer(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
         let task = task_ref.get();
         for input_id in &task.dependencies {
-            let tr = self.get_task_by_id_or_panic(*input_id);
+            let tr = self.get_task_by_id_or_panic(*input_id).clone();
             let mut t = tr.get_mut();
             assert!(t.remove_consumer(&task_ref));
-            t.remove_data_if_possible(notifications);
+            t.remove_data_if_possible(self, notifications);
         }
     }
 
@@ -516,10 +517,7 @@ mod tests {
             &mut notifications,
         );
         match &t.get().state {
-            TaskRuntimeState::Released(data) => {
-                assert_eq!(data.size, nbytes);
-                assert_eq!(data.r#type, r#type);
-            }
+            TaskRuntimeState::Released => {}
             _ => panic!("Wrong task state"),
         };
     }

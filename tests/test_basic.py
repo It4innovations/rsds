@@ -182,7 +182,7 @@ def test_stealing(rsds_env):
     rs = delayed_merge(*sleeps).compute()
     assert rs == (0.1, 0.5) * 4
 
-"""
+
 def test_resubmit(rsds_env):
     url = rsds_env.start([1])
     import numpy as np
@@ -194,4 +194,3 @@ def test_resubmit(rsds_env):
         x = da.random.random((size, size), chunks=(1000, 1000))
         y = x + x.T
         res = np.sum(y[::2, size / 2:].mean(axis=1).compute())
-"""

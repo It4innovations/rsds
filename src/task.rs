@@ -20,7 +20,7 @@ pub enum TaskRuntimeState {
     Assigned(WorkerRef),
     Stealing(WorkerRef, WorkerRef), // (from, to)
     Finished(DataInfo, Vec<WorkerRef>),
-    Released(DataInfo),
+    Released,
     Error(Rc<ErrorInfo>),
 }
 
@@ -32,7 +32,7 @@ impl fmt::Debug for TaskRuntimeState {
             Self::Assigned(_) => 'A',
             Self::Stealing(_, _) => 'T',
             Self::Finished(_, _) => 'F',
-            Self::Released(_) => 'R',
+            Self::Released => 'R',
             Self::Error(_) => 'E',
         };
         write!(f, "{}", n)
@@ -94,6 +94,11 @@ impl Task {
         }
     }
 
+    #[inline]
+    pub fn has_subscribed_clients(&self) -> bool {
+        !self.consumers.is_empty()
+    }
+
     pub fn unsubscribe_client(&mut self, client_id: ClientId) {
         self.subscribed_clients
             .iter()
@@ -112,17 +117,12 @@ impl Task {
         }
     }
 
-    pub fn remove_data_if_possible(&mut self, notifications: &mut Notifications) -> bool {
+    pub fn remove_data_if_possible(&mut self, core: &mut Core, notifications: &mut Notifications) {
         if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
-            // Hack for changing Finished -> Released while moving DataInfo
-            let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Waiting) {
-                TaskRuntimeState::Finished(data_info, ws) => {
-                    self.state = TaskRuntimeState::Released(data_info);
-                    ws
-                }
+            let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Released) {
+                TaskRuntimeState::Finished(_, ws) => ws,
                 _ => unreachable!(),
             };
-
             for worker_ref in ws {
                 log::debug!(
                     "Task id={} is no longer needed, deleting from worker={}",
@@ -131,9 +131,8 @@ impl Task {
                 );
                 notifications.delete_key_from_worker(worker_ref, &self);
             }
-            true
-        } else {
-            false
+            notifications.remove_task(&self);
+            core.remove_task(&self);
         }
     }
 
@@ -261,7 +260,7 @@ impl Task {
     pub fn is_done(&self) -> bool {
         match &self.state {
             TaskRuntimeState::Finished(_, _)
-            | TaskRuntimeState::Released(_)
+            | TaskRuntimeState::Released
             | TaskRuntimeState::Error(_) => true,
             _ => false,
         }
@@ -271,7 +270,6 @@ impl Task {
     pub fn data_info(&self) -> Option<&DataInfo> {
         match &self.state {
             TaskRuntimeState::Finished(data, _) => Some(data),
-            TaskRuntimeState::Released(data) => Some(data),
             _ => None,
         }
     }

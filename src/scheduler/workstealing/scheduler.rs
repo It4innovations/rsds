@@ -51,7 +51,7 @@ impl Scheduler {
             .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
     }
 
-    pub fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerComm) {
+    fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerComm) {
         let assignments: Vec<_> = notifications
             .into_iter()
             .map(|tr| {
@@ -271,15 +271,11 @@ impl Scheduler {
                 /*let index = task.placement.iter().position(|x| x == worker).unwrap();
                 task.placement.remove(index);*/
             }
-            TaskUpdateType::Discard => {
-                log::debug!("Discarding task {}", task.id);
-                task.placement.clear();
-            }
         }
         false
     }
 
-    pub fn rollback_steal(&mut self, response: TaskStealResponse) -> bool {
+    fn rollback_steal(&mut self, response: TaskStealResponse) -> bool {
         let tref = self.get_task(response.id);
         let mut task = tref.get_mut();
         let new_wref = self.get_worker(response.to_worker);
@@ -328,7 +324,14 @@ impl Scheduler {
                     self.new_tasks.push(task.clone());
                     assert!(self.tasks.insert(task_id, task).is_none());
                     invoke_scheduling = true;
-                }
+                },
+                ToSchedulerMessage::RemoveTask(task_id) => {
+                    log::debug!("Remove task {}", task_id);
+                    let tref = self.get_task(task_id).clone();
+                    let mut task = tref.get_mut();
+                    assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
+                    assert!(self.tasks.remove(&task_id).is_some());
+                },
                 ToSchedulerMessage::NewWorker(wi) => {
                     assert!(self.workers.insert(wi.id, WorkerRef::new(wi),).is_none());
                     invoke_scheduling = true;
