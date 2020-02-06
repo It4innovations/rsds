@@ -159,7 +159,7 @@ def test_gather_already_finished(rsds_env):
 
 
 def test_stealing(rsds_env):
-    client = Client(rsds_env.start([1, 1]))
+    client = Client(rsds_env.start([1, 1], scheduler="workstealing"))
     client.wait_for_workers(2)
 
     @delayed
