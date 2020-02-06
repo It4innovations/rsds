@@ -4,10 +4,11 @@ import itertools
 import logging
 import os
 import pathlib
+import re
 import shutil
-import socket
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from random import Random
@@ -24,7 +25,9 @@ from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
-HOSTNAME = socket.gethostname()
+
+TIMEOUT_EXIT_CODE = 16
+RESULT_FILE = "result.json"
 
 USECASES = {
     "xarray": bench_xarray,
@@ -145,42 +148,72 @@ class Benchmark:
         self.workdir = workdir
         self.profile = profile
 
-    def run(self):
+    def run(self, timeout, bootstrap):
         os.makedirs(self.workdir, exist_ok=True)
 
-        results = self.benchmark_configurations()
-        check_results(results, self.reference)
-        return results
+        if bootstrap is not None:
+            bootstrap = pd.read_json(bootstrap)
+        else:
+            bootstrap = pd.DataFrame()
 
-    def benchmark_configurations(self):
+        results, timeouted = self.benchmark_configurations(timeout, bootstrap)
+
+        try:
+            check_results(results, self.reference)
+        except:
+            logging.error("Result check failed")
+            traceback.print_exc()
+        return pd.concat((bootstrap, results), ignore_index=True, sort=False), timeouted
+
+    def benchmark_configurations(self, timeout, bootstrap):
         def repeat_configs():
             for config in self.configurations:
                 for i in range(self.repeat):
-                    yield (i, config)
+                    c = dict(config)
+                    c["index"] = i
+                    yield c
 
-        results = {
+        results = results = {
             "cluster": [],
             "function": [],
             "result": [],
-            "time": []
+            "time": [],
+            "index": []
         }
-        for repeat_index, configuration in tqdm.tqdm(repeat_configs(), total=len(self.configurations) * self.repeat):
-            logging.info(
-                f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
+        configurations = skip_completed(list(repeat_configs()), bootstrap)
 
-            try:
-                configuration, result, duration = self.benchmark_configuration(configuration, repeat_index)
+        def run():
+            for configuration in tqdm.tqdm(configurations):
+                repeat_index = configuration["index"]
+                logging.info(
+                    f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
 
-                results["cluster"].append(format_cluster_info(configuration["cluster"]))
-                results["function"].append(configuration["name"])
-                results["result"].append(result)
-                results["time"].append(duration)
-            except KeyboardInterrupt:
-                break
-            except:
-                print(f"Error while processing {configuration}", file=sys.stderr)
-                traceback.print_exc()
-        return pd.DataFrame(results)
+                try:
+                    configuration, result, duration = self.benchmark_configuration(configuration, repeat_index)
+
+                    results["cluster"].append(format_cluster_info(configuration["cluster"]))
+                    results["function"].append(configuration["name"])
+                    results["result"].append(result)
+                    results["time"].append(duration)
+                    results["index"].append(repeat_index)
+                except KeyboardInterrupt:
+                    break
+                except:
+                    print(f"Error while processing {configuration}", file=sys.stderr)
+                    traceback.print_exc()
+
+        timeouted = False
+        if timeout is None:
+            run()
+        else:
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            time.sleep(timeout)
+            if t.is_alive():
+                logging.warning(f"Benchmark did not finish in {timeout} seconds")
+                timeouted = True
+
+        return pd.DataFrame(results), timeouted
 
     def benchmark_configuration(self, configuration, index):
         workdir = os.path.join(self.workdir,
@@ -204,6 +237,24 @@ class Benchmark:
                 "function": functools.partial(USECASES[function], args),
                 "cluster": configuration["cluster"]
             }
+
+
+def skip_completed(configurations, bootstrap):
+    if len(bootstrap) > 0:
+        filtered_configs = []
+
+        def create_key(config):
+            return (format_cluster_info(config["cluster"]), config["name"], config["index"])
+
+        grouped = bootstrap.groupby(["cluster", "function", "index"], sort=False)
+        for config in configurations:
+            if create_key(config) not in grouped.groups:
+                filtered_configs.append(config)
+        logging.info(
+            f"Skipping {len(configurations) - len(filtered_configs)} out of {len(configurations)} configurations")
+        return filtered_configs
+    else:
+        return configurations
 
 
 def worker_count(workers):
@@ -302,14 +353,15 @@ def save_results(frame, directory):
         sns.swarmplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
 
     os.makedirs(directory, exist_ok=True)
-    frame.to_json(os.path.join(directory, "result.json"))
+    frame.to_json(os.path.join(directory, RESULT_FILE))
 
-    for (file, plot_fn) in (
-            ("result_boxplot", plot_box),
-            ("result_scatterplot", plot_scatter)
-    ):
-        plot = create_plot(frame, plot_fn)
-        plot.savefig(os.path.join(directory, f"{file}.png"))
+    if len(frame) > 0:
+        for (file, plot_fn) in (
+                ("result_boxplot", plot_box),
+                ("result_scatterplot", plot_scatter)
+        ):
+            plot = create_plot(frame, plot_fn)
+            plot.savefig(os.path.join(directory, f"{file}.png"))
 
     with pd.option_context('display.max_rows', None,
                            'display.max_columns', None,
@@ -321,16 +373,44 @@ def save_results(frame, directory):
             f.write(f"{s}\n")
 
 
+def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
+    output_dir = os.path.abspath(output_dir)
+    if bootstrap:
+        bootstrap = os.path.abspath(bootstrap)
+        assert os.path.isfile(bootstrap)
+
+    benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir, profile)
+    frame, timeouted = benchmark.run(timeout, bootstrap)
+    frame.drop(columns=["result"], inplace=True)
+    save_results(frame, output_dir)
+    return timeouted
+
+
+class WalltimeType(click.ParamType):
+    name = "walltime"
+
+    def convert(self, value, param, ctx):
+        pattern = r'(((?P<hours>\d+):)?(?P<minutes>\d+):)?(?P<seconds>\d+)'
+        m = re.match(pattern, value)
+        if m:
+            wtime = m.groupdict(default="0")
+            return int(wtime["hours"]) * 3600 + int(wtime["minutes"]) * 60 + int(wtime["seconds"])
+        elif value.isdigit():
+            return int(value)
+
+        self.fail("%s is not valid walltime" % value, param, ctx)
+
+
 @click.command()
 @click.argument("input")
 @click.argument("output-dir")
 @click.option("--profile/--no-profile", default=False)
-def benchmark(input, output_dir, profile):
-    output_dir = os.path.abspath(output_dir)
-    benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir, profile)
-    frame = benchmark.run()
-    frame.drop(columns=["result"], inplace=True)
-    save_results(frame, output_dir)
+@click.option("--timeout", default=None, type=int)
+@click.option("--bootstrap", default=None)
+def benchmark(input, output_dir, profile, timeout, bootstrap):
+    if execute_benchmark(input, output_dir, profile, timeout, bootstrap):
+        print("Benchmark timeouted")
+        exit(TIMEOUT_EXIT_CODE)
 
 
 @click.command()
@@ -338,41 +418,68 @@ def benchmark(input, output_dir, profile):
 @click.option("--name", default=None)
 @click.option("--nodes", default=8)
 @click.option("--queue", default="qexp")
-@click.option("--walltime", default="01:00:00")
+@click.option("--walltime", default="01:00:00", type=WalltimeType())
 @click.option("--project", default="")
 @click.option("--workdir", default="runs")
 @click.option("--profile/--no-profile", default=False)
-def submit(input, name, nodes, queue, walltime, workdir, project, profile):
+@click.option("--bootstrap", default=None)
+def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap):
     if name is None:
-        name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
+        actual_name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
+    else:
+        actual_name = name
 
     if project:
-        project = f"#PBS -A {project}"
+        pbs_project = f"#PBS -A {project}"
+    else:
+        pbs_project = ""
 
     input = os.path.abspath(input)
-    directory = os.path.join(os.path.abspath(workdir), name)
+    assert os.path.isfile(input)
+
+    # sanity check
+    Benchmark(cfggen.build_config_from_file(input), workdir, profile)
+
+    directory = os.path.join(os.path.abspath(workdir), actual_name)
     os.makedirs(directory, exist_ok=True)
     stdout = os.path.join(directory, "stdout")
     stderr = os.path.join(directory, "stderr")
 
     shutil.copyfile(input, os.path.join(directory, os.path.basename(input)))
     script_path = os.path.abspath(__file__)
-    args = []
+    args = ["--timeout", str(walltime - 60)]  # lower timeout to save results
     if profile:
         args += ["--profile"]
+    if bootstrap:
+        assert os.path.isfile(os.path.abspath(bootstrap))
+        args += ["--bootstrap", bootstrap]
 
     command = f"""#!/bin/bash
-
 #PBS -l select={nodes},walltime={walltime}
 #PBS -q {queue}
+#PBS -N {actual_name}
 #PBS -o {stdout}
 #PBS -e {stderr}
-{project}
+{pbs_project}
 
 source ~/.bashrc || exit 1
 workon dask || exit 1
 
 python {script_path} benchmark {input} {directory} {" ".join(args)}
+if [ $? -eq {TIMEOUT_EXIT_CODE} ]
+then
+    cd ${{PBS_O_WORKDIR}}
+    python {script_path} submit \
+{f"--name {name}" if name else ""} \
+--nodes {nodes} \
+--queue {queue} \
+--walltime {walltime} \
+{f"--project {project}" if project else ""} \
+--workdir {workdir} \
+--bootstrap {os.path.join(directory, RESULT_FILE)} \
+--{'no-' if not profile else ''}profile \
+{input}
+fi
 """
     fpath = f"/tmp/pbs-{name}.sh"
     with open(fpath, "w") as f:
