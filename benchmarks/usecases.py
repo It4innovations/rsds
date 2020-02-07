@@ -1,4 +1,5 @@
 import datetime
+import time
 
 import dask
 import dask.array as da
@@ -29,11 +30,11 @@ def bench_bag(count):
     https://examples.dask.org/bag.html
     """
     b = dask.datasets.make_people(seed=0, npartitions=10, records_per_partition=count)
-    res = b.filter(lambda record: record['age'] > 30)\
-            .map(lambda record: record['occupation'])\
-            .frequencies(sort=True)\
-            .topk(10, key=1)\
-            .compute()
+    res = b.filter(lambda record: record['age'] > 30) \
+        .map(lambda record: record['occupation']) \
+        .frequencies(sort=True) \
+        .topk(10, key=1) \
+        .compute()
     return sum(v[1] for v in res)
 
 
@@ -43,12 +44,23 @@ def do_something(x):
 
 
 @delayed
+def sleep(delay):
+    time.sleep(delay)
+    return delay
+
+@delayed
 def merge(*args):
     return sum(args)
 
 
 def bench_merge(count=1000):
     xs = [do_something(x) for x in range(count)]
+    result = merge(*xs)
+    return result.compute()
+
+
+def bench_merge_slow(count=1000, delay=0.5):
+    xs = [sleep(delay) for _ in range(count)]
     result = merge(*xs)
     return result.compute()
 
