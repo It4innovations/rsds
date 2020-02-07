@@ -21,13 +21,14 @@ import tqdm
 from distributed import Client
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
-from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench_tree, bench_xarray
+from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench_merge_slow, bench_tree, bench_xarray
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
 
 TIMEOUT_EXIT_CODE = 16
 RESULT_FILE = "result.json"
+DEFAULT_VENV = "dask"
 
 USECASES = {
     "xarray": bench_xarray,
@@ -35,6 +36,7 @@ USECASES = {
     "bag": bench_bag,
     "numpy": bench_numpy,
     "merge": bench_merge,
+    "merge_slow": bench_merge_slow,
     "dataframe": bench_dataframe
 }
 
@@ -47,18 +49,19 @@ class DaskCluster:
         self.scheduler = cluster_info["scheduler"]
         self.workers = cluster_info["workers"]
 
+        venv = self.scheduler.get("venv", DEFAULT_VENV)
         self.workdir = workdir
         self.port = port
         self.profile = profile
         self.init_cmd = (
             "source ~/.bashrc",
-            "workon dask"
+            f"workon {venv}"
         )
 
         self.scheduler_address = f"{HOSTNAME}:{port}"
         self.cluster = Cluster(self.workdir)
 
-        logging.info(f"Starting a cluster at {self.scheduler_address}, workers: {self.workers}")
+        logging.info(f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address}")
         self._start_scheduler(self.scheduler)
         self._start_workers(self.workers, self.scheduler_address)
         if profile:
@@ -78,6 +81,8 @@ class DaskCluster:
         self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
 
     def kill(self):
+        self.client.close()
+
         def kill_fn(node, process):
             signal = "TERM"
             if process["key"].startswith("scheduler") and self.profile:
@@ -86,7 +91,6 @@ class DaskCluster:
             assert kill_process(node, process["pid"], signal=signal)
 
         self.cluster.kill(kill_fn)
-        self.client.close()
 
     def name(self):
         return f"{self.scheduler}-{self.workers}"
@@ -231,10 +235,13 @@ class Benchmark:
             usecase = configuration["usecase"]
             function = usecase["function"]
             args = usecase["args"]
-            name = f"{function}-{args}"
+            if not isinstance(args, (list, tuple)):
+                args = (args, )
+
+            name = f"{function}-{'-'.join((str(arg) for arg in args))}"
             yield {
                 "name": name,
-                "function": functools.partial(USECASES[function], args),
+                "function": functools.partial(USECASES[function], *args),
                 "cluster": configuration["cluster"]
             }
 
@@ -327,8 +334,14 @@ def check_results(frame, reference):
 
 def create_plot(frame, plot_fn):
     def extract(fn):
-        name, variant = fn.split("-")
-        return (name, int(variant))
+        items = list(fn.split("-"))
+        for i in range(len(items)):
+            try:
+                num = float(items[i])
+                items[i] = num
+            except:
+                pass
+        return tuple(items)
 
     clusters = sorted(set(frame["cluster"]))
     functions = sorted(set(frame["function"]), key=extract)
@@ -429,7 +442,8 @@ def benchmark(input, output_dir, profile, timeout, bootstrap):
 @click.option("--workdir", default="runs")
 @click.option("--profile/--no-profile", default=False)
 @click.option("--bootstrap", default=None)
-def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap):
+@click.option("--workon", default=DEFAULT_VENV)
+def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon):
     if name is None:
         actual_name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
     else:
@@ -457,7 +471,8 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
     if profile:
         args += ["--profile"]
     if bootstrap:
-        assert os.path.isfile(os.path.abspath(bootstrap))
+        bootstrap = os.path.abspath(bootstrap)
+        assert os.path.isfile(bootstrap)
         args += ["--bootstrap", bootstrap]
 
     command = f"""#!/bin/bash
@@ -469,7 +484,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 {pbs_project}
 
 source ~/.bashrc || exit 1
-workon dask || exit 1
+workon {workon} || exit 1
 
 python {script_path} benchmark {input} {directory} {" ".join(args)}
 if [ $? -eq {TIMEOUT_EXIT_CODE} ]
@@ -483,6 +498,7 @@ then
 {f"--project {project}" if project else ""} \
 --workdir {workdir} \
 --bootstrap {os.path.join(directory, RESULT_FILE)} \
+--workon {workon} \
 --{'no-' if not profile else ''}profile \
 {input}
 fi
