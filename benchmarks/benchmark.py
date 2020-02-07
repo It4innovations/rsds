@@ -67,7 +67,7 @@ class DaskCluster:
         logging.info(f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address}")
         self._start_scheduler(self.scheduler)
         self._start_workers(self.workers, self.scheduler_address)
-        if profile:
+        if self._use_monitoring():
             self._start_monitors()
 
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
@@ -88,7 +88,7 @@ class DaskCluster:
 
         def kill_fn(node, process):
             signal = "TERM"
-            if process["key"].startswith("scheduler") and self.profile:
+            if process["key"].startswith("scheduler") and self._profile_flamegraph():
                 signal = "INT"
 
             assert kill_process(node, process["pid"], signal=signal)
@@ -102,7 +102,7 @@ class DaskCluster:
         binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
 
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
-        if self.profile and "rsds" in self.scheduler:
+        if self._profile_flamegraph() and "rsds" in self.scheduler:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
         self.start(args, name="scheduler", env={
@@ -139,6 +139,12 @@ class DaskCluster:
                 start(node)
         else:
             start()
+
+    def _profile_flamegraph(self):
+        return "flamegraph" in self.profile
+
+    def _use_monitoring(self):
+        return "monitor" in self.profile
 
     def __enter__(self):
         return self
@@ -441,11 +447,11 @@ class WalltimeType(click.ParamType):
 @click.command()
 @click.argument("input")
 @click.argument("output-dir")
-@click.option("--profile/--no-profile", default=False)
+@click.option("--profile", default="")
 @click.option("--timeout", default=None, type=int)
 @click.option("--bootstrap", default=None)
 def benchmark(input, output_dir, profile, timeout, bootstrap):
-    if execute_benchmark(input, output_dir, profile, timeout, bootstrap):
+    if execute_benchmark(input, output_dir, profile.split(","), timeout, bootstrap):
         print("Benchmark timeouted")
         exit(TIMEOUT_EXIT_CODE)
 
@@ -458,7 +464,7 @@ def benchmark(input, output_dir, profile, timeout, bootstrap):
 @click.option("--walltime", default="01:00:00", type=WalltimeType())
 @click.option("--project", default="")
 @click.option("--workdir", default="runs")
-@click.option("--profile/--no-profile", default=False)
+@click.option("--profile", default="")
 @click.option("--bootstrap", default=None)
 @click.option("--workon", default=DEFAULT_VENV)
 def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon):
@@ -487,7 +493,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
     script_path = os.path.abspath(__file__)
     args = ["--timeout", str(walltime - 60)]  # lower timeout to save results
     if profile:
-        args += ["--profile"]
+        args += ["--profile", profile]
     if bootstrap:
         bootstrap = os.path.abspath(bootstrap)
         assert os.path.isfile(bootstrap)
@@ -517,7 +523,7 @@ then
 --workdir {workdir} \
 --bootstrap {os.path.join(directory, RESULT_FILE)} \
 --workon {workon} \
---{'no-' if not profile else ''}profile \
+{f"--profile {profile}" if profile else ""} \
 {input}
 fi
 """
