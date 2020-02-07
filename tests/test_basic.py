@@ -4,7 +4,7 @@ import pytest
 import time
 from dask import delayed
 from distributed.client import Client, Future
-
+from collections import Counter
 
 # Function for submitting in testing pipelines ----
 
@@ -135,6 +135,77 @@ def test_scatter(rsds_env):
     futures = client.scatter(range(10), workers=[worker])
     fut = client.submit(comp_fn3, futures)
     assert client.gather(fut) == list(range(1, 11))
+
+
+def test_scatter_w1_1(rsds_env):
+    url = rsds_env.start([1])
+
+    client = Client(url)
+    client.wait_for_workers(1)
+
+    futures = client.scatter(range(10))
+    p = client.who_has(futures)
+    assert len(p) == 10
+    assert len(set(p.values())) == 1
+
+
+def test_scatter_w2_1(rsds_env):
+    url = rsds_env.start([1, 1])
+
+    client = Client(url)
+    client.wait_for_workers(2)
+
+    futures = client.scatter(range(10))
+    p = client.who_has(futures)
+    assert list(Counter(p.values()).values()) == [5, 5]
+
+
+def test_scatter_w2_2(rsds_env):
+    url = rsds_env.start([2, 2])
+
+    client = Client(url)
+    client.wait_for_workers(2)
+
+    futures = client.scatter(range(10))
+    p = client.who_has(futures)
+    assert set(Counter(p.values()).values()) == {6, 4}
+
+
+def test_scatter_small_repeated(rsds_env):
+    url = rsds_env.start([4, 4, 4])
+
+    client = Client(url)
+    client.wait_for_workers(2)
+
+    futures1 = client.scatter(range(0, 3))
+    futures2 = client.scatter(range(10, 13))
+    futures3 = client.scatter(range(20, 23))
+    futures4 = client.scatter(range(30, 33))
+    p = client.who_has(futures1)
+    assert list(Counter(p.values()).values()) == [3]
+    p = client.who_has(futures2)
+    assert set(Counter(p.values()).values()) == {1, 2}
+    p = client.who_has(futures3)
+    assert set(Counter(p.values()).values()) == {1, 2}
+    p = client.who_has(futures4)
+    assert list(Counter(p.values()).values()) == [3]
+
+    p = client.who_has(futures1 + futures2 + futures3 + futures4)
+    assert list(Counter(p.values()).values()) == [4, 4, 4]
+
+    futures5 = client.scatter(range(40, 41))
+    p1 = client.who_has(futures1)
+    p2 = client.who_has(futures5)
+    assert len(list(p2.values())) == 1
+    assert set(p1.values()) == set(p2.values())
+
+    futures5 = client.scatter(range(50, 55))
+    p1 = client.who_has(futures1 + futures2)
+    p2 = client.who_has(futures5)
+    print("P1", p1)
+    print("P2", p2)
+    assert len(set(p2.values())) == 2
+    assert set(p1.values()) == set(p2.values())
 
 
 def test_gather_already_finished(rsds_env):

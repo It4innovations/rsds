@@ -70,7 +70,7 @@ class RsdsEnv(Env):
         worker_id = self.id_counter
         self.id_counter += 1
         name = "worker{}".format(worker_id)
-        args = ["dask-worker", "localhost:{}".format(port)]
+        args = ["dask-worker", "localhost:{}".format(port), "--nthreads", str(ncpus)]
         env = os.environ.copy()
         env["PYTHONPATH"] = PYTEST_DIR + ":" + env.get("PYTHONPATH", "")
         self.workers[name] = self.start_process(name, args, env)

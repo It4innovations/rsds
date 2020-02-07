@@ -18,7 +18,7 @@ use crate::protocol::workermsg::{
     ToWorkerMessage,
 };
 use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
-use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType, TaskId};
+use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType, NewFinishedTaskInfo};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::TaskRuntimeState;
 use crate::task::{ErrorInfo, Task, TaskRef};
@@ -178,6 +178,16 @@ impl Notifications {
             .push(ToSchedulerMessage::NewTask(task.make_sched_info()));
     }
 
+    #[inline]
+    pub fn new_finished_task(&mut self, task: &Task) {
+        self.scheduler_messages
+            .push(ToSchedulerMessage::NewFinishedTask(NewFinishedTaskInfo {
+                id: task.id,
+                workers: task.get_workers().unwrap().iter().map(|wr| wr.get().id).collect(),
+                size: task.data_info().unwrap().size,
+            }));
+    }
+
     pub fn remove_task(&mut self, task: &Task) {
         self.scheduler_messages
             .push(ToSchedulerMessage::RemoveTask(task.id));
@@ -280,7 +290,7 @@ pub async fn worker_rpc_loop<
 ) -> crate::Result<()> {
     let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
-    let worker_ref = create_worker(&mut core_ref.get_mut(), queue_sender, msg.address);
+    let worker_ref = create_worker(&mut core_ref.get_mut(), queue_sender, msg.address, msg.nthreads);
     let worker_id = worker_ref.get().id;
     let mut notifications = Notifications::default();
     notifications.new_worker(&worker_ref.get());

@@ -1,6 +1,6 @@
 use crate::common::Set;
 use super::worker::WorkerRef;
-use crate::scheduler::schedproto::{TaskId, TaskInfo};
+use crate::scheduler::schedproto::{TaskId, TaskInfo, NewFinishedTaskInfo};
 
 pub enum SchedulerTaskState {
     Waiting,
@@ -103,5 +103,21 @@ impl TaskRef {
             }
         }
         task_ref
+    }
+
+    pub fn new_finished(ti: NewFinishedTaskInfo, placement: Set<WorkerRef>) -> Self {
+        Self::wrap(Task {
+            id: ti.id,
+            inputs: Default::default(),
+            state: SchedulerTaskState::Finished,
+            b_level: 0.0,
+            unfinished_deps: Default::default(),
+            size: ti.size,
+            consumers: Default::default(),
+            assigned_worker: None,
+            placement: placement,
+            pinned: false,
+            take_flag: false,
+        })
     }
 }

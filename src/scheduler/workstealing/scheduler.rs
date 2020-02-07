@@ -332,6 +332,12 @@ impl Scheduler {
                     assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
                     assert!(self.tasks.remove(&task_id).is_some());
                 },
+                ToSchedulerMessage::NewFinishedTask(ti) => {
+                    let placement: Set<WorkerRef> = ti.workers.iter().map(|id| self.get_worker(*id).clone()).collect();
+                    let task_id = ti.id;
+                    let task = TaskRef::new_finished(ti, placement);
+                    assert!(self.tasks.insert(task_id, task).is_none());
+                },
                 ToSchedulerMessage::NewWorker(wi) => {
                     assert!(self.workers.insert(wi.id, WorkerRef::new(wi),).is_none());
                     invoke_scheduling = true;

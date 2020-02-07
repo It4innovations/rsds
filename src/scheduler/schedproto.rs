@@ -30,6 +30,14 @@ pub struct TaskInfo {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
+pub struct NewFinishedTaskInfo {
+    pub id: TaskId,
+    pub workers: Vec<WorkerId>,
+    pub size: u64,
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskUpdate {
     pub id: TaskId,
     pub state: TaskUpdateType,
@@ -53,6 +61,7 @@ pub enum ToSchedulerMessage {
     TaskStealResponse(TaskStealResponse),
     NewTask(TaskInfo),
     RemoveTask(TaskId),
+    NewFinishedTask(NewFinishedTaskInfo),
     NewWorker(WorkerInfo),
     NetworkBandwidth(f32),
 }

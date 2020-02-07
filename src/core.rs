@@ -49,6 +49,8 @@ pub struct Core {
     worker_id_counter: IdCounter,
     client_id_counter: IdCounter,
     uid: DaskKey,
+
+    scatter_counter: usize,
 }
 
 pub type CoreRef = WrappedRcRefCell<Core>;
@@ -67,6 +69,7 @@ impl Core {
             clients: KeyIdMap::new(),
 
             uid: "123_TODO".into(),
+            scatter_counter: 0,
         }
     }
 
@@ -110,6 +113,13 @@ impl Core {
     pub fn unregister_client(&mut self, client_id: ClientId) {
         // TODO: remove tasks of this client
         self.clients.remove_by_id(client_id);
+    }
+
+    #[inline]
+    pub fn get_and_move_scatter_counter(&mut self, size: usize) -> usize {
+        let c = self.scatter_counter;
+        self.scatter_counter += size;
+        return c;
     }
 
     pub fn add_task(&mut self, task_ref: TaskRef) {
@@ -189,6 +199,11 @@ impl Core {
     #[inline]
     pub fn get_workers(&self) -> Vec<WorkerRef> {
         self.workers.values().cloned().collect()
+    }
+
+    #[inline]
+    pub fn has_workers(&self) -> bool {
+        !self.workers.is_empty()
     }
 
     pub fn get_worker_cores(&self) -> Map<DaskKey, u64> {

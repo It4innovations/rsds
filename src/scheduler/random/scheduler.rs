@@ -53,7 +53,7 @@ impl Scheduler {
                         }
                         None => self.pending_tasks.push(task.id)
                     }
-                }
+                },
                 ToSchedulerMessage::NewWorker(worker) => {
                     self.workers.push(worker.id);
                     if !self.pending_tasks.is_empty() {

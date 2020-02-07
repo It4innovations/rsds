@@ -67,8 +67,8 @@ pub struct RegisterClientMsg {
 #[derive(Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
     pub address: DaskKey,
-    /*pub nthreads: u32,
-    pub memorylimit: u64,
+    pub nthreads: u32,
+    /*pub memorylimit: u64,
     pub nanny: String,*/
 }
 
@@ -113,6 +113,7 @@ pub struct CancelKeysMsg {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct WhoHasMsg {
+    #[serde(default)]
     pub keys: Vec<DaskKey>,
 }
 

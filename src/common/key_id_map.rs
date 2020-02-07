@@ -34,6 +34,11 @@ impl<Type: Identifiable> KeyIdMap<Type::Id, Type, Type::Key> {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.id_to_item.is_empty()
+    }
+
+    #[inline]
     pub fn get_by_id(&self, id: Type::Id) -> Option<&Type> {
         self.id_to_item.get(&id)
     }

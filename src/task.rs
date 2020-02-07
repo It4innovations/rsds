@@ -59,7 +59,7 @@ pub struct Task {
     pub key: DaskKey,
     pub dependencies: Vec<TaskId>,
 
-    pub spec: ClientTaskSpec,
+    pub spec: Option<ClientTaskSpec>,
     subscribed_clients: Vec<ClientId>,
 }
 
@@ -189,19 +189,21 @@ impl Task {
         let mut msg_task = None;
 
         match &self.spec {
-            ClientTaskSpec::Direct {
+            Some(ClientTaskSpec::Direct {
                 function,
                 args,
-                kwargs,
-            } => {
+                kwargs,}) => {
                 msg_function = function.to_transport_clone(mbuilder);
                 msg_args = args.to_transport_clone(mbuilder);
                 msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
-            }
-            ClientTaskSpec::Serialized(v) => {
+            },
+            Some(ClientTaskSpec::Serialized(v)) => {
                 msg_task = Some(v.to_transport_clone(mbuilder));
+            },
+            None => {
+                panic!("Task has no specification")
             }
-        }
+        };
 
         let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
@@ -287,7 +289,7 @@ impl TaskRef {
     pub fn new(
         id: TaskId,
         key: DaskKey,
-        spec: ClientTaskSpec,
+        spec: Option<ClientTaskSpec>,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
     ) -> Self {
