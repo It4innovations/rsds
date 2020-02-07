@@ -241,7 +241,7 @@ type CloseStreamMsg = {
 type KeyInMemoryMsg = {
     "op": "key-in-memory",
     "key": string,
-    "type": Bytes
+    "type?": Bytes
 };
 type ClientTaskErredMsg = {
     "op": "task-erred",
