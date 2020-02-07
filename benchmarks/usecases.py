@@ -4,6 +4,7 @@ import time
 import dask
 import dask.array as da
 import joblib
+import networkx
 import numpy as np
 import xarray as xr
 from dask import delayed
@@ -20,9 +21,9 @@ def bench_dataframe(days=1):
     end = start + datetime.timedelta(days=days)
 
     df = dask.datasets.timeseries(start=start, end=end, seed=0)
-    m = df.groupby("name")["x"].mean().sum().compute()
-    s = df[(df["x"] > 0) & (df["y"] < 0)]["x"].resample("2S").mean().sum().compute()
-    return (m, s)
+    m = df.groupby("name")["x"].mean().sum()
+    s = df[(df["x"] > 0) & (df["y"] < 0)]["x"].resample("2S").mean().sum()
+    return m + s
 
 
 def bench_bag(count):
@@ -33,9 +34,10 @@ def bench_bag(count):
     res = b.filter(lambda record: record['age'] > 30) \
         .map(lambda record: record['occupation']) \
         .frequencies(sort=True) \
-        .topk(10, key=1) \
-        .compute()
-    return sum(v[1] for v in res)
+        .topk(10, key=1)\
+        .pluck(1)\
+        .sum()
+    return res
 
 
 @delayed
@@ -48,6 +50,7 @@ def sleep(delay):
     time.sleep(delay)
     return delay
 
+
 @delayed
 def merge(*args):
     return sum(args)
@@ -56,13 +59,13 @@ def merge(*args):
 def bench_merge(count=1000):
     xs = [do_something(x) for x in range(count)]
     result = merge(*xs)
-    return result.compute()
+    return result
 
 
 def bench_merge_slow(count=1000, delay=0.5):
     xs = [sleep(delay) for _ in range(count)]
     result = merge(*xs)
-    return result.compute()
+    return result
 
 
 def bench_numpy(size=25000):
@@ -72,7 +75,7 @@ def bench_numpy(size=25000):
     da.random.seed(0)
     x = da.random.random((size, size), chunks=(1000, 1000))
     y = x + x.T
-    return np.sum(y[::2, size / 2:].mean(axis=1).compute())
+    return np.sum(y[::2, size / 2:].mean(axis=1))
 
 
 @delayed
@@ -92,7 +95,7 @@ def bench_tree(exp=10):
             new_L.append(lazy)
         L = new_L                       # swap old list for new
 
-    return dask.compute(L)[0][0]
+    return L
 
 
 def bench_xarray(chunk_size=5):
@@ -104,9 +107,7 @@ def bench_xarray(chunk_size=5):
     da = ds['air']
     da2 = da.groupby('time.month').mean('time')
     da3 = da - da2
-    x = da3.sum().load()
-
-    return x.values.flatten()[0]
+    return da3.sum()
 
 
 def bench_scikit():
@@ -124,3 +125,22 @@ def bench_scikit():
     with joblib.parallel_backend('dask'):
         grid_search.fit(X, y)
     return np.sum(grid_search.predict(X)[:5])
+
+
+if __name__ == "__main__":
+    usecases = {
+        "dataframe-60": bench_dataframe(60),
+        "bag-1000": bench_bag(1000),
+        "merge-1000": bench_merge(1000),
+        "numpy-2000": bench_numpy(2000),
+        "tree-8": bench_tree(8),
+        "xarray-30": bench_xarray(30)
+    }
+    for (name, graph) in usecases.items():
+        dot_filename = f"graphs/{name}"
+        dask.visualize(graph, format="dot", filename=dot_filename)
+        dask.visualize(graph, filename=f"graphs/{name}.svg")
+        g = networkx.drawing.nx_agraph.read_dot(f"{dot_filename}.dot")
+        print(f"""
+{name}: {len(g.nodes)} vertices, {len(g.edges)} edges
+""".strip())

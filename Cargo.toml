@@ -13,7 +13,7 @@ byteorder = "1.3"
 smallvec = { version = "1.0", features = ["serde"] }
 rmp-serde = "0.13.7"
 rmpv = { version = "0.4", features = ["with-serde"] }
-log = "0.4"
+log = "0.4" # { version = "0.4", features = ["release_max_level_off" } # turn off logging
 pretty_env_logger="0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"

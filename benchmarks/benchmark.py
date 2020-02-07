@@ -14,10 +14,13 @@ import traceback
 from random import Random
 
 import click
+import dask
+import numpy as np
 import pandas as pd
 import psutil
 import seaborn as sns
 import tqdm
+import xarray
 from distributed import Client
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
@@ -226,9 +229,10 @@ class Benchmark:
 
         with DaskCluster(configuration["cluster"], workdir, profile=self.profile):
             start = time.time()
-            result = configuration["function"]()
+            # the real computation happens here
+            result = dask.compute(configuration["function"]())
             duration = time.time() - start
-            return (configuration, result, duration)
+            return (configuration, flatten_result(result), duration)
 
     def _gen_configurations(self, configurations):
         for configuration in configurations:
@@ -262,6 +266,17 @@ def skip_completed(configurations, bootstrap):
         return filtered_configs
     else:
         return configurations
+
+
+def flatten_result(res):
+    if isinstance(res, xarray.DataArray):
+        return flatten_result(res.values)
+    elif isinstance(res, np.ndarray):
+        return flatten_result(res.ravel()[0])
+    elif isinstance(res, (list, tuple)):
+        return flatten_result(res[0])
+    else:
+        return res
 
 
 def worker_count(workers):
@@ -377,10 +392,13 @@ def save_results(frame, directory):
             plot.savefig(os.path.join(directory, f"{file}.png"))
 
     def describe(frame, file):
-        s = frame.groupby(["function", "cluster"]).describe()
-        file.write(f"{s}\n")
-        s = frame.groupby(["cluster"]).describe()
-        file.write(f"{s}\n")
+        if len(frame) > 0:
+            s = frame.groupby(["function", "cluster"]).describe()
+            file.write(f"{s}\n")
+            s = frame.groupby(["cluster"]).describe()
+            file.write(f"{s}\n")
+        else:
+            file.write("(empty dataframe)")
 
     with pd.option_context('display.max_rows', None,
                            'display.max_columns', None,

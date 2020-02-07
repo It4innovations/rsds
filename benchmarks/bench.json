@@ -39,6 +39,7 @@
   },
   "usecases": {"$+": [
     {"$ref": "xarray"},
+    {"$ref": "bag"},
     {"$ref": "tree"},
     {"$ref": "numpy"},
     {"$ref": "merge"},
@@ -49,6 +50,12 @@
     "$product": {
       "function": ["xarray"],
       "args": [5, 25]
+    }
+  },
+  "bag": {
+    "$product": {
+      "function": ["bag"],
+      "args": [1000, 10000, 50000]
     }
   },
   "tree": {
