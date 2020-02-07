@@ -6,6 +6,8 @@ pub enum DsError {
     IOError(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Scheduler error: {0}")]
+    SchedulerError(String),
 }
 
 impl From<serde_json::error::Error> for DsError {

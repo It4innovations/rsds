@@ -398,7 +398,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     keys: Option<Vec<DaskKey>>,
 ) -> crate::Result<()> {
     let core = core_ref.get();
-    let keys = keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key.clone()).collect());
+    let keys = keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
     let response: WhoHasMsgResponse = keys
         .into_iter()
         .map(|key| {

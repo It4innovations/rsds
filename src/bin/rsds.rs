@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::thread;
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 
@@ -60,6 +60,13 @@ async fn main() -> rsds::Result<()> {
     }
     pretty_env_logger::init();
 
+    let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
+    ctrlc::set_handler(move || {
+        log::info!("Received SIGINT, attempting to stop server");
+        end_tx.send(()).unwrap_or_else(|_| log::error!("Sending"))
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let opt = Opt::from_args();
 
     log::info!("rsds v0.1 started: {:?}", opt);
@@ -70,7 +77,7 @@ async fn main() -> rsds::Result<()> {
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
-    thread::spawn(move || {
+    let scheduler_thread = thread::spawn(move || {
         let mut runtime = tokio::runtime::Builder::new()
             .basic_scheduler()
             .build()
@@ -87,13 +94,23 @@ async fn main() -> rsds::Result<()> {
     let comm_ref2 = comm_ref.clone();
     task_set
         .run_until(async move {
-            let fut = tokio::task::spawn_local(observe_scheduler(core_ref2, comm_ref2, receiver))
-                .boxed_local();
+            let fut = observe_scheduler(core_ref2, comm_ref2, receiver).boxed_local();
             let connection =
                 rsds::comm::connection_initiator(listener, core_ref, comm_ref).boxed_local();
+            let end_flag = async move {
+                end_rx.next().await;
+                Ok(())
+            };
 
-            futures::future::select(fut, connection).await
+            let futures = vec![fut, connection, end_flag.boxed_local()];
+            let (res, _, _) = futures::future::select_all(futures).await;
+            res
         })
-        .await;
+        .await
+        .expect("Rsds failed");
+
+    log::info!("Waiting for scheduler to shut down...");
+    scheduler_thread.join().unwrap();
+
     Ok(())
 }

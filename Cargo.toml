@@ -24,6 +24,7 @@ rand = "0.7.0"
 structopt = "0.3"
 jemallocator = "0.3.2"
 hashbrown = { version = "0.6", features = ["serde"] }
+ctrlc = "3"
 
 [dev-dependencies]
 maplit = "1.0"

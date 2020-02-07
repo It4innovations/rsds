@@ -18,7 +18,6 @@ use crate::protocol::workermsg::{
     ToWorkerMessage,
 };
 use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
-use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType};
 use crate::scheduler::schedproto::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
@@ -27,6 +26,7 @@ use crate::task::TaskRuntimeState;
 use crate::task::{ErrorInfo, Task, TaskRef};
 use crate::worker::Worker;
 use crate::worker::{create_worker, WorkerRef};
+use crate::DsError;
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
 use smallvec::smallvec;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -463,15 +463,23 @@ pub async fn observe_scheduler(
     core_ref: CoreRef,
     comm_ref: CommRef,
     mut receiver: UnboundedReceiver<FromSchedulerMessage>,
-) {
+) -> crate::Result<()> {
     log::debug!("Starting scheduler");
 
     match receiver.next().await {
         Some(crate::scheduler::FromSchedulerMessage::Register(r)) => {
             log::debug!("Scheduler registered: {:?}", r)
         }
-        None => panic!("Scheduler closed connection without registration"),
-        _ => panic!("First message of scheduler has to be registration"),
+        None => {
+            return Err(DsError::SchedulerError(
+                "Scheduler closed connection without registration".to_owned(),
+            ))
+        }
+        _ => {
+            return Err(DsError::SchedulerError(
+                "First message of scheduler has to be registration".to_owned(),
+            ))
+        }
     }
 
     while let Some(msg) = receiver.next().await {
@@ -483,10 +491,14 @@ pub async fn observe_scheduler(
                 comm_ref.get_mut().notify(&mut core, notifications).unwrap();
             }
             FromSchedulerMessage::Register(_) => {
-                panic!("Double registration of scheduler");
+                return Err(DsError::SchedulerError(
+                    "Double registration of scheduler".to_owned(),
+                ));
             }
         }
     }
+
+    Ok(())
 }
 
 /// Must be called within a LocalTaskSet

@@ -453,6 +453,7 @@ mod tests {
     use super::Core;
     use crate::client::Client;
     use crate::comm::{ClientNotification, Notifications};
+    use crate::protocol::key::DaskKey;
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
     use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
@@ -461,7 +462,6 @@ mod tests {
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,
     };
-    use crate::protocol::key::DaskKey;
 
     #[test]
     fn add_remove() {
