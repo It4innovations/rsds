@@ -113,8 +113,7 @@ pub struct CancelKeysMsg {
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct WhoHasMsg {
-    #[serde(default)]
-    pub keys: Vec<DaskKey>,
+    pub keys: Option<Vec<DaskKey>>,
 }
 
 pub type WhoHasMsgResponse = Map<DaskKey, Vec<DaskKey>>; // key -> [worker address]

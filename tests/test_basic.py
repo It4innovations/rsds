@@ -143,8 +143,8 @@ def test_scatter_w1_1(rsds_env):
     client = Client(url)
     client.wait_for_workers(1)
 
-    futures = client.scatter(range(10))
-    p = client.who_has(futures)
+    _futures = client.scatter(range(10))
+    p = client.who_has()
     assert len(p) == 10
     assert len(set(p.values())) == 1
 

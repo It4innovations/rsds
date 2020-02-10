@@ -138,6 +138,10 @@ impl Core {
         assert!(self.tasks_by_key.remove(&task.key).is_some());
     }
 
+    pub fn get_tasks(&self) -> impl Iterator<Item=&TaskRef> {
+        self.tasks_by_id.values()
+    }
+
     #[inline]
     pub fn get_task_by_key_or_panic(&self, key: &DaskKeyRef) -> &TaskRef {
         self.tasks_by_key.get(key).unwrap()

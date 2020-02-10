@@ -89,7 +89,7 @@ type CancelMsg = {
 };
 type WhoHasMsg = {
     "op": "who_has",
-    "keys": [string],
+    "keys": [string] | null,
     "reply": boolean
 };
 
