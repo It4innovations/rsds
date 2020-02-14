@@ -1,6 +1,6 @@
-use crate::common::Set;
 use super::worker::WorkerRef;
-use crate::scheduler::schedproto::{TaskId, TaskInfo, NewFinishedTaskInfo};
+use crate::common::Set;
+use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
 
 pub enum SchedulerTaskState {
     Waiting,
@@ -115,7 +115,7 @@ impl TaskRef {
             size: ti.size,
             consumers: Default::default(),
             assigned_worker: None,
-            placement: placement,
+            placement,
             pinned: false,
             take_flag: false,
         })

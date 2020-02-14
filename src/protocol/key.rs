@@ -132,12 +132,21 @@ impl Serialize for DaskKey {
 }
 
 struct DaskKeyVisitor;
+
 impl<'a> Visitor<'a> for DaskKeyVisitor {
     type Value = DaskKey;
 
     #[inline]
     fn expecting(&self, formatter: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         writeln!(formatter, "Expecting dask key")
+    }
+
+    #[inline]
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(v.into())
     }
 
     #[inline]

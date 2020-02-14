@@ -96,7 +96,9 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
     let task = TaskRef::new(
         id,
         format!("{}", id).into(),
-        ClientTaskSpec::Serialized(SerializedMemory::Inline(rmpv::Value::Nil)),
+        Some(ClientTaskSpec::Serialized(SerializedMemory::Inline(
+            rmpv::Value::Nil,
+        ))),
         deps.iter().map(|t| t.get().id).collect(),
         deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
     );
@@ -107,7 +109,7 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
 }
 pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, UnboundedReceiver<DaskPacket>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let worker = create_worker(core, tx, to_dask_key(address));
+    let worker = create_worker(core, tx, to_dask_key(address), 1);
     (worker, rx)
 }
 pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {

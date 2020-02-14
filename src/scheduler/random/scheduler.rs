@@ -1,5 +1,5 @@
 use crate::scheduler::comm::SchedulerComm;
-use crate::scheduler::schedproto::{SchedulerRegistration, TaskAssignment, WorkerId, TaskId};
+use crate::scheduler::schedproto::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use futures::StreamExt;
 use rand::prelude::ThreadRng;
@@ -40,19 +40,13 @@ impl Scheduler {
         let mut assignments = vec![];
         for message in messages {
             match message {
-                ToSchedulerMessage::NewTask(task) => {
-                    match self
-                        .workers
-                        .choose(&mut self.rng) {
-                        Some(&worker) => {
-                            assignments.push(TaskAssignment {
-                                task: task.id,
-                                worker,
-                                priority: 0,
-                            })
-                        }
-                        None => self.pending_tasks.push(task.id)
-                    }
+                ToSchedulerMessage::NewTask(task) => match self.workers.choose(&mut self.rng) {
+                    Some(&worker) => assignments.push(TaskAssignment {
+                        task: task.id,
+                        worker,
+                        priority: 0,
+                    }),
+                    None => self.pending_tasks.push(task.id),
                 },
                 ToSchedulerMessage::NewWorker(worker) => {
                     self.workers.push(worker.id);

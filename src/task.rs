@@ -192,17 +192,16 @@ impl Task {
             Some(ClientTaskSpec::Direct {
                 function,
                 args,
-                kwargs,}) => {
+                kwargs,
+            }) => {
                 msg_function = function.to_transport_clone(mbuilder);
                 msg_args = args.to_transport_clone(mbuilder);
                 msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
-            },
+            }
             Some(ClientTaskSpec::Serialized(v)) => {
                 msg_task = Some(v.to_transport_clone(mbuilder));
-            },
-            None => {
-                panic!("Task has no specification")
             }
+            None => panic!("Task has no specification"),
         };
 
         let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
