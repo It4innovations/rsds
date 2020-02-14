@@ -67,7 +67,6 @@ pub(crate) fn create_worker(
     address: DaskKey,
     ncpus: u32,
 ) -> WorkerRef {
-    // TODO: real cpus
     let worker_ref = WorkerRef::new(core.new_worker_id(), ncpus, sender, address);
     core.register_worker(worker_ref.clone());
     worker_ref

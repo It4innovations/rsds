@@ -119,7 +119,7 @@ impl Core {
     pub fn get_and_move_scatter_counter(&mut self, size: usize) -> usize {
         let c = self.scatter_counter;
         self.scatter_counter += size;
-        return c;
+        c
     }
 
     pub fn add_task(&mut self, task_ref: TaskRef) {
@@ -138,7 +138,7 @@ impl Core {
         assert!(self.tasks_by_key.remove(&task.key).is_some());
     }
 
-    pub fn get_tasks(&self) -> impl Iterator<Item=&TaskRef> {
+    pub fn get_tasks(&self) -> impl Iterator<Item = &TaskRef> {
         self.tasks_by_id.values()
     }
 
@@ -403,7 +403,9 @@ impl Core {
                 self.notify_key_in_memory(&task_ref, notifications);
             }
 
-            task_ref.get_mut().remove_data_if_possible(self, notifications);
+            task_ref
+                .get_mut()
+                .remove_data_if_possible(self, notifications);
         }
     }
 
@@ -531,7 +533,7 @@ mod tests {
                 status: Status::Ok,
                 key,
                 nbytes,
-                r#type: r#type.clone(),
+                r#type,
             },
             &mut notifications,
         );

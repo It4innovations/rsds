@@ -18,7 +18,9 @@ use crate::protocol::workermsg::{
     ToWorkerMessage,
 };
 use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
-use crate::scheduler::schedproto::{TaskStealResponse, TaskUpdate, TaskUpdateType, NewFinishedTaskInfo};
+use crate::scheduler::schedproto::{
+    NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
+};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::task::TaskRuntimeState;
 use crate::task::{ErrorInfo, Task, TaskRef};
@@ -183,7 +185,12 @@ impl Notifications {
         self.scheduler_messages
             .push(ToSchedulerMessage::NewFinishedTask(NewFinishedTaskInfo {
                 id: task.id,
-                workers: task.get_workers().unwrap().iter().map(|wr| wr.get().id).collect(),
+                workers: task
+                    .get_workers()
+                    .unwrap()
+                    .iter()
+                    .map(|wr| wr.get().id)
+                    .collect(),
                 size: task.data_info().unwrap().size,
             }));
     }
@@ -290,7 +297,12 @@ pub async fn worker_rpc_loop<
 ) -> crate::Result<()> {
     let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
-    let worker_ref = create_worker(&mut core_ref.get_mut(), queue_sender, msg.address, msg.nthreads);
+    let worker_ref = create_worker(
+        &mut core_ref.get_mut(),
+        queue_sender,
+        msg.address,
+        msg.nthreads,
+    );
     let worker_id = worker_ref.get().id;
     let mut notifications = Notifications::default();
     notifications.new_worker(&worker_ref.get());
@@ -670,6 +682,7 @@ mod tests {
             serialize_single_packet(GenericMessage::<SerializedTransport>::RegisterWorker(
                 RegisterWorkerMsg {
                     address: to_dask_key("127.0.0.1"),
+                    nthreads: 2,
                 },
             ))?,
             serialize_single_packet(FromWorkerMessage::<SerializedTransport>::Unregister)?,
@@ -710,10 +723,7 @@ mod tests {
         let msg: Batch<ToClientMessage> = packet_to_msg(rx.next().await.unwrap())?;
         assert_eq!(
             msg[0],
-            ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                key: key.into(),
-                r#type
-            })
+            ToClientMessage::KeyInMemory(KeyInMemoryMsg { key, r#type })
         );
 
         Ok(())
@@ -725,11 +735,11 @@ mod tests {
         let (worker, mut rx) = worker(&mut core.get_mut(), "worker");
 
         let t = task_add(&mut core.get_mut(), 0);
-        t.get_mut().spec = ClientTaskSpec::Direct {
+        t.get_mut().spec = Some(ClientTaskSpec::Direct {
             function: dummy_serialized(),
             args: dummy_serialized(),
             kwargs: Some(dummy_serialized()),
-        };
+        });
         let mut notifications = Notifications::default();
         notifications.compute_task_on_worker(worker.clone(), t.clone());
         comm.get_mut().notify(&mut core.get_mut(), notifications)?;
