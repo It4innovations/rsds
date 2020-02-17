@@ -4,7 +4,6 @@ import time
 import dask
 import dask.array as da
 import joblib
-import networkx
 import numpy as np
 import xarray as xr
 from dask import delayed
@@ -128,6 +127,8 @@ def bench_scikit():
 
 
 if __name__ == "__main__":
+    import networkx
+
     usecases = {
         "dataframe-60": bench_dataframe(60),
         "bag-1000": bench_bag(1000),
