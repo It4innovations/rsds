@@ -14,6 +14,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
 
+#[derive(Debug)]
 pub struct Scheduler {
     network_bandwidth: f32,
     workers: Map<WorkerId, WorkerRef>,
@@ -108,6 +109,7 @@ impl Scheduler {
         assert!(worker.tasks.insert(task_ref));
     }
 
+    #[tracing::instrument]
     pub fn schedule(&mut self, mut notifications: &mut Notifications) {
         log::debug!("Scheduling started");
         if self.workers.is_empty() {
