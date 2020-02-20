@@ -87,27 +87,29 @@ async fn main() -> rsds::Result<()> {
             .expect("Scheduler failed");
     });
 
-    let task_set = tokio::task::LocalSet::new();
-    let comm_ref = CommRef::new(sender);
-    let core_ref = CoreRef::new();
-    let core_ref2 = core_ref.clone();
-    let comm_ref2 = comm_ref.clone();
-    task_set
-        .run_until(async move {
-            let fut = observe_scheduler(core_ref2, comm_ref2, receiver).boxed_local();
-            let connection =
-                rsds::comm::connection_initiator(listener, core_ref, comm_ref).boxed_local();
-            let end_flag = async move {
-                end_rx.next().await;
-                Ok(())
-            };
+    {
+        let task_set = tokio::task::LocalSet::new();
+        let comm_ref = CommRef::new(sender);
+        let core_ref = CoreRef::new();
+        let core_ref2 = core_ref.clone();
+        let comm_ref2 = comm_ref.clone();
+        task_set
+            .run_until(async move {
+                let scheduler = observe_scheduler(core_ref2, comm_ref2, receiver);
+                let connection =
+                    rsds::comm::connection_initiator(listener, core_ref, comm_ref);
+                let end_flag = async move {
+                    end_rx.next().await;
+                    Ok(())
+                };
 
-            let futures = vec![fut, connection, end_flag.boxed_local()];
-            let (res, _, _) = futures::future::select_all(futures).await;
-            res
-        })
-        .await
-        .expect("Rsds failed");
+                let futures = vec![scheduler.boxed_local(), connection.boxed_local(), end_flag.boxed_local()];
+                let (res, _, _) = futures::future::select_all(futures).await;
+                res
+            })
+            .await
+            .expect("Rsds failed");
+    }
 
     log::info!("Waiting for scheduler to shut down...");
     scheduler_thread.join().unwrap();
