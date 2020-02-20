@@ -2,11 +2,13 @@ use super::worker::WorkerRef;
 use crate::common::Set;
 use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
 
+#[derive(Debug)]
 pub enum SchedulerTaskState {
     Waiting,
     Finished,
 }
 
+#[derive(Debug)]
 pub struct Task {
     pub id: TaskId,
     pub state: SchedulerTaskState,

@@ -2,6 +2,7 @@ use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
 use crate::scheduler::workstealing::task::TaskRef;
 use std::collections::HashSet;
 
+#[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
     pub ncpus: u32,
