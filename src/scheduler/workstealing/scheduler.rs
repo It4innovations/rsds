@@ -13,6 +13,7 @@ use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
+use crate::trace::{trace_worker_assign, trace_worker_finish};
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -83,7 +84,13 @@ impl Scheduler {
             /* TODO: Add delay that prevents calling scheduler too often */
             if self.update(msgs) {
                 let mut notifications = Notifications::new();
-                self.schedule(&mut notifications);
+
+                trace_time!("schedule", {
+                    if self.schedule(&mut notifications) {
+                        trace_time!("balance", self.balance(&mut notifications));
+                    }
+                });
+
                 self.send_notifications(notifications, &mut comm);
             }
         }
@@ -105,16 +112,18 @@ impl Scheduler {
             let mut worker = wr.get_mut();
             assert!(worker.tasks.remove(&task_ref));
         }
+        trace_worker_assign(task.id, worker.id);
         task.assigned_worker = Some(worker_ref);
         assert!(worker.tasks.insert(task_ref));
     }
 
-    #[tracing::instrument]
-    pub fn schedule(&mut self, mut notifications: &mut Notifications) {
-        log::debug!("Scheduling started");
+    /// Returns true if balancing is needed.
+    pub fn schedule(&mut self, mut notifications: &mut Notifications) -> bool {
         if self.workers.is_empty() {
-            return;
+            return false;
         }
+
+        log::debug!("Scheduling started");
         if !self.new_tasks.is_empty() {
             // TODO: utilize information and do not recompute all b-levels
             compute_b_level(&self.tasks);
@@ -136,18 +145,18 @@ impl Scheduler {
             );
         }
 
-        let mut balanced_tasks = Vec::new();
         let has_underload_workers = self.workers.values().any(|wr| {
             let worker = wr.get();
             worker.is_underloaded()
         });
 
-        if !has_underload_workers {
-            return; // Terminate as soon possible when there is nothing to balance
-        }
+        log::debug!("Scheduling finished");
+        has_underload_workers
+    }
 
+    fn balance(&mut self, mut notifications: &mut Notifications) {
         log::debug!("Balancing started");
-
+        let mut balanced_tasks = Vec::new();
         for wr in self.workers.values() {
             let worker = wr.get();
             let len = worker.tasks.len() as u32;
@@ -229,6 +238,8 @@ impl Scheduler {
         match tu.state {
             TaskUpdateType::Finished => {
                 log::debug!("Task id={} is finished on worker={}", task.id, tu.worker);
+                trace_worker_finish(task.id, tu.worker);
+
                 let worker = self.get_worker(tu.worker).clone();
                 assert!(task.is_waiting() && task.is_ready());
                 task.state = SchedulerTaskState::Finished;
