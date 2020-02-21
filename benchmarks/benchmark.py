@@ -102,6 +102,9 @@ class DaskCluster:
         binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
 
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
+        if self._trace_scheduler():
+            args += ["--trace-file", os.path.join(self.workdir, "scheduler.trace")]
+
         if self._profile_flamegraph() and "rsds" in self.scheduler:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
@@ -145,6 +148,9 @@ class DaskCluster:
 
     def _use_monitoring(self):
         return "monitor" in self.profile
+
+    def _trace_scheduler(self):
+        return "trace" in self.profile
 
     def __enter__(self):
         return self

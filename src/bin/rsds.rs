@@ -16,8 +16,9 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tracing_subscriber::fmt::time::FormatTime;
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing_subscriber::{FmtSubscriber, fmt::time::FormatTime};
+use tracing_subscriber::fmt::format;
+use tracing_subscriber::field::MakeExt;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -90,7 +91,7 @@ fn setup_logging(trace_file: Option<String>) {
                     SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
-                        .as_millis()
+                        .as_micros()
                 )
             }
         }
@@ -134,7 +135,6 @@ fn setup_logging(trace_file: Option<String>) {
             .json()
             .with_target(false)
             .with_ansi(false)
-            .with_env_filter(EnvFilter::from_default_env())
             .with_timer(Timestamp)
             .finish();
 
