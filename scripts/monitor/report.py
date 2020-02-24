@@ -1,4 +1,3 @@
-import click
 from bokeh.embed import file_html
 from bokeh.io import save
 from bokeh.layouts import gridplot
@@ -7,8 +6,8 @@ from bokeh.plotting import figure
 from bokeh.resources import CDN
 from tornado import ioloop, web
 
-from src.cluster import Cluster
-from src.trace_io import TraceReport
+from .src.cluster import Cluster
+from .src.trace_io import TraceReport
 
 
 def average(data):
@@ -149,20 +148,14 @@ def create_page(report):
     return Tabs(tabs=tabs)
 
 
-@click.command()
-@click.argument("cluster-file")
-@click.option("--output", default="output.html")
 def generate(cluster_file, output):
     with open(cluster_file) as file:
         report = TraceReport.load(Cluster.deserialize(file))
 
     page = create_page(report)
-    save(page, output)
+    save(page, output, title="Cluster monitor", resources=CDN)
 
 
-@click.command()
-@click.argument("cluster-file")
-@click.option("--port", default=5556)
 def serve(cluster_file, port):
     class Handler(web.RequestHandler):
         def get(self):
@@ -181,14 +174,3 @@ def serve(cluster_file, port):
 
     print(f"Serving report at http://0.0.0.0:{port}")
     ioloop.IOLoop.current().start()
-
-
-@click.group()
-def cli():
-    pass
-
-
-if __name__ == '__main__':
-    cli.add_command(generate)
-    cli.add_command(serve)
-    cli()
