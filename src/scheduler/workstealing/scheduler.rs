@@ -512,7 +512,9 @@ mod tests {
 
     fn run_schedule(scheduler: &mut Scheduler) -> Set<TaskId> {
         let mut notifications = Notifications::new();
-        scheduler.schedule(&mut notifications);
+        if scheduler.schedule(&mut notifications) {
+            scheduler.balance(&mut notifications);
+        }
         notifications.iter().map(|tr| tr.get().id).collect()
     }
 
@@ -536,7 +538,7 @@ mod tests {
         assert_eq!(scheduler.ready_to_assign.len(), 1);
         assert_eq!(scheduler.ready_to_assign[0].get().id, 1);
         connect_workers(&mut scheduler, 1, 1);
-        scheduler.schedule(&mut Notifications::new());
+        run_schedule(&mut scheduler);
         assert_eq!(scheduler.get_task(7).get().b_level, 1.0);
         assert_eq!(scheduler.get_task(6).get().b_level, 2.0);
         assert_eq!(scheduler.get_task(5).get().b_level, 1.0);
