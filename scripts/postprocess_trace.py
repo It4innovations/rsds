@@ -1,6 +1,7 @@
 import json
 
 import click
+import pandas as pd
 import tqdm
 
 
@@ -25,6 +26,8 @@ def get_action(fields):
 def generate_trace_viewer(trace_path, output, pretty):
     events = []
     worker_tasks = {}
+    schedules = []
+    last_schedule = None
 
     with open(trace_path) as f:
         for line in tqdm.tqdm(f):
@@ -41,17 +44,25 @@ def generate_trace_viewer(trace_path, output, pretty):
             action = get_action(fields)
             event_type = fields["event"]
 
+            if action == "schedule":
+                if event_type == "start":
+                    last_schedule = timestamp
+                else:
+                    assert last_schedule
+                    schedules.append(timestamp - last_schedule)
+
             event = {
                 "name": action,
-                "ph": "B" if event_type == "start" else "E",
                 "ts": timestamp,
                 "pid": process,
             }
 
             if fields["action"] == "compute-task":
+                event["ph"] = "b" if event_type == "start" else "e"
                 event["id"] = action
                 event["cat"] = "compute-task"
-                event["ph"] = "b" if event_type == "start" else "e"
+            else:
+                event["ph"] = "B" if event_type == "start" else "E"
 
             events.append(event)
     with open(output, "w") as f:
@@ -59,6 +70,9 @@ def generate_trace_viewer(trace_path, output, pretty):
 
     for (worker, tasks) in sorted(worker_tasks.items()):
         print(f"{worker}: {len(tasks)} tasks")
+
+    print("Schedule statistics:")
+    print((pd.Series(schedules) / 1000).describe())
 
 
 if __name__ == "__main__":

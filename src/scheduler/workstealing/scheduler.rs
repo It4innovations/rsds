@@ -13,7 +13,7 @@ use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
-use crate::trace::{trace_worker_assign, trace_worker_finish};
+use crate::trace::{trace_worker_assign, trace_worker_finish, trace_worker_steal_response, trace_worker_steal, trace_new_worker};
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -109,8 +109,9 @@ impl Scheduler {
         notifications.insert(task_ref.clone());
         if let Some(wr) = &task.assigned_worker {
             assert!(!wr.eq(&worker_ref));
-            let mut worker = wr.get_mut();
-            assert!(worker.tasks.remove(&task_ref));
+            let mut previous_worker = wr.get_mut();
+            trace_worker_steal(task.id, previous_worker.id, worker.id);
+            assert!(previous_worker.tasks.remove(&task_ref));
         }
         trace_worker_assign(task.id, worker.id);
         task.assigned_worker = Some(worker_ref);
@@ -317,6 +318,7 @@ impl Scheduler {
                     invoke_scheduling |= self.task_update(tu);
                 }
                 ToSchedulerMessage::TaskStealResponse(sr) => {
+                    trace_worker_steal_response(sr.id, sr.from_worker, sr.to_worker, sr.success);
                     if !sr.success {
                         invoke_scheduling |= self.rollback_steal(sr);
                     }
@@ -358,6 +360,7 @@ impl Scheduler {
                     assert!(self.tasks.insert(task_id, task).is_none());
                 }
                 ToSchedulerMessage::NewWorker(wi) => {
+                    trace_new_worker(wi.id, wi.n_cpus);
                     assert!(self.workers.insert(wi.id, WorkerRef::new(wi),).is_none());
                     invoke_scheduling = true;
                 }
@@ -428,9 +431,7 @@ mod tests {
     use crate::scheduler::schedproto::{TaskInfo, WorkerInfo};
 
     fn init() {
-        //std::env::set_var("RUST_LOG", "debug");
-        //pretty_env_logger::init();
-        let _ = pretty_env_logger::try_init().map_err(|_| {
+        let _ = env_logger::try_init().map_err(|_| {
             println!("Logging initialized failed");
         });
     }
