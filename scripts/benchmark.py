@@ -105,7 +105,7 @@ class DaskCluster:
         if self._trace_scheduler():
             args += ["--trace-file", os.path.join(self.workdir, "scheduler.trace")]
 
-        if self._profile_flamegraph() and "rsds" in self.scheduler:
+        if self._profile_flamegraph() and "rsds" in scheduler["name"]:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
         self.start(args, name="scheduler", env={
@@ -531,6 +531,8 @@ then
 --workon {workon} \
 {f"--profile {profile}" if profile else ""} \
 {input}
+else
+    python {CURRENT_DIR / "postprocess.py"} all {directory}
 fi
 """
     fpath = f"/tmp/pbs-{name}.sh"
