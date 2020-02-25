@@ -121,10 +121,11 @@ class DaskCluster:
         binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
 
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
-        if self._trace_scheduler():
+        is_rsds = "rsds" in scheduler["name"]
+        if self._trace_scheduler() and is_rsds:
             args += ["--trace-file", os.path.join(self.workdir, "scheduler.trace")]
 
-        if self._profile_flamegraph() and "rsds" in scheduler["name"]:
+        if self._profile_flamegraph() and is_rsds:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
         self.start(args, name="scheduler", env={
@@ -364,6 +365,7 @@ def check_results(frame, reference):
 
     # reference equality
     if reference:
+        assert any(reference in cl for cl in clusters)
         for (cluster, function) in itertools.product(clusters, functions):
             results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])
             if len(results) == 0:
