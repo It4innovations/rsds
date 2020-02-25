@@ -85,11 +85,13 @@ def plot_resources_usage(report):
             figure.plot_width = 400
 
         def draw_bytes(title, read_col, write_col):
-            def diff(column):
-                return resample(resources.apply(lambda res: res[column]), time).diff()
+            def accumulate(column):
+                values = resources.apply(lambda res: res[column])
+                values = values - values.min()
+                return resample(values, time)
 
-            read = diff(read_col)
-            write = diff(write_col)
+            read = accumulate(read_col)
+            write = accumulate(write_col)
 
             figure.yaxis[0].formatter = NumeralTickFormatter(format="0.0b")
             figure.line(read.index, read, color="blue", legend_label="{} RX".format(title))
