@@ -1,3 +1,5 @@
+import os
+
 from bokeh.embed import file_html
 from bokeh.io import save
 from bokeh.layouts import gridplot
@@ -5,6 +7,7 @@ from bokeh.models import Div, NumeralTickFormatter, Panel, Tabs, Title
 from bokeh.plotting import figure
 from bokeh.resources import CDN
 from tornado import ioloop, web
+import pandas as pd
 
 from .src.cluster import Cluster
 from .src.trace_io import TraceReport
@@ -35,25 +38,19 @@ def process_name(process):
     return process.get("name", process.get("key")) or "Unknown process"
 
 
-def plot_time_chart(data, draw_fn, generate_row=None):
+def plot_time_chart(data, draw_fn, min_datetime, max_datetime, generate_row=None):
     if not generate_row:
-        def generate_default(node, frame):
+        def generate_row(node, frame):
             return [(node, frame)]
-
-        generate_row = generate_default
 
     result = []
 
     for (node, frame) in data:
-        time = frame["datetime"]
-        start = time.iloc[0]
-        end = time.iloc[-1]
-
         row = generate_row(node, frame)
         columns = []
         for r in row:
             f = figure(plot_width=1000, plot_height=250,
-                       x_range=[start, end],
+                       x_range=[min_datetime, max_datetime],
                        x_axis_type='datetime')
             draw_fn(r, f)
             columns.append(f)
@@ -66,6 +63,11 @@ def plot_resources_usage(report):
     monitor = report.monitor
     nodes = get_sorted_nodes(report.cluster, ["monitor"])
     data = [(node, monitor[node]) for node in nodes if node in monitor]
+
+    datetimes = pd.concat(frame["datetime"] for (_, frame) in data)
+
+    min_datetime = datetimes.min()
+    max_datetime = datetimes.max()
 
     def generate_row(node, frame):
         yield (node, frame, "cpumem")
@@ -115,7 +117,7 @@ def plot_resources_usage(report):
         elif method == "io":
             draw_bytes("Disk", "disk-read", "disk-write")
 
-    return plot_time_chart(data, draw, generate_row=generate_row)
+    return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime, generate_row=generate_row)
 
 
 def plot_output(report):
