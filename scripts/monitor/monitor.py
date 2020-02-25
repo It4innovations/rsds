@@ -6,7 +6,7 @@ from src.trace_io import trace_process
 def get_resources():
     cpus = psutil.cpu_percent(percpu=True)
     mem = psutil.virtual_memory().percent
-    connections = len(psutil.net_connections())
+    connections = sum(1 if c[5] == "ESTABLISHED" else 0 for c in psutil.net_connections())
     bytes = psutil.net_io_counters()
     io = psutil.disk_io_counters()
 
