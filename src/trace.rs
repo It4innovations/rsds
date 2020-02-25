@@ -32,7 +32,17 @@ pub fn trace_worker_steal(task_id: TaskId, from: WorkerId, to: WorkerId)
     tracing::info!(action = "steal", task = task_id, from = from, to = to);
 }
 #[inline]
-pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId, success: bool)
+pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId, result: &str)
 {
-    tracing::info!(action = "steal-response", task = task_id, from = from, to = to, success = success);
+    tracing::info!(action = "steal-response", task = task_id, from = from, to = to, result = result);
+}
+#[inline]
+pub fn trace_packet_send(size: usize)
+{
+    tracing::info!(action = "packet-send", size = size);
+}
+#[inline]
+pub fn trace_packet_receive(size: usize)
+{
+    tracing::info!(action = "packet-receive", size = size);
 }

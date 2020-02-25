@@ -1,9 +1,9 @@
-import click
 import os
+from trace import generate_chrome_trace, generate_trace_summary
 
-from trace import generate_chrome_trace
-from monitor.src.cluster import CLUSTER_FILENAME
+import click
 from monitor.report import generate, serve
+from monitor.src.cluster import CLUSTER_FILENAME
 
 
 @click.command()
@@ -12,6 +12,13 @@ from monitor.report import generate, serve
 @click.option("--pretty/--no-pretty", default=False)
 def chrome_trace(trace_path, output, pretty):
     generate_chrome_trace(trace_path, output, pretty)
+
+
+@click.command()
+@click.argument("trace-path")
+@click.argument("output")
+def summary(trace_path, output):
+    generate_trace_summary(trace_path, output)
 
 
 @click.command()
@@ -43,6 +50,10 @@ def all(directory):
             chrome_trace = os.path.join(path, "chrome.json")
             print(f"Generating Chrome trace: {chrome_trace}")
             generate_chrome_trace(trace, chrome_trace, False)
+
+            trace_summary = os.path.join(path, "trace-summary.txt")
+            print(f"Generating trace summary: {trace_summary}")
+            generate_trace_summary(trace, trace_summary)
 
 
 @click.group()

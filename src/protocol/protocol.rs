@@ -13,6 +13,7 @@ use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
+use crate::trace::{trace_packet_send, trace_packet_receive};
 
 /// Commonly used types
 pub type Frame = Bytes;
@@ -119,8 +120,13 @@ impl Decoder for DaskCodec {
                 .push(src.split_to(frame_size as usize).freeze());
         }
         self.sizes = None;
+
+        let main_frame = self.main_message.take().ensure();
+        let total_size = main_frame.len() + self.other_messages.iter().map(|i| i.len()).sum::<usize>();
+        trace_packet_receive(total_size);
+
         Ok(Some(DaskPacket {
-            main_frame: self.main_message.take().ensure(),
+            main_frame,
             additional_frames: std::mem::take(&mut self.other_messages),
         }))
     }
@@ -139,6 +145,7 @@ impl Encoder for DaskCodec {
                 .iter()
                 .map(|i| i.len())
                 .sum::<usize>();
+        trace_packet_send(n);
         dst.reserve(n);
         dst.put_u64_le(frames as u64);
         dst.put_u64_le(0);

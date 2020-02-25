@@ -113,10 +113,8 @@ impl Scheduler {
         if let Some(wr) = &task.assigned_worker {
             assert!(!wr.eq(&worker_ref));
             let mut previous_worker = wr.get_mut();
-            trace_worker_steal(task.id, previous_worker.id, worker.id);
             assert!(previous_worker.tasks.remove(&task_ref));
         }
-        trace_worker_assign(task.id, worker.id);
         task.assigned_worker = Some(worker_ref);
         assert!(worker.tasks.insert(task_ref));
     }
@@ -242,7 +240,6 @@ impl Scheduler {
         match tu.state {
             TaskUpdateType::Finished => {
                 log::debug!("Task id={} is finished on worker={}", task.id, tu.worker);
-                trace_worker_finish(task.id, tu.worker);
 
                 let worker = self.get_worker(tu.worker).clone();
                 assert!(task.is_waiting() && task.is_ready());
@@ -321,7 +318,6 @@ impl Scheduler {
                     invoke_scheduling |= self.task_update(tu);
                 }
                 ToSchedulerMessage::TaskStealResponse(sr) => {
-                    trace_worker_steal_response(sr.id, sr.from_worker, sr.to_worker, sr.success);
                     if !sr.success {
                         invoke_scheduling |= self.rollback_steal(sr);
                     }
@@ -363,7 +359,6 @@ impl Scheduler {
                     assert!(self.tasks.insert(task_id, task).is_none());
                 }
                 ToSchedulerMessage::NewWorker(wi) => {
-                    trace_new_worker(wi.id, wi.n_cpus);
                     let hostname_id = self.get_hostname_id(&wi.hostname);
                     assert!(self.workers.insert(wi.id, WorkerRef::new(wi, hostname_id),).is_none());
                     invoke_scheduling = true;

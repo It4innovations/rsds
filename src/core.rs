@@ -9,6 +9,7 @@ use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::worker::WorkerRef;
+use crate::trace::{trace_worker_steal_response, trace_worker_finish, trace_new_worker, trace_worker_steal, trace_worker_assign};
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -95,6 +96,10 @@ impl Core {
 
     #[inline]
     pub fn register_worker(&mut self, worker_ref: WorkerRef) {
+        {
+            let worker = worker_ref.get();
+            trace_new_worker(worker.id, worker.ncpus);
+        }
         self.workers.insert(worker_ref);
     }
 
@@ -243,6 +248,7 @@ impl Core {
                             assignment.task,
                             assignment.worker
                         );
+                        trace_worker_assign(task.id, worker_ref.get().id);
                         notifications.compute_task_on_worker(worker_ref.clone(), task_ref.clone());
                         TaskRuntimeState::Assigned(worker_ref)
                     } else {
@@ -255,12 +261,14 @@ impl Core {
                     }
                 }
                 TaskRuntimeState::Assigned(wref) => {
+                    let previous_worker_id = wref.get().id;
                     log::debug!(
                         "Task task={} scheduled to worker={}; stealing (1) from worker={}",
                         assignment.task,
                         assignment.worker,
-                        wref.get().id
+                        previous_worker_id
                     );
+                    trace_worker_steal(task.id, previous_worker_id, wref.get().id);
                     notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
                     TaskRuntimeState::Stealing(wref.clone(), worker_ref)
                 }
@@ -293,6 +301,7 @@ impl Core {
         let task_ref = self.get_task_by_key_or_panic(&msg.key);
         let mut task = task_ref.get_mut();
         if task.is_done() {
+            trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
             return;
         }
         let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
@@ -307,7 +316,13 @@ impl Core {
             WorkerState::Waiting | WorkerState::Ready => true,
             _ => false,
         };
-        notifications.task_steal_response(&worker_ref.get(), &to_w.get(), &task, success);
+
+        {
+            let from_worker = worker_ref.get();
+            let to_worker = to_w.get();
+            trace_worker_steal_response(task.id, from_worker.id, to_worker.id, if success { "success" } else { "fail" });
+            notifications.task_steal_response(&from_worker, &to_worker, &task, success);
+        }
         if success {
             log::debug!("Task stealing was successful task={}", task.id);
             notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());
@@ -367,10 +382,12 @@ impl Core {
         {
             {
                 let mut task = task_ref.get_mut();
+                let worker_ref = worker.get();
+                trace_worker_finish(task.id, worker_ref.id);
                 log::debug!(
                     "Task id={} finished on worker={}",
                     task.id,
-                    worker.get().id()
+                    worker_ref.id
                 );
                 assert!(task.is_assigned_or_stealed_from(worker));
                 task.state = TaskRuntimeState::Finished(
