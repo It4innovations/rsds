@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import traceback
+from multiprocessing import Pool
 from random import Random
 
 import click
@@ -42,6 +43,11 @@ USECASES = {
     "merge_slow": bench_merge_slow,
     "dataframe": bench_dataframe
 }
+
+
+def start_process_pool(args):
+    args, host, workdir, name, env, init_cmd = args
+    return start_process(args, host=host, workdir=workdir, name=name, env=env, init_cmd=init_cmd)
 
 
 class DaskCluster:
@@ -77,11 +83,24 @@ class DaskCluster:
         self.client.wait_for_workers(worker_count(self.workers["count"]))
 
     def start(self, args, name, host=None, env=None, workdir=None):
-        if workdir is None:
-            workdir = self.workdir
+        self.start_many([(args, name, host, env, workdir)])
 
-        pid, cmd = start_process(args, host=host, workdir=workdir, name=name, env=env, init_cmd=self.init_cmd)
-        self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
+    def start_many(self, processes):
+        def normalize_workdir(workdir):
+            return workdir if workdir else self.workdir
+
+        pool_args = [(args, host, normalize_workdir(workdir), name, env, self.init_cmd) for
+                     (args, name, host, env, workdir) in processes]
+        spawned = []
+        if len(pool_args) == 1:
+            spawned.append(start_process_pool(pool_args[0]))
+        else:
+            with Pool() as pool:
+                for res in pool.map(start_process_pool, pool_args):
+                    spawned.append(res)
+
+        for ((pid, cmd), (_, host, _, name, _, _)) in zip(spawned, pool_args):
+            self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
 
     def kill(self):
         self.client.close()
@@ -127,8 +146,10 @@ class DaskCluster:
             nodes = get_pbs_nodes()
             if count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
+            args = []
             for i, node in zip(range(count), nodes[1:]):
-                self.start(get_args(cores), host=node, env=env, name=f"worker-{i}", workdir="/tmp")
+                args.append((get_args(cores), f"worker-{i}", node, env, "/tmp"))
+            self.start_many(args)
 
     def _start_monitors(self):
         monitor_script = os.path.join(CURRENT_DIR, "monitor", "monitor.py")
@@ -252,7 +273,7 @@ class Benchmark:
             function = usecase["function"]
             args = usecase["args"]
             if not isinstance(args, (list, tuple)):
-                args = (args, )
+                args = (args,)
 
             name = f"{function}-{'-'.join((str(arg) for arg in args))}"
             yield {
