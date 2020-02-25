@@ -8,8 +8,10 @@ use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
+use crate::trace::{
+    trace_new_worker, trace_worker_finish, trace_worker_steal, trace_worker_steal_response,
+};
 use crate::worker::WorkerRef;
-use crate::trace::{trace_worker_steal_response, trace_worker_finish, trace_new_worker, trace_worker_steal, trace_worker_assign};
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -248,7 +250,6 @@ impl Core {
                             assignment.task,
                             assignment.worker
                         );
-                        trace_worker_assign(task.id, worker_ref.get().id);
                         notifications.compute_task_on_worker(worker_ref.clone(), task_ref.clone());
                         TaskRuntimeState::Assigned(worker_ref)
                     } else {
@@ -320,7 +321,12 @@ impl Core {
         {
             let from_worker = worker_ref.get();
             let to_worker = to_w.get();
-            trace_worker_steal_response(task.id, from_worker.id, to_worker.id, if success { "success" } else { "fail" });
+            trace_worker_steal_response(
+                task.id,
+                from_worker.id,
+                to_worker.id,
+                if success { "success" } else { "fail" },
+            );
             notifications.task_steal_response(&from_worker, &to_worker, &task, success);
         }
         if success {
@@ -384,11 +390,7 @@ impl Core {
                 let mut task = task_ref.get_mut();
                 let worker_ref = worker.get();
                 trace_worker_finish(task.id, worker_ref.id);
-                log::debug!(
-                    "Task id={} finished on worker={}",
-                    task.id,
-                    worker_ref.id
-                );
+                log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
                 task.state = TaskRuntimeState::Finished(
                     DataInfo {

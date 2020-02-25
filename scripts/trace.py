@@ -72,61 +72,64 @@ def generate_trace_summary(trace_path, output):
     packets_received = []
 
     with open(trace_path) as f:
-        with open(output, "w") as output:
-            for line in tqdm.tqdm(f):
-                record = json.loads(line)
-                timestamp = int(record["timestamp"])
-                fields = record["fields"]
-                action = fields["action"]
+        for line in tqdm.tqdm(f):
+            record = json.loads(line)
+            timestamp = int(record["timestamp"])
+            fields = record["fields"]
+            action = fields["action"]
 
-                if action == "schedule":
-                    is_start = fields["event"] == "start"
-                    if is_start:
-                        last_schedule = timestamp
-                    else:
-                        assert last_schedule
-                        schedule_durations.append(timestamp - last_schedule)
-                elif action == "compute-task":
-                    is_start = fields["event"] == "start"
-                    worker_id = fields["worker"]
-                    task_id = fields["task"]
-
-                    assert worker_id in workers
-                    if not is_start:
-                        workers[worker_id].finish_task(task_id, timestamp)
-                    else:
-                        workers[worker_id].start_task(task_id, timestamp)
-                elif action == "new-worker":
-                    id = fields["worker_id"]
-                    assert id not in workers
-                    workers[id] = Worker(id, fields["cpus"])
-                elif action == "steal":
-                    steals.append("steal")
-                elif action == "steal-response":
-                    result = fields["result"]
-                    steals.append(result)
-                elif action == "packet-send":
-                    packets_sent.append(fields["size"])
-                elif action == "packet-receive":
-                    packets_received.append(fields["size"])
-                elif action in {"balance"}:
-                    pass
+            if action == "schedule":
+                is_start = fields["event"] == "start"
+                if is_start:
+                    last_schedule = timestamp
                 else:
-                    raise Exception(f"Unknown action {action}")
+                    assert last_schedule
+                    schedule_durations.append(timestamp - last_schedule)
+            elif action == "compute-task":
+                is_start = fields["event"] == "start"
+                worker_id = fields["worker"]
+                task_id = fields["task"]
 
-        output.write("---WORKER summary---\n")
-        for worker in sorted(workers.values(), key=lambda w: len(w.tasks), reverse=True):
-            task_durations = pd.Series([t[1] for t in worker.tasks.values()]) / 1000
-            output.write(
-                f"Worker {worker.id}: {len(worker.tasks)} tasks, mean task duration: {task_durations.mean()}\n")
-        output.write("\n")
+                assert worker_id in workers
+                if not is_start:
+                    workers[worker_id].finish_task(task_id, timestamp)
+                else:
+                    workers[worker_id].start_task(task_id, timestamp)
+            elif action == "new-worker":
+                id = fields["worker_id"]
+                assert id not in workers
+                workers[id] = Worker(id, fields["cpus"])
+            elif action == "steal":
+                steals.append("steal")
+            elif action == "steal-response":
+                result = fields["result"]
+                steals.append(result)
+            elif action == "packet-send":
+                packets_sent.append(fields["size"])
+            elif action == "packet-receive":
+                packets_received.append(fields["size"])
+            elif action in {"balance"}:
+                pass
+            else:
+                raise Exception(f"Unknown action {action}")
 
-        output.write("---SCHEDULE summary---\n")
-        output.write(f"{(pd.Series(schedule_durations) / 1000).describe()}\n\n")
+        with open(output, "w") as f:
+            f.write("---WORKER summary---\n")
+            for worker in sorted(workers.values(), key=lambda w: len(w.tasks), reverse=True):
+                task_durations = pd.Series([t[1] for t in worker.tasks.values()]) / 1000
+                f.write(
+                    f"Worker {worker.id}: {len(worker.tasks)} tasks, mean task duration: {task_durations.mean()}\n")
+            f.write("\n")
 
-        output.write("---STEAL summary---\n")
-        output.write(f"{pd.Series(steals).value_counts()}\n\n")
+            f.write("---SCHEDULE summary---\n")
+            f.write(f"{(pd.Series(schedule_durations) / 1000).describe()}\n\n")
 
-        output.write("---PACKET summary---\n")
-        output.write(f"Sent:\n{pd.Series(packets_sent).describe()}\n")
-        output.write(f"Received:\n{pd.Series(packets_received).describe()}\n\n")
+            f.write("---STEAL summary---\n")
+            f.write(f"{pd.Series(steals).value_counts()}\n\n")
+
+            with pd.option_context("display.float_format", lambda x: f"{x:.0f}"):
+                f.write("---PACKET summary---\n")
+                sent = pd.Series(packets_sent)
+                f.write(f"Sent:\n{sent.describe()}\nSum: {sent.sum()}\n")
+                received = pd.Series(packets_received)
+                f.write(f"Received:\n{received.describe()}\nSum: {received.sum()}\n\n")

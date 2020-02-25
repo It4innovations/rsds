@@ -63,6 +63,7 @@ def cli():
 
 if __name__ == "__main__":
     cli.add_command(chrome_trace)
+    cli.add_command(summary)
     cli.add_command(monitor_html)
     cli.add_command(monitor_serve)
     cli.add_command(all)

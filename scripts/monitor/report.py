@@ -155,7 +155,7 @@ def create_page(report):
 def load_report(cluster_file):
     with open(cluster_file) as file:
         cluster = Cluster.deserialize(file)
-        if not os.path.isfile(cluster.workdir):
+        if not os.path.isdir(cluster.workdir):
             new_workdir = os.path.abspath(os.path.dirname(cluster_file))
             print(f"Cluster workdir {cluster.workdir} not found, setting to {new_workdir}")
             cluster.workdir = new_workdir
