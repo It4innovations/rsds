@@ -225,6 +225,11 @@ impl Core {
             .collect()
     }
 
+    fn compute_task(&self, worker_ref: WorkerRef, task_ref: TaskRef, notifications: &mut Notifications) {
+        trace_worker_assign(task_ref.get().id, worker_ref.get().id);
+        notifications.compute_task_on_worker(worker_ref, task_ref);
+    }
+
     pub fn process_assignments(
         &mut self,
         assignments: Vec<TaskAssignment>,
@@ -239,56 +244,57 @@ impl Core {
                 .clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
 
-            let mut task = task_ref.get_mut();
-            let state = match &task.state {
-                TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled(_) => {
-                    if task.is_ready() {
+            let state = {
+                let task = task_ref.get();
+                match &task.state {
+                    TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled(_) => {
+                        if task.is_ready() {
+                            log::debug!(
+                                "Task task={} scheduled & assigned to worker={}",
+                                assignment.task,
+                                assignment.worker
+                            );
+                            self.compute_task(worker_ref.clone(), task_ref.clone(), notifications);
+                            TaskRuntimeState::Assigned(worker_ref)
+                        } else {
+                            log::debug!(
+                                "Task task={} scheduled to worker={}",
+                                assignment.task,
+                                assignment.worker
+                            );
+                            TaskRuntimeState::Scheduled(worker_ref)
+                        }
+                    }
+                    TaskRuntimeState::Assigned(wref) => {
+                        let previous_worker_id = wref.get().id;
                         log::debug!(
-                            "Task task={} scheduled & assigned to worker={}",
+                            "Task task={} scheduled to worker={}; stealing (1) from worker={}",
                             assignment.task,
-                            assignment.worker
+                            assignment.worker,
+                            previous_worker_id
                         );
-                        trace_worker_assign(task.id, worker_ref.get().id);
-                        notifications.compute_task_on_worker(worker_ref.clone(), task_ref.clone());
-                        TaskRuntimeState::Assigned(worker_ref)
-                    } else {
+                        trace_worker_steal(task.id, previous_worker_id, wref.get().id);
+                        notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
+                        TaskRuntimeState::Stealing(wref.clone(), worker_ref)
+                    }
+                    TaskRuntimeState::Stealing(wref1, _) => {
                         log::debug!(
-                            "Task task={} scheduled to worker={}",
+                            "Task task={} scheduled to worker={}; stealing (2) from worker={}",
                             assignment.task,
-                            assignment.worker
+                            assignment.worker,
+                            wref1.get().id
                         );
-                        TaskRuntimeState::Scheduled(worker_ref)
+                        TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
+                    }
+                    TaskRuntimeState::Finished(_, _)
+                    | TaskRuntimeState::Released
+                    | TaskRuntimeState::Error(_) => {
+                        log::debug!("Rescheduling non-active task={}", assignment.task);
+                        continue;
                     }
                 }
-                TaskRuntimeState::Assigned(wref) => {
-                    let previous_worker_id = wref.get().id;
-                    log::debug!(
-                        "Task task={} scheduled to worker={}; stealing (1) from worker={}",
-                        assignment.task,
-                        assignment.worker,
-                        previous_worker_id
-                    );
-                    trace_worker_steal(task.id, previous_worker_id, wref.get().id);
-                    notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
-                    TaskRuntimeState::Stealing(wref.clone(), worker_ref)
-                }
-                TaskRuntimeState::Stealing(wref1, _) => {
-                    log::debug!(
-                        "Task task={} scheduled to worker={}; stealing (2) from worker={}",
-                        assignment.task,
-                        assignment.worker,
-                        wref1.get().id
-                    );
-                    TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
-                }
-                TaskRuntimeState::Finished(_, _)
-                | TaskRuntimeState::Released
-                | TaskRuntimeState::Error(_) => {
-                    log::debug!("Rescheduling non-active task={}", assignment.task);
-                    continue;
-                }
             };
-            task.state = state;
+            task_ref.get_mut().state = state;
         }
     }
 
@@ -330,8 +336,7 @@ impl Core {
         }
         if success {
             log::debug!("Task stealing was successful task={}", task.id);
-            trace_worker_assign(task.id, to_w.get().id);
-            notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());
+            self.compute_task(to_w.clone(), task_ref.clone(), notifications);
             task.state = TaskRuntimeState::Assigned(to_w);
         } else {
             log::debug!("Task stealing was not successful task={}", task.id);
@@ -413,8 +418,7 @@ impl Core {
                         };
                         if let Some(w) = wr {
                             t.state = TaskRuntimeState::Assigned(w.clone());
-                            trace_worker_assign(t.id, w.get().id);
-                            notifications.compute_task_on_worker(w, consumer.clone());
+                            self.compute_task(w, consumer.clone(), notifications);
                         }
                     }
                 }
@@ -439,7 +443,7 @@ impl Core {
         }
     }
 
-    fn notify_key_in_memory(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
+    pub fn notify_key_in_memory(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
         let task = task_ref.get();
         for &client_id in task.subscribed_clients() {
             notifications.notify_client_key_in_memory(client_id, task_ref.clone());

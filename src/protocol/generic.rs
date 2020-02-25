@@ -120,6 +120,15 @@ pub type WhoHasMsgResponse = Map<DaskKey, Vec<DaskKey>>; // key -> [worker addre
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
+pub struct ProxyMsg {
+    pub worker: DaskKey,
+    pub msg: rmpv::Value,
+    #[serde(skip)]
+    pub frames: Frames
+}
+
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum GenericMessage<T = SerializedMemory> {
@@ -134,6 +143,7 @@ pub enum GenericMessage<T = SerializedMemory> {
     Scatter(ScatterMsg<T>),
     Cancel(CancelKeysMsg),
     Ncores,
+    Proxy(ProxyMsg)
 }
 
 impl FromDaskTransport for GenericMessage<SerializedMemory> {
@@ -157,6 +167,11 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
             }),
             Self::Transport::Cancel(msg) => Self::Cancel(msg),
             Self::Transport::Ncores => Self::Ncores,
+            Self::Transport::Proxy(msg) => Self::Proxy(ProxyMsg {
+                worker: msg.worker,
+                msg: msg.msg,
+                frames: std::mem::take(frames)
+            })
         }
     }
 }

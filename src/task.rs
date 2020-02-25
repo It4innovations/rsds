@@ -55,6 +55,7 @@ pub struct Task {
     pub id: TaskId,
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
+    pub actor: bool,
     consumers: Set<TaskRef>,
     key: DaskKey,
     pub dependencies: Vec<TaskId>,
@@ -212,6 +213,7 @@ impl Task {
         let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
             duration: 0.5, // TODO
+            actor: self.actor,
             who_has,
             nbytes,
             task: msg_task,
@@ -300,6 +302,7 @@ impl TaskRef {
         Self::wrap(Task {
             id,
             key,
+            actor: false,
             dependencies,
             unfinished_inputs,
             spec,

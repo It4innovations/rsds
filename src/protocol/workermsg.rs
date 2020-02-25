@@ -16,10 +16,17 @@ fn binary_is_empty(transport: &SerializedTransport) -> bool {
     }
 }
 
+fn bool_is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Serialize, Debug)]
 pub struct ComputeTaskMsg {
     pub key: DaskKey,
     pub duration: f32, // estimated duration, [in seconds?]
+
+    #[serde(skip_serializing_if = "bool_is_false")]
+    pub actor: bool,
 
     #[serde(with = "tuple_vec_map")]
     #[serde(skip_serializing_if = "Vec::is_empty")]

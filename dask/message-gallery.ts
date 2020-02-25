@@ -4,6 +4,7 @@ type Serialized = {};
 // Binary MessagePack array
 type Bytes = [number];
 
+type AnyMsg = {};
 
 // Global types
 type WorkerMetrics = {
@@ -92,12 +93,18 @@ type WhoHasMsg = {
     "keys": [string] | null,
     "reply": boolean
 };
+type ProxyMsg = {
+    "op": "proxy",
+    "worker": string,
+    "msg": AnyMsg,
+    "reply": boolean
+};
 
 
 //---------------------//
 // SCHEDULER -> CLIENT //
 //---------------------//
-type IdentityResponseMsg = {
+type IdentityMsgResponse = {
     "op": "identity-response",
     "type": "Scheduler",
     "id": number,
@@ -121,14 +128,14 @@ type IdentityResponseMsg = {
 /**
  * This message must be inside a message array and the array must have length 1!!!
  */
-type RegisterClientResponseMsg = {
+type RegisterClientMsgResponse = {
     "op": "stream-start"
 };
-type NcoresResponseMsg = {
+type NcoresMsgResponse = {
     [worker: string]: number
 };
-type SchedulerGetDataResponse = GetDataResponseType;
-type ScatterResponseMsg = [string];
+type SchedulerGetDataMsgResponse = GetDataResponseType;
+type ScatterMsgResponse = [string];
 type WhoHasMsgResponse = {
     [key: string]: [string]
 };
@@ -164,7 +171,7 @@ type RegisterWorkerMsg = {
     'types': {}
 };
 type WorkerGetDataResponse = GetDataResponseType;
-type UpdateDataResponseMsg = {
+type UpdateDataMsgResponse = {
     "status": "OK",
     "nbytes": { [key: string]: number },
 };
@@ -194,6 +201,18 @@ type UpdateDataMsg = {
     "reply": boolean,
     "report": boolean,
 };
+type ActorExecuteMsg = {
+    "op": "actor_execute",
+    "function": string,
+    "actor": string,
+    "args": [Serialized],
+    "kwargs": { [key: string]: Serialized }
+};
+type ActorAttributeMsg = {
+    "op": "actor_attribute",
+    "attribute": string,
+    "actor": string,
+};
 
 
 /**
@@ -220,13 +239,19 @@ type UpdateGraphMsg = {
     "restrictions": {},
     "retries": null,
     "submitting_task": null,
-    "resources": null
+    "resources": null,
+    "actors": boolean
 };
-type ReleaseKeysMsg = {
+type ClientReleasesKeysMsg = {
     "op": "client-releases-keys",
     "keys": [string],
     "client": string
 };
+type ClientDesiresKeysMsg = {
+    "op": "client-desires-keys",
+    "keys": [string],
+    "client": string
+}
 type CloseClientMsg = {
     "op": "close-client"
 };
@@ -262,6 +287,7 @@ type ComputeTaskMsg = {
     "key": string,
     "duration": number,
     "priority": [number],
+    "actor": boolean,
     "nbytes?": { [task: string]: number },
     "who_has?": { [task: string]: string },
     "task?": Serialized,

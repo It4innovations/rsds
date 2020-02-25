@@ -5,11 +5,8 @@ use crate::common::{Map, Set};
 use crate::core::CoreRef;
 use crate::protocol::clientmsg::UpdateGraphMsg;
 
-use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
-use crate::protocol::protocol::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, SerializedMemory,
-};
+use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse, ProxyMsg};
+use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet, map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, SerializedMemory, MessageWrapper};
 
 use crate::protocol::workermsg::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
@@ -97,9 +94,10 @@ pub fn update_graph(
         }
     }
 
-    let mut notifications = Notifications::default();
+    let is_actor = update.actors.unwrap_or(false);
 
     /* Send notification in topological ordering of tasks */
+    let mut notifications = Notifications::default();
     let mut processed = Set::new();
     let mut stack: Vec<(TaskRef, usize)> = Vec::new();
     let mut count = new_tasks.len();
@@ -130,6 +128,9 @@ pub fn update_graph(
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
+        if is_actor {
+            task.actor = true;
+        }
         task.subscribe_client(client_id);
     }
     Ok(())
@@ -152,6 +153,33 @@ pub fn release_keys(
         task.unsubscribe_client(client_id);
 
         task.remove_data_if_possible(&mut core, &mut notifications);
+    }
+    comm_ref.get_mut().notify(&mut core, notifications)
+}
+
+pub fn subscribe_keys(
+    core_ref: &CoreRef,
+    comm_ref: &CommRef,
+    client_key: DaskKey,
+    task_keys: Vec<DaskKey>,
+) -> crate::Result<()> {
+    let mut core = core_ref.get_mut();
+    let client_id = core.get_client_id_by_key(&client_key);
+    let mut notifications = Notifications::default();
+    for key in task_keys {
+        let task_ref = core.get_task_by_key_or_panic(&key).clone();
+        {
+            let mut task = task_ref.get_mut();
+            task.subscribe_client(client_id);
+        }
+
+        let task = task_ref.get();
+        match task.state {
+            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Error(_) => {
+                core.notify_key_in_memory(&task_ref, &mut notifications);
+            }
+            _ => {}
+        }
     }
     comm_ref.get_mut().notify(&mut core, notifications)
 }
@@ -346,7 +374,7 @@ pub async fn get_data_from_worker(
     worker_address: DaskKey,
     keys: &[&str],
 ) -> crate::Result<DaskPacket> {
-    let mut connection = connect_to_worker(worker_address.to_string()).await?;
+    let mut connection = connect_to_worker(worker_address).await?;
     let msg = ToWorkerMessage::GetData(GetDataMsg {
         keys,
         who: None,
@@ -371,7 +399,7 @@ pub async fn update_data_on_worker(
     worker_address: DaskKey,
     data: Map<DaskKey, SerializedMemory>,
 ) -> crate::Result<Map<DaskKey, u64>> {
-    let mut connection = connect_to_worker(worker_address.to_string()).await?;
+    let mut connection = connect_to_worker(worker_address).await?;
 
     let mut builder = MessageBuilder::<ToWorkerMessage>::new();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
@@ -414,7 +442,30 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     sink.send(serialize_single_packet(response)?).await
 }
 
-async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
+pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+    core_ref: &CoreRef,
+    _comm_ref: &CommRef,
+    sink: &mut W,
+    msg: ProxyMsg,
+) -> crate::Result<()> {
+    let worker_address: DaskKey = {
+        core_ref.get().get_worker_by_key_or_panic(&msg.worker).get().address().into()
+    };
+    let mut connection = connect_to_worker(worker_address).await?;
+    let (reader, writer) = connection.split();
+    let mut writer = asyncwrite_to_sink(writer);
+    let packet = DaskPacket::from_wrapper(MessageWrapper::Message(msg.msg), msg.frames)?;
+    writer.send(packet).await?;
+
+    let mut reader = asyncread_to_stream(reader);
+    if let Some(packet) = reader.next().await {
+        sink.send(packet?).await?;
+    }
+    Ok(())
+}
+
+async fn connect_to_worker(address: DaskKey) -> crate::Result<tokio::net::TcpStream> {
+    let address = address.to_string();
     let address = address.trim_start_matches("tcp://");
     Ok(TcpStream::connect(address).await?)
 }

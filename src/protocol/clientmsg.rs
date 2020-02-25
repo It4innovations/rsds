@@ -22,11 +22,19 @@ pub struct UpdateGraphMsg<T = SerializedMemory> {
     pub tasks: Map<DaskKey, ClientTaskSpec<T>>,
     pub dependencies: Map<DaskKey, Vec<DaskKey>>,
     pub keys: Vec<DaskKey>,
+    pub actors: Option<bool>
 }
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct ClientReleasesKeysMsg {
+    pub keys: Vec<DaskKey>,
+    pub client: DaskKey,
+}
+
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
+pub struct ClientDesiresKeysMsg {
     pub keys: Vec<DaskKey>,
     pub client: DaskKey,
 }
@@ -39,6 +47,7 @@ pub enum FromClientMessage<T = SerializedMemory> {
     HeartbeatClient,
     UpdateGraph(UpdateGraphMsg<T>),
     ClientReleasesKeys(ClientReleasesKeysMsg),
+    ClientDesiresKeys(ClientDesiresKeysMsg),
     CloseClient,
     CloseStream,
 }
@@ -77,8 +86,10 @@ impl FromDaskTransport for FromClientMessage<SerializedMemory> {
                     .collect(),
                 dependencies: data.dependencies,
                 keys: data.keys,
+                actors: data.actors
             }),
             Self::Transport::ClientReleasesKeys(data) => Self::ClientReleasesKeys(data),
+            Self::Transport::ClientDesiresKeys(data) => Self::ClientDesiresKeys(data),
             Self::Transport::CloseClient => Self::CloseClient,
             Self::Transport::CloseStream => Self::CloseStream,
         }

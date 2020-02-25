@@ -79,3 +79,32 @@ def test_xarray(rsds_env):
     x = da3.sum().load()
 
     assert x.values.flatten()[0] == 2239958.0
+
+
+def test_actor(rsds_env):
+    url = rsds_env.start([2])
+    client = Client(url)
+
+    class Counter:
+        n = 0
+
+        def __init__(self):
+            self.n = 0
+
+        def increment(self):
+            self.n += 1
+            return self.n
+
+        def add(self, x):
+            self.n += x
+            return self.n
+
+    future = client.submit(Counter, actor=True)
+    counter = future.result()
+
+    future = counter.increment()
+    assert future.result() == 1
+
+    future = counter.add(10)
+    assert future.result() == 11
+    assert counter.n == 11

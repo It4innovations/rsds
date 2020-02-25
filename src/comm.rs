@@ -17,7 +17,7 @@ use crate::protocol::workermsg::{
     DeleteDataMsg, FromWorkerMessage, RegisterWorkerResponseMsg, Status, StealRequestMsg,
     ToWorkerMessage,
 };
-use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has};
+use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has, proxy_to_worker, subscribe_keys};
 use crate::scheduler::schedproto::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
@@ -426,6 +426,9 @@ pub async fn client_rpc_loop<
                     FromClientMessage::ClientReleasesKeys(msg) => {
                         release_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
                     }
+                    FromClientMessage::ClientDesiresKeys(msg) => {
+                        subscribe_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
+                    }
                     FromClientMessage::UpdateGraph(update) => {
                         update_graph(&core_ref, &comm_ref, client_id, update)?;
                     }
@@ -628,6 +631,10 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
                     get_ncores(&core_ref, &comm_ref, &mut writer).await?;
+                }
+                GenericMessage::Proxy(msg) => {
+                    log::debug!("Proxy request from {}", &address);
+                    proxy_to_worker(&core_ref, &comm_ref, &mut writer, msg).await?;
                 }
                 _ => panic!("Unhandled generic message: {:?}", message),
             }
