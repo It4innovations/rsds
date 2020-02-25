@@ -25,7 +25,7 @@ import xarray
 from distributed import Client
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
-from usecases import bench_numpy, bench_dataframe, bench_bag, bench_merge, bench_merge_slow, bench_tree, bench_xarray
+from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, bench_tree, bench_xarray
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
@@ -41,7 +41,8 @@ USECASES = {
     "numpy": bench_numpy,
     "merge": bench_merge,
     "merge_slow": bench_merge_slow,
-    "dataframe": bench_dataframe
+    "pandas_groupby": bench_pandas_groupby,
+    "pandas_join": bench_pandas_join
 }
 
 
@@ -135,9 +136,10 @@ class DaskCluster:
     def _start_workers(self, workers, scheduler_address):
         count = workers["count"]
         cores = workers["cores"]
+        worker_args = workers.get("cores", [])
 
         def get_args(cores):
-            return ("dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores), "--no-dashboard")
+            return ["dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores), "--no-dashboard"] + worker_args
 
         env = {"OMP_NUM_THREADS": "1"}  # TODO
 

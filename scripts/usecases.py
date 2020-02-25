@@ -12,17 +12,31 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
 
 
-def bench_dataframe(days=1):
+def bench_pandas_groupby(days=1, freq="1s", partition_freq="1H"):
     """
     https://examples.dask.org/dataframe.html
     """
     start = datetime.datetime(year=2020, month=1, day=1)
     end = start + datetime.timedelta(days=days)
 
-    df = dask.datasets.timeseries(start=start, end=end, seed=0)
+    df = dask.datasets.timeseries(start=start, end=end, seed=0,
+                                  freq=freq, partition_freq=partition_freq)
     m = df.groupby("name")["x"].mean().sum()
     s = df[(df["x"] > 0) & (df["y"] < 0)]["x"].resample("2S").mean().sum()
     return m + s
+
+
+def bench_pandas_join(days=1, freq="1s", partition_freq="2H"):
+    start = datetime.datetime(year=2020, month=1, day=1)
+    end = start + datetime.timedelta(days=days)
+
+    df = dask.datasets.timeseries(start=start, end=end, seed=0,
+                                  freq=freq,
+                                  partition_freq=partition_freq,
+                                  dtypes={"value": float, "name": str, "id": int},
+                                  id_lam=100)
+    merged = df.merge(df, on="id", how="inner")
+    return merged["value_x"].sum()
 
 
 def bench_bag(count):
@@ -30,11 +44,11 @@ def bench_bag(count):
     https://examples.dask.org/bag.html
     """
     b = dask.datasets.make_people(seed=0, npartitions=10, records_per_partition=count)
-    res = b.filter(lambda record: record['age'] > 30) \
-        .map(lambda record: record['occupation']) \
+    res = b.filter(lambda record: record["age"] > 30) \
+        .map(lambda record: record["occupation"]) \
         .frequencies(sort=True) \
-        .topk(10, key=1)\
-        .pluck(1)\
+        .topk(10, key=1) \
+        .pluck(1) \
         .sum()
     return res
 
@@ -101,10 +115,10 @@ def bench_xarray(chunk_size=5):
     """
     https://examples.dask.org/xarray.html
     """
-    ds = xr.tutorial.open_dataset('air_temperature',
-                                  chunks={'lat': chunk_size, 'lon': chunk_size, 'time': -1})
-    da = ds['air']
-    da2 = da.groupby('time.month').mean('time')
+    ds = xr.tutorial.open_dataset("air_temperature",
+                                  chunks={"lat": chunk_size, "lon": chunk_size, "time": -1})
+    da = ds["air"]
+    da2 = da.groupby("time.month").mean("time")
     da3 = da - da2
     return da3.sum()
 
@@ -112,16 +126,16 @@ def bench_xarray(chunk_size=5):
 def bench_scikit():
     X, y = make_classification(n_samples=1000, random_state=0)
     param_grid = {"C": [0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
-                  "kernel": ['rbf', 'poly', 'sigmoid'],
+                  "kernel": ["rbf", "poly", "sigmoid"],
                   "shrinking": [True, False]}
 
-    grid_search = GridSearchCV(SVC(gamma='auto', random_state=0, probability=True),
+    grid_search = GridSearchCV(SVC(gamma="auto", random_state=0, probability=True),
                                param_grid=param_grid,
                                return_train_score=False,
                                iid=True,
                                cv=3,
                                n_jobs=-1)
-    with joblib.parallel_backend('dask'):
+    with joblib.parallel_backend("dask"):
         grid_search.fit(X, y)
     return np.sum(grid_search.predict(X)[:5])
 
@@ -130,7 +144,7 @@ if __name__ == "__main__":
     import networkx
 
     usecases = {
-        "dataframe-60": bench_dataframe(60),
+        "pandas-groupby-60": bench_pandas_groupby(60),
         "bag-1000": bench_bag(1000),
         "merge-1000": bench_merge(1000),
         "numpy-2000": bench_numpy(2000),
