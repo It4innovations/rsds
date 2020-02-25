@@ -8,9 +8,7 @@ use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{
-    trace_new_worker, trace_worker_finish, trace_worker_steal, trace_worker_steal_response,
-};
+use crate::trace::{trace_new_worker, trace_worker_finish, trace_worker_steal, trace_worker_steal_response, trace_worker_assign};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -250,6 +248,7 @@ impl Core {
                             assignment.task,
                             assignment.worker
                         );
+                        trace_worker_assign(task.id, worker_ref.get().id);
                         notifications.compute_task_on_worker(worker_ref.clone(), task_ref.clone());
                         TaskRuntimeState::Assigned(worker_ref)
                     } else {
@@ -331,6 +330,7 @@ impl Core {
         }
         if success {
             log::debug!("Task stealing was successful task={}", task.id);
+            trace_worker_assign(task.id, to_w.get().id);
             notifications.compute_task_on_worker(to_w.clone(), task_ref.clone());
             task.state = TaskRuntimeState::Assigned(to_w);
         } else {
@@ -413,6 +413,7 @@ impl Core {
                         };
                         if let Some(w) = wr {
                             t.state = TaskRuntimeState::Assigned(w.clone());
+                            trace_worker_assign(t.id, w.get().id);
                             notifications.compute_task_on_worker(w, consumer.clone());
                         }
                     }

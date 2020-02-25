@@ -33,7 +33,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::trace::trace_worker_assign;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -254,7 +253,6 @@ impl Notifications {
     }
 
     pub fn compute_task_on_worker(&mut self, worker_ref: WorkerRef, task_ref: TaskRef) {
-        trace_worker_assign(task_ref.get().id, worker_ref.get().id);
         self.workers
             .entry(worker_ref)
             .or_default()
