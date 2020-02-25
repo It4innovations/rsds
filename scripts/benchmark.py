@@ -556,7 +556,7 @@ else
     python {CURRENT_DIR / "postprocess.py"} all {directory}
 fi
 """
-    fpath = f"/tmp/pbs-{name}.sh"
+    fpath = f"/tmp/pbs-{name}-{int(time.time())}.sh"
     with open(fpath, "w") as f:
         f.write(command)
 
