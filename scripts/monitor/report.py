@@ -152,10 +152,18 @@ def create_page(report):
     return Tabs(tabs=tabs)
 
 
-def generate(cluster_file, output):
+def load_report(cluster_file):
     with open(cluster_file) as file:
-        report = TraceReport.load(Cluster.deserialize(file))
+        cluster = Cluster.deserialize(file)
+        if not os.path.isfile(cluster.workdir):
+            new_workdir = os.path.abspath(os.path.dirname(cluster_file))
+            print(f"Cluster workdir {cluster.workdir} not found, setting to {new_workdir}")
+            cluster.workdir = new_workdir
+    return TraceReport.load(cluster)
 
+
+def generate(cluster_file, output):
+    report = load_report(cluster_file)
     page = create_page(report)
     save(page, output, title="Cluster monitor", resources=CDN)
 
@@ -163,11 +171,7 @@ def generate(cluster_file, output):
 def serve(cluster_file, port):
     class Handler(web.RequestHandler):
         def get(self):
-            with open(cluster_file) as file:
-                cluster = Cluster.deserialize(file)
-
-            report = TraceReport.load(cluster)
-
+            report = load_report(cluster_file)
             page = create_page(report)
             self.write(file_html(page, CDN, "Cluster report"))
 
