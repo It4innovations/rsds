@@ -115,9 +115,9 @@ pub struct TaskFinishedMsg {
     pub status: Status,
     pub key: DaskKey,
     pub nbytes: u64,
-
     #[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,
+    pub startstops: Vec<(DaskKey, f64, f64)>
 }
 
 #[cfg_attr(test, derive(Serialize))]

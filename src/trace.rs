@@ -18,9 +18,9 @@ pub fn trace_worker_assign(task_id: TaskId, worker_id: WorkerId)
     tracing::info!(action = "compute-task", event = "start", worker = worker_id, task = task_id);
 }
 #[inline]
-pub fn trace_worker_finish(task_id: TaskId, worker_id: WorkerId)
+pub fn trace_task_finish(task_id: TaskId, task_key: &str, worker_id: WorkerId, duration: u64)
 {
-    tracing::info!(action = "compute-task", event = "end", task = task_id, worker = worker_id,);
+    tracing::info!(action = "compute-task", event = "end", task = task_id, task_key = task_key, worker = worker_id, duration = duration);
 }
 #[inline]
 pub fn trace_new_worker(worker_id: WorkerId, ncpus: u32)

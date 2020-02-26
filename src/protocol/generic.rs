@@ -210,6 +210,7 @@ mod tests {
                 }),
                 Self::Cancel(msg) => Self::Transport::Cancel(msg),
                 Self::Ncores => Self::Transport::Ncores,
+                Self::Proxy(msg) => Self::Transport::Proxy(msg),
             };
         }
     }

@@ -33,6 +33,10 @@ pub fn to_dask_key(string: &str) -> DaskKey {
 pub fn dask_key_ref_to_string(key: &DaskKeyRef) -> String {
     String::from_utf8_lossy(key).to_string()
 }
+#[inline]
+pub fn dask_key_ref_to_str(key: &DaskKeyRef) -> &str {
+    unsafe { std::mem::transmute(key) }
+}
 
 impl Display for DaskKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -57,7 +61,7 @@ impl DaskKey {
     }
     #[inline]
     pub fn as_str(&self) -> &str {
-        unsafe { std::mem::transmute(self.as_ref()) }
+        dask_key_ref_to_str(self.as_ref())
     }
 }
 
