@@ -128,9 +128,6 @@ class DaskCluster:
         self.cluster.kill(fn)
         logging.info(f"Cluster killed in {time.time() - start} seconds")
 
-    def name(self):
-        return f"{self.scheduler}-{self.workers}"
-
     def _start_scheduler(self, scheduler):
         binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
 
@@ -147,27 +144,28 @@ class DaskCluster:
         })
 
     def _start_workers(self, workers, scheduler_address):
-        count = workers["count"]
-        cores = workers["cores"]
+        node_count = workers["nodes"]
+        processes = workers.get("processes", 1)
+        threads = workers.get("threads", 1)
         worker_args = workers.get("args", [])
 
-        def get_args(cores):
-            return ["dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores),
+        def get_args():
+            return ["dask-worker", scheduler_address, "--nthreads", str(threads), "--nprocs", str(processes),
                     "--no-dashboard"] + worker_args
 
         env = {"OMP_NUM_THREADS": "1"}  # TODO
 
-        if count == "local":
-            self.start(get_args(cores), env=env, name="worker-0", workdir="/tmp")
+        if node_count == "local":
+            self.start(get_args(), env=env, name="worker-0", workdir="/tmp")
             return [HOSTNAME]
         else:
             nodes = get_pbs_nodes()
-            if count >= len(nodes):
+            if node_count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
             args = []
             nodes_spawned = [] 
-            for i, node in zip(range(count), nodes[1:]):
-                args.append((get_args(cores), f"worker-{i}", node, env, "/tmp"))
+            for i, node in zip(range(node_count), nodes[1:]):
+                args.append((get_args(), f"worker-{i}", node, env, "/tmp"))
                 nodes_spawned.append(node)
             self.start_many(args)
             return nodes_spawned
@@ -338,11 +336,11 @@ def flatten_result(res):
 
 
 def worker_count(workers):
-    count = workers["count"]
-    cores = workers["cores"]
-    if count == "local":
-        return cores
-    return cores * count
+    nodes = workers["nodes"]
+    processes = workers["processes"]
+    if nodes == "local":
+        return processes
+    return nodes * processes
 
 
 def check_free_port(port):
@@ -374,7 +372,7 @@ def get_pbs_nodes():
 
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
-    workers = f"{workers['count']}-{workers['cores']}"
+    workers = f"{workers['nodes']}n-{workers['processes']}p-{workers['threads']}t"
     scheduler = cluster_info['scheduler']['name']
     return f"{scheduler}-{workers}"
 
