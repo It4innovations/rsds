@@ -136,7 +136,7 @@ class DaskCluster:
     def _start_workers(self, workers, scheduler_address):
         count = workers["count"]
         cores = workers["cores"]
-        worker_args = workers.get("cores", [])
+        worker_args = workers.get("args", [])
 
         def get_args(cores):
             return ["dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores), "--no-dashboard"] + worker_args
