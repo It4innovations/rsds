@@ -1,5 +1,6 @@
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerId;
+
 macro_rules! trace_time {
     ($action:literal, $block:expr) => {
         {
@@ -35,6 +36,11 @@ pub fn trace_worker_steal(task_id: TaskId, from: WorkerId, to: WorkerId)
 pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId, result: &str)
 {
     tracing::info!(action = "steal-response", task = task_id, from = from, to = to, result = result);
+}
+#[inline]
+pub fn trace_worker_steal_response_missing(task_key: &str, from: WorkerId)
+{
+    tracing::info!(action = "steal-response", task = task_key, from = from, to = 0, result = "missing");
 }
 #[inline]
 pub fn trace_packet_send(size: usize)

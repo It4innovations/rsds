@@ -8,7 +8,7 @@ use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{trace_new_worker, trace_worker_finish, trace_worker_steal, trace_worker_steal_response, trace_worker_assign};
+use crate::trace::{trace_new_worker, trace_worker_finish, trace_worker_steal, trace_worker_steal_response, trace_worker_assign, trace_worker_steal_response_missing};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -150,6 +150,11 @@ impl Core {
     #[inline]
     pub fn get_task_by_key_or_panic(&self, key: &DaskKeyRef) -> &TaskRef {
         self.tasks_by_key.get(key).unwrap()
+    }
+
+    #[inline]
+    pub fn get_task_by_key(&self, key: &DaskKeyRef) -> Option<&TaskRef> {
+        self.tasks_by_key.get(key)
     }
 
     #[inline]
@@ -304,49 +309,54 @@ impl Core {
         msg: StealResponseMsg,
         notifications: &mut Notifications,
     ) {
-        let task_ref = self.get_task_by_key_or_panic(&msg.key);
-        let new_state = {
-            let task = task_ref.get();
-            if task.is_done() {
-                trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
-                return;
+        let task_ref = self.get_task_by_key(&msg.key);
+        match task_ref {
+            Some(task_ref) => {
+                let new_state = {
+                    let task = task_ref.get();
+                    if task.is_done() {
+                        trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
+                        return;
+                    }
+                    let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
+                        assert!(from_w == worker_ref);
+                        to_w.clone()
+                    } else {
+                        panic!("Invalid state of task when steal response occured");
+                    };
+
+                    // This needs to correspond with behavior in worker!
+                    let success = match msg.state {
+                        WorkerState::Waiting | WorkerState::Ready => true,
+                        _ => false,
+                    };
+
+                    {
+                        let from_worker = worker_ref.get();
+                        let to_worker = to_w.get();
+                        trace_worker_steal_response(
+                            task.id,
+                            from_worker.id,
+                            to_worker.id,
+                            if success { "success" } else { "fail" },
+                        );
+                        notifications.task_steal_response(&from_worker, &to_worker, &task, success);
+                    }
+
+                    if success {
+                        log::debug!("Task stealing was successful task={}", task.id);
+                        self.compute_task(to_w.clone(), task_ref.clone(), notifications);
+                        TaskRuntimeState::Assigned(to_w)
+                    } else {
+                        log::debug!("Task stealing was not successful task={}", task.id);
+                        TaskRuntimeState::Assigned(worker_ref.clone())
+                    }
+                };
+
+                task_ref.get_mut().state = new_state;
             }
-            let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
-                assert!(from_w == worker_ref);
-                to_w.clone()
-            } else {
-                panic!("Invalid state of task when steal response occured");
-            };
-
-            // This needs to correspond with behavior in worker!
-            let success = match msg.state {
-                WorkerState::Waiting | WorkerState::Ready => true,
-                _ => false,
-            };
-
-            {
-                let from_worker = worker_ref.get();
-                let to_worker = to_w.get();
-                trace_worker_steal_response(
-                    task.id,
-                    from_worker.id,
-                    to_worker.id,
-                    if success { "success" } else { "fail" },
-                );
-                notifications.task_steal_response(&from_worker, &to_worker, &task, success);
-            }
-
-            if success {
-                log::debug!("Task stealing was successful task={}", task.id);
-                self.compute_task(to_w.clone(), task_ref.clone(), notifications);
-                TaskRuntimeState::Assigned(to_w)
-            } else {
-                log::debug!("Task stealing was not successful task={}", task.id);
-                TaskRuntimeState::Assigned(worker_ref.clone())
-            }
-        };
-
-        task_ref.get_mut().state = new_state;
+            None => trace_worker_steal_response_missing(msg.key.as_str(), worker_ref.get().id)
+        }
     }
 
     pub fn on_task_error(
