@@ -1,4 +1,5 @@
 import datetime
+import os
 import time
 
 import dask
@@ -143,13 +144,17 @@ def bench_scikit():
 if __name__ == "__main__":
     import networkx
 
+    os.makedirs("graphs", exist_ok=True)
     usecases = {
-        "pandas-groupby-60": bench_pandas_groupby(60),
+        "pandas-groupby-1-1T-1H": bench_pandas_groupby(1, "1T", "1H"),
+        "pandas-groupby-1-1T-8H": bench_pandas_groupby(1, "1T", "8H"),
+        "pandas-join-1-1T-1H": bench_pandas_join(1, "1T", "1H"),
+        "pandas-join-1-1T-8H": bench_pandas_join(1, "1T", "8H"),
         "bag-1000": bench_bag(1000),
         "merge-1000": bench_merge(1000),
         "numpy-2000": bench_numpy(2000),
         "tree-8": bench_tree(8),
-        "xarray-30": bench_xarray(30)
+        "xarray-20": bench_xarray(20)
     }
     for (name, graph) in usecases.items():
         dot_filename = f"graphs/{name}"
@@ -157,5 +162,5 @@ if __name__ == "__main__":
         dask.visualize(graph, filename=f"graphs/{name}.svg")
         g = networkx.drawing.nx_agraph.read_dot(f"{dot_filename}.dot")
         print(f"""
-{name}: {len(g.nodes)} vertices, {len(g.edges)} edges
+{name}: {len(g.nodes)} vertices, {len(g.edges)} edges, longest path: {networkx.dag_longest_path_length(g)}
 """.strip())

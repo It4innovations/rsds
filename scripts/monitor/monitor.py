@@ -1,3 +1,8 @@
+import os
+import shutil
+import sys
+import time
+
 import click
 import psutil
 from src.trace_io import trace_process
@@ -8,7 +13,7 @@ def get_resources():
     mem = psutil.virtual_memory().percent
     connections = sum(1 if c[5] == "ESTABLISHED" else 0 for c in psutil.net_connections())
     bytes = psutil.net_io_counters()
-    io = psutil.disk_io_counters()
+    io = None # psutil.disk_io_counters()
 
     return {
         "cpu": cpus,
@@ -42,7 +47,18 @@ def main(output, capture_interval, dump_interval):
             print("Opening cluster exception: {}".format(e))
             return None
 
-    trace_process(capture_interval, dump_interval, output, capture)
+    def finish():
+        print(f"Copying trace from {tmp_output} to {output}")
+        shutil.copyfile(tmp_output, output)
+        sys.exit()
+
+    tmp_output = f"/tmp/{os.path.basename(output)}-{int(time.time())}"
+
+    # create tmp file
+    with open(tmp_output, "w") as f:
+        pass
+
+    trace_process(capture_interval, dump_interval, tmp_output, capture, finish)
 
 
 if __name__ == "__main__":

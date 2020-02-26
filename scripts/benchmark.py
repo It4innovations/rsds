@@ -83,7 +83,10 @@ class DaskCluster:
             self.cluster.serialize(f)
 
         self.client = Client(f"tcp://{self.scheduler_address}", timeout=30)
-        self.client.wait_for_workers(worker_count(self.workers["count"]))
+
+        required_workers = worker_count(self.workers)
+        self.client.wait_for_workers(required_workers)
+        assert len(self.client.scheduler_info()["workers"]) == required_workers
 
         logging.info(
             f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address} took {time.time() - start} s")
@@ -113,7 +116,7 @@ class DaskCluster:
 
         def kill_fn(node, process):
             signal = "TERM"
-            if process["key"].startswith("scheduler") and self._profile_flamegraph():
+            if (process["key"].startswith("scheduler") and self._profile_flamegraph()) or "monitor" in process["key"]:
                 signal = "INT"
 
             assert kill_process(node, process["pid"], signal=signal)
@@ -162,16 +165,19 @@ class DaskCluster:
 
     def _start_monitors(self):
         monitor_script = os.path.join(CURRENT_DIR, "monitor", "monitor.py")
+        monitor_args = []
 
-        def start(node=None):
-            path = os.path.join(self.workdir, f"monitor-{node if node else HOSTNAME}.trace")
-            self.start(("python", monitor_script, path), host=node, name="monitor")
+        def start(node):
+            path = os.path.join(self.workdir, f"monitor-{node}.trace")
+            monitor_args.append((("python", monitor_script, path), "monitor", node, None, None))
 
         if is_inside_pbs():
             for node in get_pbs_nodes():
                 start(node)
         else:
-            start()
+            start(HOSTNAME)
+
+        self.start_many(monitor_args)
 
     def _profile_flamegraph(self):
         return "flamegraph" in self.profile
@@ -248,7 +254,7 @@ class Benchmark:
                 except KeyboardInterrupt:
                     break
                 except:
-                    print(f"Error while processing {configuration}", file=sys.stderr)
+                    logging.error(f"Error while processing {configuration}")
                     traceback.print_exc()
 
         timeouted = False
@@ -322,9 +328,11 @@ def flatten_result(res):
 
 
 def worker_count(workers):
-    if workers == "local":
-        return 1
-    return workers
+    count = workers["count"]
+    cores = workers["cores"]
+    if count == "local":
+        return cores
+    return cores * count
 
 
 def check_free_port(port):
@@ -461,7 +469,6 @@ def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
 
     benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir, profile)
     frame, timeouted = benchmark.run(timeout, bootstrap)
-    frame.drop(columns=["result"], inplace=True)
     save_results(frame, output_dir)
     return timeouted
 
@@ -489,7 +496,7 @@ class WalltimeType(click.ParamType):
 @click.option("--bootstrap", default=None)
 def benchmark(input, output_dir, profile, timeout, bootstrap):
     if execute_benchmark(input, output_dir, profile.split(","), timeout, bootstrap):
-        print("Benchmark timeouted")
+        logging.error("Benchmark timeouted")
         exit(TIMEOUT_EXIT_CODE)
 
 
@@ -578,7 +585,7 @@ fi
 
     if watch:
         subprocess.run(["watch", "-n", "10",
-                        f"""watch -n 10 "check-pbs-jobs --jobid {job_id} --print-job-err --print-job-out | tail"""])
+                        f"check-pbs-jobs --jobid {job_id} --print-job-err --print-job-out | tail -n 40"])
 
 
 @click.group()

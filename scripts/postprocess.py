@@ -1,5 +1,6 @@
 import os
 from trace import generate_chrome_trace, generate_trace_summary
+from multiprocessing import Pool
 
 import click
 from monitor.report import generate, serve
@@ -35,25 +36,29 @@ def monitor_serve(cluster_file, port):
     serve(cluster_file, port)
 
 
+def generate_dir(path):
+    cluster = os.path.join(path, CLUSTER_FILENAME)
+    if os.path.isfile(cluster):
+        monitor_output = os.path.join(path, "monitor.html")
+        print(f"Generating monitor HTML: {monitor_output}")
+        generate(cluster, monitor_output)
+    trace = os.path.join(path, "scheduler.trace")
+    if os.path.isfile(trace):
+        chrome_trace = os.path.join(path, "chrome.json")
+        print(f"Generating Chrome trace: {chrome_trace}")
+        generate_chrome_trace(trace, chrome_trace, False)
+
+        trace_summary = os.path.join(path, "trace-summary.txt")
+        print(f"Generating trace summary: {trace_summary}")
+        generate_trace_summary(trace, trace_summary)
+
+
 @click.command()
 @click.argument("directory")
 def all(directory):
-    for subdir in os.listdir(directory):
-        path = os.path.join(directory, subdir)
-        cluster = os.path.join(path, CLUSTER_FILENAME)
-        if os.path.isfile(cluster):
-            monitor_output = os.path.join(path, "monitor.html")
-            print(f"Generating monitor HTML: {monitor_output}")
-            generate(cluster, monitor_output)
-        trace = os.path.join(path, "scheduler.trace")
-        if os.path.isfile(trace):
-            chrome_trace = os.path.join(path, "chrome.json")
-            print(f"Generating Chrome trace: {chrome_trace}")
-            generate_chrome_trace(trace, chrome_trace, False)
-
-            trace_summary = os.path.join(path, "trace-summary.txt")
-            print(f"Generating trace summary: {trace_summary}")
-            generate_trace_summary(trace, trace_summary)
+    dirs = [os.path.join(directory, subdir) for subdir in os.listdir(directory)]
+    with Pool() as pool:
+        pool.map(generate_dir, dirs)
 
 
 @click.group()

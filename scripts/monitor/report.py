@@ -87,6 +87,11 @@ def plot_resources_usage(report):
             figure.plot_width = 400
 
         def draw_bytes(title, read_col, write_col):
+            if len(resources) == 0:
+                return
+            if resources.iloc[0].get(read_col) is None or resources.iloc[0].get(write_col) is None:
+                return
+
             def accumulate(column):
                 values = resources.apply(lambda res: res[column])
                 values = values - values.min()

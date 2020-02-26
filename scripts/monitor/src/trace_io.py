@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import time
+import signal
 
 import pandas as pd
 
@@ -77,25 +78,40 @@ def load_outputs(workdir, max=None):
     return outputs
 
 
-def trace_process(capture_interval, dump_interval, file, capture_fn):
+def dump_records(file, records):
+    if records:
+        with open(file, "a") as f:
+            for record in records:
+                json.dump(record, f)
+                f.write("\n")
+        records.clear()
+
+
+def trace_process(capture_interval, dump_interval, file, capture_fn, finish_fn):
+    record_count = 0
+
     records = []
     last_update = time.time()
 
-    while True:
-        now = time.time()
+    def finish(sig, frame):
+        nonlocal record_count
 
+        record_count += len(records)
+        dump_records(file, records)
+        print(f"Interrupting monitoring, wrote {record_count} records")
+        finish_fn()
+
+    signal.signal(signal.SIGINT, finish)
+
+    while True:
+        time.sleep(capture_interval)
+
+        now = time.time()
         record = capture_fn(now)
         if record is not None:
             records.append(record)
 
         if now - last_update > dump_interval:
             last_update = now
-
-            if records:
-                with open(file, "a") as f:
-                    for record in records:
-                        json.dump(record, f)
-                        f.write("\n")
-                    records = []
-
-        time.sleep(capture_interval)
+            record_count += len(records)
+            dump_records(file, records)
