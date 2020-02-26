@@ -139,8 +139,9 @@ def generate_trace_summary(trace_path, output):
                 f.write(f"{tasks.describe()}\n\n")
 
             with pd.option_context("display.float_format", lambda x: f"{x:.0f}"):
+                to_mb = 1024 * 1024
                 f.write("---PACKET summary---\n")
                 sent = pd.Series(packets_sent)
-                f.write(f"Sent:\n{sent.describe()}\nSum: {sent.sum()}\n\n")
+                f.write(f"Sent:\n{sent.describe()}\nSum: {sent.sum() / to_mb} MiB\n\n")
                 received = pd.Series(packets_received)
-                f.write(f"Received:\n{received.describe()}\nSum: {received.sum()}\n\n")
+                f.write(f"Received:\n{received.describe()}\nSum: {received.sum() / to_mb} MiB\n\n")
