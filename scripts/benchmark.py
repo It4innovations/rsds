@@ -25,7 +25,8 @@ import xarray
 from distributed import Client
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
-from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, bench_tree, bench_xarray
+from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
+    bench_tree, bench_xarray
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
@@ -53,6 +54,8 @@ def start_process_pool(args):
 
 class DaskCluster:
     def __init__(self, cluster_info, workdir, port=None, profile=False):
+        start = time.time()
+
         if port is None:
             port = generate_port()
 
@@ -71,7 +74,6 @@ class DaskCluster:
         self.scheduler_address = f"{HOSTNAME}:{port}"
         self.cluster = Cluster(self.workdir)
 
-        logging.info(f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address}")
         self._start_scheduler(self.scheduler)
         self._start_workers(self.workers, self.scheduler_address)
         if self._use_monitoring():
@@ -82,6 +84,9 @@ class DaskCluster:
 
         self.client = Client(f"tcp://{self.scheduler_address}", timeout=30)
         self.client.wait_for_workers(worker_count(self.workers["count"]))
+
+        logging.info(
+            f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address} took {time.time() - start} s")
 
     def start(self, args, name, host=None, env=None, workdir=None):
         self.start_many([(args, name, host, env, workdir)])
@@ -139,7 +144,8 @@ class DaskCluster:
         worker_args = workers.get("args", [])
 
         def get_args(cores):
-            return ["dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores), "--no-dashboard"] + worker_args
+            return ["dask-worker", scheduler_address, "--nthreads", "1", "--nprocs", str(cores),
+                    "--no-dashboard"] + worker_args
 
         env = {"OMP_NUM_THREADS": "1"}  # TODO
 
@@ -498,7 +504,8 @@ def benchmark(input, output_dir, profile, timeout, bootstrap):
 @click.option("--profile", default="")
 @click.option("--bootstrap", default=None)
 @click.option("--workon", default=DEFAULT_VENV)
-def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon):
+@click.option("--watch/--no-watch", default=False)
+def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
     if name is None:
         actual_name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
     else:
@@ -566,7 +573,12 @@ fi
 
     print(f"Submitting PBS script: {fpath}")
     result = subprocess.run(["qsub", fpath], stdout=subprocess.PIPE)
-    print(f"Job id: {result.stdout.decode().strip()}")
+    job_id = result.stdout.decode().strip()
+    print(f"Job id: {job_id}")
+
+    if watch:
+        subprocess.run(["watch", "-n", "10",
+                        f"""watch -n 10 "check-pbs-jobs --jobid {job_id} --print-job-err --print-job-out | tail"""])
 
 
 @click.group()
