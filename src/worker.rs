@@ -1,8 +1,9 @@
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 
-use crate::protocol::key::{DaskKey, DaskKeyRef};
+use crate::protocol::key::{DaskKey, DaskKeyRef, dask_key_ref_to_string};
 use crate::protocol::protocol::DaskPacket;
+use std::str;
 
 pub type WorkerId = u64;
 
@@ -30,10 +31,17 @@ impl Worker {
         &self.listen_address
     }
 
+    pub fn hostname(&self) -> String {
+        let s = self.listen_address.as_str();
+        let s : &str = s.find("://").map(|p| &s[p + 3..]).unwrap_or(s);
+        s.chars().take_while(|x| *x != ':').collect()
+    }
+
     pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
         crate::scheduler::schedproto::WorkerInfo {
             id: self.id,
             n_cpus: self.ncpus,
+            hostname: self.hostname()
         }
     }
 

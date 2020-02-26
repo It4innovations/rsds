@@ -8,6 +8,7 @@ pub type TaskId = u64;
 pub struct WorkerInfo {
     pub id: WorkerId,
     pub n_cpus: u32,
+    pub hostname: String,
 }
 
 #[cfg_attr(test, derive(PartialEq))]

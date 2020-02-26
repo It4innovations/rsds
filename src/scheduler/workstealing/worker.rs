@@ -2,10 +2,13 @@ use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
 use crate::scheduler::workstealing::task::TaskRef;
 use std::collections::HashSet;
 
+pub type HostnameId = u64;
+
 #[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
     pub ncpus: u32,
+    pub hostname_id: HostnameId,
     pub tasks: HashSet<TaskRef>,
 }
 
@@ -29,10 +32,11 @@ impl Worker {
 pub type WorkerRef = crate::common::WrappedRcRefCell<Worker>;
 
 impl WorkerRef {
-    pub fn new(wi: WorkerInfo) -> Self {
+    pub fn new(wi: WorkerInfo, hostname_id: HostnameId) -> Self {
         Self::wrap(Worker {
             id: wi.id,
             ncpus: wi.n_cpus,
+            hostname_id,
             tasks: Default::default(),
         })
     }

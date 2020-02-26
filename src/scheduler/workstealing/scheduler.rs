@@ -1,6 +1,6 @@
 use super::task::{SchedulerTaskState, Task, TaskRef};
 use super::utils::compute_b_level;
-use super::worker::{Worker, WorkerRef};
+use super::worker::{Worker, WorkerRef, HostnameId};
 use crate::common::{Map, Set};
 use crate::scheduler::comm::SchedulerComm;
 use crate::scheduler::schedproto::{
@@ -14,6 +14,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
 use crate::trace::{trace_worker_assign, trace_worker_finish, trace_worker_steal_response, trace_worker_steal, trace_new_worker};
+use hashbrown::HashMap;
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -22,6 +23,7 @@ pub struct Scheduler {
     tasks: Map<TaskId, TaskRef>,
     ready_to_assign: Vec<TaskRef>,
     new_tasks: Vec<TaskRef>,
+    hostnames: HashMap<String, HostnameId>,
     rng: ThreadRng,
 }
 
@@ -36,6 +38,7 @@ impl Scheduler {
             tasks: Default::default(),
             ready_to_assign: Default::default(),
             new_tasks: Default::default(),
+            hostnames: Default::default(),
             network_bandwidth: 100.0, // Guess better default
             rng: thread_rng(),
         }
@@ -361,7 +364,8 @@ impl Scheduler {
                 }
                 ToSchedulerMessage::NewWorker(wi) => {
                     trace_new_worker(wi.id, wi.n_cpus);
-                    assert!(self.workers.insert(wi.id, WorkerRef::new(wi),).is_none());
+                    let hostname_id = self.get_hostname_id(&wi.hostname);
+                    assert!(self.workers.insert(wi.id, WorkerRef::new(wi, hostname_id),).is_none());
                     invoke_scheduling = true;
                 }
                 ToSchedulerMessage::NetworkBandwidth(nb) => {
@@ -370,6 +374,11 @@ impl Scheduler {
             }
         }
         invoke_scheduling
+    }
+
+    pub fn get_hostname_id(&mut self, hostname: &str) -> HostnameId {
+        let new_id = self.hostnames.len() as HostnameId;
+        *self.hostnames.entry(hostname.to_owned()).or_insert(new_id)
     }
 
     fn choose_worker_for_task(&mut self, task: &Task) -> WorkerRef {
