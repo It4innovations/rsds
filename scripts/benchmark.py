@@ -19,7 +19,6 @@ import dask
 import numpy as np
 import pandas as pd
 import psutil
-import seaborn as sns
 import tqdm
 import xarray
 from distributed import Client
@@ -52,6 +51,14 @@ def start_process_pool(args):
     return start_process(args, host=host, workdir=workdir, name=name, env=env, init_cmd=init_cmd)
 
 
+def kill_fn(scheduler_sigint, node, process):
+    signal = "TERM"
+    if (process["key"].startswith("scheduler") and scheduler_sigint) or "monitor" in process["key"]:
+        signal = "INT"
+
+    assert kill_process(node, process["pid"], signal=signal)
+
+
 class DaskCluster:
     def __init__(self, cluster_info, workdir, port=None, profile=False):
         start = time.time()
@@ -75,9 +82,10 @@ class DaskCluster:
         self.cluster = Cluster(self.workdir)
 
         self._start_scheduler(self.scheduler)
-        self._start_workers(self.workers, self.scheduler_address)
+        nodes = self._start_workers(self.workers, self.scheduler_address)
         if self._use_monitoring():
-            self._start_monitors()
+            nodes = set(nodes) | {HOSTNAME}
+            self._start_monitors(nodes)
 
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
             self.cluster.serialize(f)
@@ -112,16 +120,13 @@ class DaskCluster:
             self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
 
     def kill(self):
+        start = time.time()
         self.client.close()
 
-        def kill_fn(node, process):
-            signal = "TERM"
-            if (process["key"].startswith("scheduler") and self._profile_flamegraph()) or "monitor" in process["key"]:
-                signal = "INT"
-
-            assert kill_process(node, process["pid"], signal=signal)
-
-        self.cluster.kill(kill_fn)
+        scheduler_sigint = self._profile_flamegraph()
+        fn = functools.partial(kill_fn, scheduler_sigint)
+        self.cluster.kill(fn)
+        logging.info(f"Cluster killed in {time.time() - start} seconds")
 
     def name(self):
         return f"{self.scheduler}-{self.workers}"
@@ -154,16 +159,20 @@ class DaskCluster:
 
         if count == "local":
             self.start(get_args(cores), env=env, name="worker-0", workdir="/tmp")
+            return [HOSTNAME]
         else:
             nodes = get_pbs_nodes()
             if count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
             args = []
+            nodes_spawned = [] 
             for i, node in zip(range(count), nodes[1:]):
                 args.append((get_args(cores), f"worker-{i}", node, env, "/tmp"))
+                nodes_spawned.append(node)
             self.start_many(args)
+            return nodes_spawned
 
-    def _start_monitors(self):
+    def _start_monitors(self, nodes):
         monitor_script = os.path.join(CURRENT_DIR, "monitor", "monitor.py")
         monitor_args = []
 
@@ -173,7 +182,8 @@ class DaskCluster:
 
         if is_inside_pbs():
             for node in get_pbs_nodes():
-                start(node)
+                if node in nodes:
+                    start(node)
         else:
             start(HOSTNAME)
 
@@ -398,67 +408,9 @@ def check_results(frame, reference):
                             f"Wrong result for {cluster}/{function} (expected {ref_results[0]}, got {result})")
 
 
-def create_plot(frame, plot_fn):
-    def extract(fn):
-        items = list(fn.split("-"))
-        for i in range(len(items)):
-            try:
-                num = float(items[i])
-                items[i] = num
-            except:
-                pass
-        return tuple(items)
-
-    clusters = sorted(set(frame["cluster"]))
-    functions = sorted(set(frame["function"]), key=extract)
-
-    def plot(data, **kwargs):
-        plot_fn(data, clusters, **kwargs)
-
-    g = sns.FacetGrid(frame, col="function", col_wrap=4, col_order=functions, sharey=False)
-    g = g.map_dataframe(plot)
-    g = g.add_legend()
-    g.set_ylabels("Time [ms]")
-    g.set(ylim=(0, None))
-    g.set_xticklabels(rotation=90)
-    return g
-
-
 def save_results(frame, directory):
-    def plot_box(data, clusters, **kwargs):
-        sns.boxplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
-
-    def plot_scatter(data, clusters, **kwargs):
-        sns.swarmplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
-
     os.makedirs(directory, exist_ok=True)
     frame.to_json(os.path.join(directory, RESULT_FILE))
-
-    if len(frame) > 0:
-        for (file, plot_fn) in (
-                ("result_boxplot", plot_box),
-                ("result_scatterplot", plot_scatter)
-        ):
-            plot = create_plot(frame, plot_fn)
-            plot.savefig(os.path.join(directory, f"{file}.png"))
-
-    def describe(frame, file):
-        if len(frame) > 0:
-            s = frame.groupby(["function", "cluster"]).describe()
-            file.write(f"{s}\n")
-            s = frame.groupby(["cluster"]).describe()
-            file.write(f"{s}\n")
-        else:
-            file.write("(empty dataframe)")
-
-    with pd.option_context('display.max_rows', None,
-                           'display.max_columns', None,
-                           'display.expand_frame_repr', False):
-        with open(os.path.join(directory, "summary.txt"), "w") as f:
-            f.write("All results:\n")
-            describe(frame, f)
-            f.write("Results without first run:\n")
-            describe(frame[frame["index"] != 0], f)
 
 
 def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:

@@ -1,4 +1,5 @@
 import os
+import datetime
 
 from bokeh.embed import file_html
 from bokeh.io import save
@@ -6,6 +7,8 @@ from bokeh.layouts import gridplot
 from bokeh.models import Div, NumeralTickFormatter, Panel, Tabs, Title
 from bokeh.plotting import figure
 from bokeh.resources import CDN
+from bokeh.models import Range1d
+from bokeh.palettes import d3
 from tornado import ioloop, web
 import pandas as pd
 
@@ -38,24 +41,25 @@ def process_name(process):
     return process.get("name", process.get("key")) or "Unknown process"
 
 
-def plot_time_chart(data, draw_fn, min_datetime, max_datetime, generate_row=None):
-    if not generate_row:
-        def generate_row(node, frame):
-            return [(node, frame)]
+def plot_time_chart(data, draw_fn, min_datetime, max_datetime, generate_rows=None):
+    if not generate_rows:
+        def generate_rows(node, frame):
+            return [[(node, frame)]]
 
     result = []
 
     for (node, frame) in data:
-        row = generate_row(node, frame)
-        columns = []
-        for r in row:
-            f = figure(plot_width=1000, plot_height=250,
-                       x_range=[min_datetime, max_datetime],
-                       x_axis_type='datetime')
-            draw_fn(r, f)
-            columns.append(f)
+        rows = generate_rows(node, frame)
+        for row in rows:
+            columns = []
+            for col in row:
+                f = figure(plot_width=1000, plot_height=250,
+                        x_range=[min_datetime, max_datetime],
+                        x_axis_type='datetime')
+                draw_fn(col, f)
+                columns.append(f)
 
-        result.append(columns)
+            result.append(columns)
     return gridplot(result)
 
 
@@ -66,29 +70,42 @@ def plot_resources_usage(report):
 
     datetimes = pd.concat(frame["datetime"] for (_, frame) in data)
 
-    min_datetime = datetimes.min()
+    min_datetime = datetimes.min() - datetime.timedelta(seconds=1)
     max_datetime = datetimes.max()
 
-    def generate_row(node, frame):
-        yield (node, frame, "cpumem")
-        yield (node, frame, "network")
-        yield (node, frame, "net-connections")
-        yield (node, frame, "io")
+    def generate_rows(node, frame):
+        return [
+            [
+                (node, frame, "cpu"),
+                (node, frame, "network")
+            ],
+            [
+                (node, frame, "mem"),
+                (node, frame, "net-connections")
+            ]
+        ]
 
     def draw(args, figure):
         node, frame, method = args
         time = frame["datetime"]
         resources = frame["resources"]
 
-        figure.plot_width = 500
-        figure.plot_height = 250
+        if method == "cpu":
+            figure.plot_width = 950
+            figure.plot_height = 400
+        else:
+            figure.plot_width = 950
+            figure.plot_height = 400
 
-        if method != "cpumem":
-            figure.plot_width = 400
+        figure.min_border_right = 20
+
+        if method in ("cpu", "mem"):
+            figure.y_range = Range1d(0, 1)
+
+        if len(resources) == 0:
+            return
 
         def draw_bytes(title, read_col, write_col):
-            if len(resources) == 0:
-                return
             if resources.iloc[0].get(read_col) is None or resources.iloc[0].get(write_col) is None:
                 return
 
@@ -104,15 +121,24 @@ def plot_resources_usage(report):
             figure.line(read.index, read, color="blue", legend_label="{} RX".format(title))
             figure.line(write.index, write, color="red", legend_label="{} TX".format(title))
 
-        if method == "cpumem":
-            cpu = resample(resources.apply(lambda res: average(res["cpu"])), time)
-            mem = resample(resources.apply(lambda res: res["mem"]), time)
+        if method == "cpu":
+            cpu_count = len(resources.iloc[0]["cpu"])
+            cpus = [resample(resources.apply(lambda res: res["cpu"][i]), time) for i in range(cpu_count)]
+            cpu_mean = resample(resources.apply(lambda res: average(res["cpu"])), time)
 
             processes = (process_name(p) for p in report.cluster.nodes[node] if process_name(p))
             figure.title = Title(text="{}: {}".format(node, ",".join(processes)))
 
             figure.yaxis[0].formatter = NumeralTickFormatter(format="0 %")
-            figure.line(cpu.index, cpu / 100.0, color="blue", legend_label="CPU")
+
+            palette = d3["Category20"][20]
+            for (i, cpu) in enumerate(cpus):
+                color = palette[i % 20]
+                figure.line(cpu.index, cpu / 100.0, color=color, legend_label=f"CPU #{i}")
+            figure.line(cpu_mean.index, cpu_mean / 100.0, color="red", legend_label=f"Average CPU", line_dash="dashed", line_width=5)
+        elif method == "mem":
+            mem = resample(resources.apply(lambda res: res["mem"]), time)
+            figure.yaxis[0].formatter = NumeralTickFormatter(format="0 %")
             figure.line(mem.index, mem / 100.0, color="red", legend_label="Memory")
         elif method == "network":
             draw_bytes("Net", "net-read", "net-write")
@@ -122,7 +148,7 @@ def plot_resources_usage(report):
         elif method == "io":
             draw_bytes("Disk", "disk-read", "disk-write")
 
-    return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime, generate_row=generate_row)
+    return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime, generate_rows=generate_rows)
 
 
 def plot_output(report):

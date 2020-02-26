@@ -3,9 +3,15 @@ import logging
 import os
 import socket
 import subprocess
+from multiprocessing import Pool
 
 HOSTNAME = socket.gethostname()
 CLUSTER_FILENAME = "cluster.json"
+
+
+def kill_process_pool(args):
+    kill_fn, node, process = args
+    kill_fn(node, process)
 
 
 class Cluster:
@@ -41,8 +47,8 @@ class Cluster:
         if kill_fn is None:
             kill_fn = lambda node, process: kill_process(node, process["pid"])
 
-        for (node, process) in self.processes():
-            kill_fn(node, process)
+        with Pool() as pool:
+            pool.map(kill_process_pool, [(kill_fn, node, process) for (node, process) in self.processes()])
 
     def get_processes_by_key(self, key):
         def gen():
