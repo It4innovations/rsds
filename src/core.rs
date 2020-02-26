@@ -305,43 +305,48 @@ impl Core {
         notifications: &mut Notifications,
     ) {
         let task_ref = self.get_task_by_key_or_panic(&msg.key);
-        let mut task = task_ref.get_mut();
-        if task.is_done() {
-            trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
-            return;
-        }
-        let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
-            assert!(from_w == worker_ref);
-            to_w.clone()
-        } else {
-            panic!("Invalid state of task when steal response occured");
+        let new_state = {
+            let task = task_ref.get();
+            if task.is_done() {
+                trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
+                return;
+            }
+            let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
+                assert!(from_w == worker_ref);
+                to_w.clone()
+            } else {
+                panic!("Invalid state of task when steal response occured");
+            };
+
+            // This needs to correspond with behavior in worker!
+            let success = match msg.state {
+                WorkerState::Waiting | WorkerState::Ready => true,
+                _ => false,
+            };
+
+            {
+                let from_worker = worker_ref.get();
+                let to_worker = to_w.get();
+                trace_worker_steal_response(
+                    task.id,
+                    from_worker.id,
+                    to_worker.id,
+                    if success { "success" } else { "fail" },
+                );
+                notifications.task_steal_response(&from_worker, &to_worker, &task, success);
+            }
+
+            if success {
+                log::debug!("Task stealing was successful task={}", task.id);
+                self.compute_task(to_w.clone(), task_ref.clone(), notifications);
+                TaskRuntimeState::Assigned(to_w)
+            } else {
+                log::debug!("Task stealing was not successful task={}", task.id);
+                TaskRuntimeState::Assigned(worker_ref.clone())
+            }
         };
 
-        // This needs to correspond with behavior in worker!
-        let success = match msg.state {
-            WorkerState::Waiting | WorkerState::Ready => true,
-            _ => false,
-        };
-
-        {
-            let from_worker = worker_ref.get();
-            let to_worker = to_w.get();
-            trace_worker_steal_response(
-                task.id,
-                from_worker.id,
-                to_worker.id,
-                if success { "success" } else { "fail" },
-            );
-            notifications.task_steal_response(&from_worker, &to_worker, &task, success);
-        }
-        if success {
-            log::debug!("Task stealing was successful task={}", task.id);
-            self.compute_task(to_w.clone(), task_ref.clone(), notifications);
-            task.state = TaskRuntimeState::Assigned(to_w);
-        } else {
-            log::debug!("Task stealing was not successful task={}", task.id);
-            task.state = TaskRuntimeState::Assigned(worker_ref.clone())
-        }
+        task_ref.get_mut().state = new_state;
     }
 
     pub fn on_task_error(
@@ -418,6 +423,7 @@ impl Core {
                         };
                         if let Some(w) = wr {
                             t.state = TaskRuntimeState::Assigned(w.clone());
+                            drop(t);  // avoid refcell problem
                             self.compute_task(w, consumer.clone(), notifications);
                         }
                     }
