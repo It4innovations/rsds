@@ -13,3 +13,4 @@ dask[dataframe]
 psutil
 mimesis
 json5
+gitpython

@@ -1,7 +1,8 @@
 import datetime
 import functools
+import hashlib
 import itertools
-import json5
+import json
 import logging
 import os
 import pathlib
@@ -9,7 +10,6 @@ import re
 import shutil
 import socket
 import subprocess
-import sys
 import threading
 import time
 import traceback
@@ -18,12 +18,14 @@ from random import Random
 
 import click
 import dask
+import json5
 import numpy as np
 import pandas as pd
 import psutil
 import tqdm
 import xarray
 from distributed import Client
+from git import Repo
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
 from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
@@ -47,6 +49,8 @@ USECASES = {
     "pandas_groupby": bench_pandas_groupby,
     "pandas_join": bench_pandas_join
 }
+HASHES = {}
+GIT_REPOSITORY = Repo(BUILD_DIR)
 
 
 def start_process_pool(args):
@@ -81,6 +85,8 @@ class DaskCluster:
             f"ml {' '.join(MODULES)}",
             f"workon {venv}"
         )
+
+        write_metadata(self.scheduler, self.workdir)
 
         protocol = self.scheduler.get("protocol", "tcp")
         self.hostname = HOSTNAME if protocol == "tcp" else socket.gethostbyname(socket.gethostname())
@@ -135,7 +141,7 @@ class DaskCluster:
         logging.info(f"Cluster killed in {time.time() - start} seconds")
 
     def _start_scheduler(self, scheduler):
-        binary = scheduler["binary"].replace("$BUILD", str(BUILD_DIR))
+        binary = normalize_binary(scheduler["binary"])
 
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
         is_rsds = "rsds" in scheduler["name"]
@@ -315,6 +321,43 @@ class Benchmark:
             }
 
 
+def get_file_md5(path):
+    if path not in HASHES:
+        with open(path, "rb") as sched_file:
+            HASHES[path] = hashlib.md5(sched_file.read()).hexdigest()
+    return HASHES[path]
+
+
+def write_metadata(scheduler, directory):
+    scheduler_binary = normalize_binary(scheduler["binary"])
+    metadata = {
+        "scheduler-binary": {
+            "path": scheduler_binary,
+            "md5": get_file_md5(scheduler_binary)
+        },
+        "git": {
+            "branch": GIT_REPOSITORY.active_branch.name,
+            "sha": GIT_REPOSITORY.active_branch.commit.hexsha
+        }
+    }
+
+    with open(os.path.join(directory, "metadata.txt"), "w") as f:
+        json.dump(metadata, f, indent=4)
+
+
+def normalize_binary(binary):
+    path = binary.replace("$BUILD", str(BUILD_DIR))
+    if not os.path.isfile(path):
+        for directory in os.environ.get("PATH", "").split(":"):
+            fullpath = os.path.join(directory, path)
+            if os.path.isfile(fullpath):
+                path = fullpath
+                break
+        else:
+            raise Exception(f"Path {path} not found")
+    return path
+
+
 def skip_completed(configurations, bootstrap):
     if len(bootstrap) > 0:
         filtered_configs = []
@@ -381,7 +424,7 @@ def get_pbs_nodes():
 
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
-    workers = f"{workers['nodes']}n-{workers['processes']}p-{workers['threads']}t"
+    workers = f"{workers['nodes']}n-{workers['processes']}p-{workers.get('threads', 1)}t"
     scheduler = cluster_info['scheduler']['name']
     return f"{scheduler}-{workers}"
 
