@@ -13,8 +13,6 @@ use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
-use crate::trace::{trace_worker_assign, trace_worker_finish, trace_worker_steal_response, trace_worker_steal, trace_new_worker};
-use hashbrown::HashMap;
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -23,7 +21,7 @@ pub struct Scheduler {
     tasks: Map<TaskId, TaskRef>,
     ready_to_assign: Vec<TaskRef>,
     new_tasks: Vec<TaskRef>,
-    hostnames: HashMap<String, HostnameId>,
+    hostnames: Map<String, HostnameId>,
     rng: ThreadRng,
 }
 
@@ -501,6 +499,7 @@ mod tests {
             scheduler.update(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
                 id: 100 + i as WorkerId,
                 n_cpus,
+                hostname: "worker".into()
             })]);
         }
     }

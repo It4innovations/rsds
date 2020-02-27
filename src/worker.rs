@@ -1,7 +1,7 @@
 use crate::common::WrappedRcRefCell;
 use crate::core::Core;
 
-use crate::protocol::key::{DaskKey, DaskKeyRef, dask_key_ref_to_string};
+use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::protocol::DaskPacket;
 use std::str;
 
