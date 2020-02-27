@@ -69,6 +69,9 @@ def plot_resources_usage(report):
     nodes = get_sorted_nodes(report.cluster, ["monitor"])
     data = [(node, monitor[node]) for node in nodes if node in monitor]
 
+    if not data:
+        return Div(text="(no data)")
+
     datetimes = pd.concat(frame["datetime"] for (_, frame) in data)
 
     min_datetime = datetimes.min() - datetime.timedelta(seconds=1)

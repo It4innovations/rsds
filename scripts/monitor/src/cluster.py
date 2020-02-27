@@ -72,7 +72,7 @@ class Cluster:
 
 
 def is_local(host):
-    return host == HOSTNAME or host == "localhost"
+    return host == HOSTNAME or host == "localhost" or host == socket.gethostbyname(HOSTNAME)
 
 
 def start_process(commands, host=None, workdir=None, modules=(), name=None, env=None, pyenv=None, init_cmd=()):

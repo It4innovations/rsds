@@ -1,11 +1,13 @@
 import datetime
 import functools
 import itertools
+import json5
 import logging
 import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -29,6 +31,7 @@ from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
+MODULES = ("hwloc/2.0.3-GCC-6.3.0-2.27", "numactl/2.0.12-GCC-6.3.0-2.27")
 
 TIMEOUT_EXIT_CODE = 16
 RESULT_FILE = "result.json"
@@ -75,22 +78,25 @@ class DaskCluster:
         self.profile = profile
         self.init_cmd = (
             "source ~/.bashrc",
+            f"ml {' '.join(MODULES)}",
             f"workon {venv}"
         )
 
-        self.scheduler_address = f"{HOSTNAME}:{port}"
+        protocol = self.scheduler.get("protocol", "tcp")
+        self.hostname = HOSTNAME if protocol == "tcp" else socket.gethostbyname(socket.gethostname())
+        self.scheduler_address = f"{protocol}://{self.hostname}:{port}"
         self.cluster = Cluster(self.workdir)
 
         self._start_scheduler(self.scheduler)
         nodes = self._start_workers(self.workers, self.scheduler_address)
         if self._use_monitoring():
-            nodes = set(nodes) | {HOSTNAME}
+            nodes = set(nodes) | {self.hostname}
             self._start_monitors(nodes)
 
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
             self.cluster.serialize(f)
 
-        self.client = Client(f"tcp://{self.scheduler_address}", timeout=30)
+        self.client = Client(f"{self.scheduler_address}", timeout=30)
 
         required_workers = worker_count(self.workers)
         self.client.wait_for_workers(required_workers)
@@ -117,7 +123,7 @@ class DaskCluster:
                     spawned.append(res)
 
         for ((pid, cmd), (_, host, _, name, _, _)) in zip(spawned, pool_args):
-            self.cluster.add(host if host else HOSTNAME, pid, cmd, key=name)
+            self.cluster.add(host if host else self.hostname, pid, cmd, key=name)
 
     def kill(self):
         start = time.time()
@@ -150,14 +156,17 @@ class DaskCluster:
         worker_args = workers.get("args", [])
 
         def get_args():
-            return ["dask-worker", scheduler_address, "--nthreads", str(threads), "--nprocs", str(processes),
+            return ["dask-worker", scheduler_address,
+                    "--nthreads", str(threads),
+                    "--nprocs", str(processes),
+                    "--local-directory", "/tmp",
                     "--no-dashboard"] + worker_args
 
         env = {"OMP_NUM_THREADS": "1"}  # TODO
 
         if node_count == "local":
-            self.start(get_args(), env=env, name="worker-0", workdir="/tmp")
-            return [HOSTNAME]
+            self.start(get_args(), env=env, name="worker-0", workdir=self.workdir)
+            return [self.hostname]
         else:
             nodes = get_pbs_nodes()
             if node_count >= len(nodes):
@@ -165,7 +174,7 @@ class DaskCluster:
             args = []
             nodes_spawned = [] 
             for i, node in zip(range(node_count), nodes[1:]):
-                args.append((get_args(), f"worker-{i}", node, env, "/tmp"))
+                args.append((get_args(), f"worker-{i}", node, env, self.workdir))
                 nodes_spawned.append(node)
             self.start_many(args)
             return nodes_spawned
@@ -183,7 +192,7 @@ class DaskCluster:
                 if node in nodes:
                     start(node)
         else:
-            start(HOSTNAME)
+            start(self.hostname)
 
         self.start_many(monitor_args)
 
@@ -417,10 +426,16 @@ def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
         bootstrap = os.path.abspath(bootstrap)
         assert os.path.isfile(bootstrap)
 
-    benchmark = Benchmark(cfggen.build_config_from_file(input), output_dir, profile)
+    benchmark = Benchmark(load_config(input), output_dir, profile)
     frame, timeouted = benchmark.run(timeout, bootstrap)
     save_results(frame, output_dir)
     return timeouted
+
+
+def load_config(input):
+    with open(input) as f:
+        content = json5.load(f)
+        return cfggen.build_config(content)
 
 
 class WalltimeType(click.ParamType):
@@ -477,7 +492,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
     assert os.path.isfile(input)
 
     # sanity check
-    Benchmark(cfggen.build_config_from_file(input), workdir, profile)
+    Benchmark(load_config(input), workdir, profile)
 
     directory = os.path.join(os.path.abspath(workdir), actual_name)
     os.makedirs(directory, exist_ok=True)
@@ -503,6 +518,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 {pbs_project}
 
 source ~/.bashrc || exit 1
+ml {' '.join(MODULES)} || exit 1
 workon {workon} || exit 1
 
 python {script_path} benchmark {input} {directory} {" ".join(args)}

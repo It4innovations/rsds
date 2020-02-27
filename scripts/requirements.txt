@@ -12,3 +12,4 @@ scikit-learn
 dask[dataframe]
 psutil
 mimesis
+json5
