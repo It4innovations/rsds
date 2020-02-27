@@ -2,8 +2,10 @@ pub use crate::error::DsError;
 
 #[macro_use]
 mod trace;
+#[macro_use]
+mod util;
 
-mod client;
+pub mod client;
 pub mod comm;
 mod common;
 pub mod core;
@@ -12,7 +14,6 @@ pub mod protocol;
 pub mod reactor;
 pub mod scheduler;
 mod task;
-mod util;
 mod worker;
 
 #[cfg(test)]

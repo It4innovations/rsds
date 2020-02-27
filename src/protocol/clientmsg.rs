@@ -1,4 +1,4 @@
-use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
+use crate::protocol::protocol::{Frames, SerializedMemory, SerializedTransport, FromDaskTransport};
 
 use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
@@ -16,10 +16,30 @@ pub enum ClientTaskSpec<T = SerializedMemory> {
     Serialized(T),
 }
 
+pub fn task_spec_to_memory(spec: ClientTaskSpec<SerializedTransport>, frames: &mut Frames) -> ClientTaskSpec<SerializedMemory> {
+    match spec {
+        ClientTaskSpec::Serialized(v) => {
+            ClientTaskSpec::<SerializedMemory>::Serialized(
+                v.to_memory(frames),
+            )
+        }
+        ClientTaskSpec::Direct {
+            function,
+            args,
+            kwargs,
+        } => ClientTaskSpec::<SerializedMemory>::Direct {
+            function: function.to_memory(frames),
+            args: args.to_memory(frames),
+            kwargs: kwargs.map(|v| v.to_memory(frames)),
+        },
+    }
+}
+
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
-pub struct UpdateGraphMsg<T = SerializedMemory> {
-    pub tasks: Map<DaskKey, ClientTaskSpec<T>>,
+pub struct UpdateGraphMsg {
+    #[serde(with = "tuple_vec_map")]
+    pub tasks: Vec<(DaskKey, ClientTaskSpec<SerializedTransport>)>,
     pub dependencies: Map<DaskKey, Vec<DaskKey>>,
     pub keys: Vec<DaskKey>,
 
@@ -30,6 +50,9 @@ pub struct UpdateGraphMsg<T = SerializedMemory> {
     pub user_priority: Priority,
 
     pub actors: Option<bool>,
+
+    #[serde(skip)]
+    pub frames: Frames
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -50,52 +73,29 @@ pub struct ClientDesiresKeysMsg {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum FromClientMessage<T = SerializedMemory> {
+pub enum FromClientMessage {
     HeartbeatClient,
-    UpdateGraph(UpdateGraphMsg<T>),
+    UpdateGraph(UpdateGraphMsg),
     ClientReleasesKeys(ClientReleasesKeysMsg),
     ClientDesiresKeys(ClientDesiresKeysMsg),
     CloseClient,
     CloseStream,
 }
 
-impl FromDaskTransport for FromClientMessage<SerializedMemory> {
-    type Transport = FromClientMessage<SerializedTransport>;
+impl FromDaskTransport for FromClientMessage {
+    type Transport = Self;
 
     fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
         match source {
             Self::Transport::HeartbeatClient => Self::HeartbeatClient,
             Self::Transport::UpdateGraph(data) => Self::UpdateGraph(UpdateGraphMsg {
-                tasks: data
-                    .tasks
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k,
-                            match v {
-                                ClientTaskSpec::Serialized(v) => {
-                                    ClientTaskSpec::<SerializedMemory>::Serialized(
-                                        v.to_memory(frames),
-                                    )
-                                }
-                                ClientTaskSpec::Direct {
-                                    function,
-                                    args,
-                                    kwargs,
-                                } => ClientTaskSpec::<SerializedMemory>::Direct {
-                                    function: function.to_memory(frames),
-                                    args: args.to_memory(frames),
-                                    kwargs: kwargs.map(|v| v.to_memory(frames)),
-                                },
-                            },
-                        )
-                    })
-                    .collect(),
+                tasks: data.tasks,
                 dependencies: data.dependencies,
                 keys: data.keys,
                 actors: data.actors,
                 priority: data.priority,
                 user_priority: data.user_priority,
+                frames: std::mem::take(frames)
             }),
             Self::Transport::ClientReleasesKeys(data) => Self::ClientReleasesKeys(data),
             Self::Transport::ClientDesiresKeys(data) => Self::ClientDesiresKeys(data),
@@ -129,3 +129,4 @@ pub enum ToClientMessage {
     KeyInMemory(KeyInMemoryMsg),
     TaskErred(TaskErredMsg),
 }
+from_dask_transport!(test, ToClientMessage);

@@ -684,7 +684,7 @@ mod tests {
                     client: to_dask_key("test-client"),
                 },
             ))?,
-            serialize_single_packet(FromClientMessage::CloseClient::<SerializedTransport>)?,
+            serialize_single_packet(FromClientMessage::CloseClient)?,
         ];
         let (stream, msg_rx) = MemoryStream::new(packets_to_bytes(packets)?);
         let (core, comm, _rx) = dummy_ctx();

@@ -24,7 +24,7 @@ impl<T> WrappedRcRefCell<T> {
     /// Create a new wrapped instance. This is not called `new` so that you may implement
     /// your own function `new`.
     #[inline]
-    pub(crate) fn wrap(t: T) -> Self {
+    pub fn wrap(t: T) -> Self {
         WrappedRcRefCell {
             inner: Rc::new(RefCell::new(t)),
         }
@@ -32,19 +32,19 @@ impl<T> WrappedRcRefCell<T> {
 
     /// Return a immutable reference to contents. Panics whenever `RefCell::borrow()` would.
     #[inline]
-    pub(crate) fn get(&self) -> Ref<T> {
+    pub fn get(&self) -> Ref<T> {
         self.inner.deref().borrow()
     }
 
     /// Return a mutable reference to contents. Panics whenever `RefCell::borrow_mut()` would.
     #[inline]
-    pub(crate) fn get_mut(&self) -> RefMut<T> {
+    pub fn get_mut(&self) -> RefMut<T> {
         self.inner.deref().borrow_mut()
     }
 
     // Return the number of strong references to the contained Rc
     #[inline]
-    pub(crate) fn get_num_refs(&self) -> usize {
+    pub fn get_num_refs(&self) -> usize {
         Rc::strong_count(&self.inner)
     }
 }

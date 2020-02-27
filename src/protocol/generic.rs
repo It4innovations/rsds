@@ -57,6 +57,8 @@ pub struct IdentityResponse {
     pub workers: Map<DaskKey, WorkerInfo>,
 }
 
+from_dask_transport!(test, IdentityResponse);
+
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 pub struct RegisterClientMsg {
@@ -176,11 +178,11 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
     }
 }
 
-#[cfg_attr(test, derive(Deserialize))]
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SimpleMessage {
     pub op: DaskKey,
 }
+from_dask_transport!(test, SimpleMessage);
 
 #[cfg(test)]
 mod tests {

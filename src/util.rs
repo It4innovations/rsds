@@ -20,3 +20,20 @@ impl<T> OptionExt<T> for Option<T> {
         self.unwrap()
     }
 }
+
+#[macro_export]
+macro_rules! from_dask_transport {
+    (test, $ty:ty) => {
+        #[cfg(test)]
+        from_dask_transport!($ty);
+    };
+    ($ty:ty) => {
+        impl $crate::protocol::protocol::FromDaskTransport for $ty {
+            type Transport = Self;
+
+            fn deserialize(source: Self::Transport, _frames: &mut $crate::protocol::protocol::Frames) -> Self {
+                source
+            }
+        }
+    }
+}

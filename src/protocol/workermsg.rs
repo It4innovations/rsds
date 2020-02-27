@@ -1,9 +1,6 @@
 use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{
-    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
-    SerializedMemory, SerializedTransport, ToDaskTransport,
-};
+use crate::protocol::protocol::{map_from_transport, map_to_transport, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport, Frames};
 use serde::{Deserialize, Serialize};
 
 fn binary_is_empty(transport: &SerializedTransport) -> bool {
@@ -101,6 +98,7 @@ pub struct RegisterWorkerResponseMsg {
     pub heartbeat_interval: f64,
     pub worker_plugins: Vec<()>, // type of plugins??
 }
+from_dask_transport!(test, RegisterWorkerResponseMsg);
 
 // FIX: Deserialize from string (does it working for msgpack??)
 #[derive(Deserialize, Serialize, Debug, PartialEq)]
@@ -245,3 +243,4 @@ pub struct UpdateDataResponse {
     pub status: DaskKey,
     pub nbytes: Map<DaskKey, u64>,
 }
+from_dask_transport!(UpdateDataResponse);

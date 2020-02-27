@@ -243,14 +243,6 @@ pub trait FromDaskTransport {
     fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self;
 }
 
-impl<T: DeserializeOwned> FromDaskTransport for T {
-    type Transport = Self;
-
-    fn deserialize(source: Self::Transport, _frames: &mut Frames) -> Self {
-        source
-    }
-}
-
 #[inline]
 pub fn map_from_transport<K: Eq + Hash>(
     map: crate::common::Map<K, SerializedTransport>,
@@ -431,9 +423,7 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::{
-        ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
-    };
+    use crate::protocol::clientmsg::{ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, UpdateGraphMsg, task_spec_to_memory};
     use crate::protocol::protocol::{
         serialize_single_packet, Batch, DaskCodec, DaskPacket, SerializedMemory,
     };
@@ -442,12 +432,13 @@ mod tests {
     use futures::SinkExt;
     use maplit::hashmap;
 
-    use crate::protocol::key::to_dask_key;
+    use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
     use std::io::Cursor;
     use tokio_util::codec::{Decoder, Encoder, Framed};
+    use crate::common::Map;
 
     #[tokio::test]
     async fn parse_message_simple() -> Result<()> {
@@ -554,11 +545,11 @@ mod tests {
 
     #[tokio::test]
     async fn parse_update_graph_1() -> Result<()> {
-        let main: Batch<FromClientMessage> =
+        let mut main: Batch<FromClientMessage> =
             bytes_to_msg(&load_bin_test_data("data/pandas-update-graph-1.bin"))?;
         assert_eq!(main.len(), 1);
-        match &main[0] {
-            FromClientMessage::UpdateGraph(msg) => {
+        match main.pop().unwrap() {
+            FromClientMessage::UpdateGraph(mut msg) => {
                 assert_eq!(
                     msg.keys,
                     vec!("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".into())
@@ -570,11 +561,12 @@ mod tests {
                     to_dask_key("('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)") => vec![]
                     }.into_iter().collect()
                 );
-                match &msg.tasks[b"('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()] {
+                let tasks = parse_tasks(&mut msg);
+                match tasks[b"('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
-                match &msg.tasks
+                match tasks
                     [b"('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()]
                 {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
@@ -589,18 +581,20 @@ mod tests {
 
     #[tokio::test]
     async fn parse_update_graph_2() -> Result<()> {
-        let main: Batch<FromClientMessage> =
+        let mut main: Batch<FromClientMessage> =
             bytes_to_msg(&load_bin_test_data("data/pandas-update-graph-2.bin"))?;
         assert_eq!(main.len(), 2);
-        match &main[0] {
-            FromClientMessage::UpdateGraph(msg) => {
+        main.pop().unwrap();
+        match main.pop().unwrap() {
+            FromClientMessage::UpdateGraph(mut msg) => {
                 assert_eq!(
                     msg.keys,
                     vec!(to_dask_key(
                         "('truediv-fb32c371476f0df11c512c4c98d6380d', 0)"
                     ))
                 );
-                match &msg.tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
+                let tasks = parse_tasks(&mut msg);
+                match &tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
                     ClientTaskSpec::Direct {
                         function,
                         args,
@@ -612,7 +606,7 @@ mod tests {
                     }
                     _ => panic!(),
                 }
-                match &msg.tasks[b"('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)".as_ref()] {
+                match tasks[b"('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)".as_ref()] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
@@ -646,6 +640,10 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    fn parse_tasks(msg: &mut UpdateGraphMsg) -> Map<DaskKey, ClientTaskSpec<SerializedMemory>> {
+        std::mem::take(&mut msg.tasks).into_iter().map(|(k, v)| (k, task_spec_to_memory(v, &mut msg.frames))).collect()
     }
 
     fn get_binary(serialized: &SerializedMemory) -> Vec<u8> {

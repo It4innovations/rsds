@@ -3,10 +3,14 @@ use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
 use crate::core::CoreRef;
-use crate::protocol::clientmsg::UpdateGraphMsg;
+use crate::protocol::clientmsg::{task_spec_to_memory, ClientTaskSpec, UpdateGraphMsg};
 
-use crate::protocol::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse, ProxyMsg};
-use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet, map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, SerializedMemory, MessageWrapper};
+use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::protocol::protocol::{
+    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
+    map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
+    SerializedMemory,
+};
 
 use crate::protocol::workermsg::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
@@ -29,21 +33,22 @@ pub fn update_graph(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     client_id: ClientId,
-    update: UpdateGraphMsg,
+    mut update: UpdateGraphMsg,
 ) -> crate::Result<()> {
     log::debug!("Updating graph from client {}", client_id);
 
+    let tasks: Vec<(DaskKey, ClientTaskSpec<SerializedMemory>)> = std::mem::take(&mut update.tasks)
+        .into_iter()
+        .map(|(k, v)| (k, task_spec_to_memory(v, &mut update.frames)))
+        .collect();
+
     let mut core = core_ref.get_mut();
-    let mut new_tasks = Vec::with_capacity(update.tasks.len());
+    let mut new_tasks = Vec::with_capacity(tasks.len());
 
     let mut new_task_ids: Map<DaskKey, TaskId> = Default::default();
 
     let lowest_id = core.new_task_id();
-
-    /* client send a user_priority in inverse meaning, so we use negative value
-       to make same meaning in the rsds */
-    let user_priority = -update.user_priority;
-    for task_key in update.tasks.keys() {
+    for (task_key, _) in &tasks {
         new_task_ids.insert(task_key.clone(), core.new_task_id());
     }
 
@@ -53,7 +58,11 @@ pub fn update_graph(
         client_id
     );
 
-    for (task_key, task_spec) in update.tasks {
+    /* client send a user_priority in inverse meaning, so we use negative value
+       to make same meaning in the rsds */
+    let user_priority = -update.user_priority;
+
+    for (task_key, task_spec) in tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
             let mut inputs: Vec<_> = deps
@@ -442,12 +451,11 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         .into_iter()
         .map(|key| {
             let workers = match core.get_task_by_key(&key) {
-                Some(task) =>
-                    match task.get().get_workers() {
-                        Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
-                        None => vec![],
-                    }
-                None => vec![]
+                Some(task) => match task.get().get_workers() {
+                    Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
+                    None => vec![],
+                },
+                None => vec![],
             };
             (key, workers)
         })
@@ -463,7 +471,12 @@ pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::DsError> + Unpin
     msg: ProxyMsg,
 ) -> crate::Result<()> {
     let worker_address: DaskKey = {
-        core_ref.get().get_worker_by_key_or_panic(&msg.worker).get().address().into()
+        core_ref
+            .get()
+            .get_worker_by_key_or_panic(&msg.worker)
+            .get()
+            .address()
+            .into()
     };
     let mut connection = connect_to_worker(worker_address).await?;
     let (reader, writer) = connection.split();
