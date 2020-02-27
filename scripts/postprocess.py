@@ -47,6 +47,13 @@ def summary(result, output_dir):
     generate_summary(result, output_dir)
 
 
+@click.command()
+@click.argument("result")
+@click.option("--output-dir", default=None)
+def charts(result, output_dir):
+    generate_charts(result, output_dir)
+
+
 def generate_dir(path):
     cluster = os.path.join(path, CLUSTER_FILENAME)
     if os.path.isfile(cluster):
@@ -88,5 +95,6 @@ if __name__ == "__main__":
     cli.add_command(monitor_html)
     cli.add_command(monitor_serve)
     cli.add_command(summary)
+    cli.add_command(charts)
     cli.add_command(all)
     cli()

@@ -2,6 +2,7 @@ import os
 
 import pandas as pd
 import seaborn as sns
+from matplotlib import ticker
 
 
 def create_plot(frame, plot_fn):
@@ -30,15 +31,25 @@ def create_plot(frame, plot_fn):
     return g
 
 
+def get_y_formatter(data):
+    space = max(data.max() / 15, 1000)
+    space = (space // 1000) * 1000
+    return ticker.MultipleLocator(space)
+
+
 def generate_charts(result, directory):
     directory = directory or os.getcwd()
     frame = pd.read_json(result)
 
     def plot_box(data, clusters, **kwargs):
-        sns.boxplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
+        y = data["time"] * 1000
+        ax = sns.boxplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters)
+        ax.yaxis.set_major_locator(get_y_formatter(y))
 
     def plot_scatter(data, clusters, **kwargs):
-        sns.swarmplot(x=data["cluster"], y=data["time"] * 1000, hue=data["cluster"], order=clusters, hue_order=clusters)
+        y = data["time"] * 1000
+        ax = sns.swarmplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters)
+        ax.yaxis.set_major_locator(get_y_formatter(y))
 
     if len(frame) > 0:
         for (file, plot_fn) in (
