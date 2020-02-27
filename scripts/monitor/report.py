@@ -1,5 +1,6 @@
 import os
 import datetime
+import base64
 
 from bokeh.embed import file_html
 from bokeh.io import save
@@ -151,6 +152,14 @@ def plot_resources_usage(report):
     return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime, generate_rows=generate_rows)
 
 
+def plot_profile(flamegraph):
+    with open(flamegraph, "rb") as f:
+        data = f.read()
+        base64_content = base64.b64encode(data).decode()
+        content = f"""<object type="image/svg+xml" data="data:image/svg+xml;base64,{base64_content}"></object>"""
+        return Div(text=content)
+
+
 def plot_output(report):
     nodes = [k for k in report.outputs.keys() if not k.startswith("monitor")]
     tabs = []
@@ -169,11 +178,15 @@ def plot_output(report):
     return Tabs(tabs=tabs, sizing_mode='stretch_both')
 
 
-def create_page(report):
+def create_page(report, directory):
     structure = [
         ("Resources", plot_resources_usage),
         ("Output", plot_output)
     ]
+
+    flamegraph = os.path.join(directory, "scheduler.svg")
+    if os.path.isfile(flamegraph):
+        structure.append(("Scheduler profile", lambda _: plot_profile(flamegraph)))
 
     tabs = []
     for name, fn in structure:
@@ -195,15 +208,19 @@ def load_report(cluster_file):
 
 def generate(cluster_file, output):
     report = load_report(cluster_file)
-    page = create_page(report)
+    directory = os.path.dirname(cluster_file)
+    page = create_page(report, directory)
     save(page, output, title="Cluster monitor", resources=CDN)
 
 
 def serve(cluster_file, port):
+    directory = os.path.dirname(cluster_file)
+
+
     class Handler(web.RequestHandler):
         def get(self):
             report = load_report(cluster_file)
-            page = create_page(report)
+            page = create_page(report, directory)
             self.write(file_html(page, CDN, "Cluster report"))
 
     app = web.Application([
