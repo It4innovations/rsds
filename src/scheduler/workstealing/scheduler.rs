@@ -413,6 +413,7 @@ impl Scheduler {
 
 fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
     // TODO: For large number of inputs, only sample inputs
+    let hostname_id = worker_ref.get().hostname_id;
     task.inputs
         .iter()
         .take(512)
@@ -420,6 +421,8 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
             let t = tr.get();
             if t.placement.contains(worker_ref) {
                 0u64
+            } else if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
+                t.size / 8
             } else {
                 t.size
             }
