@@ -49,7 +49,7 @@ def generate_charts(result, directory):
     def plot_scatter(data, clusters, **kwargs):
         y = data["time"] * 1000
         ax = sns.swarmplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters)
-        ax.yaxis.set_major_locator(get_y_formatter(y))
+        # ax.yaxis.set_major_locator(get_y_formatter(y))
 
     if len(frame) > 0:
         for (file, plot_fn) in (

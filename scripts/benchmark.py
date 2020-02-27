@@ -508,18 +508,6 @@ def benchmark(input, output_dir, profile, timeout, bootstrap):
         exit(TIMEOUT_EXIT_CODE)
 
 
-@click.command()
-@click.argument("input")
-@click.option("--name", default=None)
-@click.option("--nodes", default=8)
-@click.option("--queue", default="qexp")
-@click.option("--walltime", default="01:00:00", type=WalltimeType())
-@click.option("--project", default="")
-@click.option("--workdir", default="runs")
-@click.option("--profile", default="")
-@click.option("--bootstrap", default=None)
-@click.option("--workon", default=DEFAULT_VENV)
-@click.option("--watch/--no-watch", default=False)
 def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
     if name is None:
         actual_name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
@@ -542,7 +530,8 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
     stdout = os.path.join(directory, "stdout")
     stderr = os.path.join(directory, "stderr")
 
-    shutil.copyfile(input, os.path.join(directory, os.path.basename(input)))
+    target_input = os.path.join(directory, os.path.basename(input))
+    shutil.copyfile(input, target_input)
     script_path = os.path.abspath(__file__)
     args = ["--timeout", str(walltime - 60)]  # lower timeout to save results
     if profile:
@@ -564,7 +553,7 @@ source ~/.bashrc || exit 1
 ml {' '.join(MODULES)} || exit 1
 workon {workon} || exit 1
 
-python {script_path} benchmark {input} {directory} {" ".join(args)}
+python {script_path} benchmark {target_input} {directory} {" ".join(args)}
 if [ $? -eq {TIMEOUT_EXIT_CODE} ]
 then
     cd ${{PBS_O_WORKDIR}}
@@ -578,7 +567,7 @@ then
 --bootstrap {os.path.join(directory, RESULT_FILE)} \
 --workon {workon} \
 {f"--profile {profile}" if profile else ""} \
-{input}
+{target_input}
 else
     python {CURRENT_DIR / "postprocess.py"} all {directory}
 fi
@@ -597,6 +586,22 @@ fi
                         f"check-pbs-jobs --jobid {job_id} --print-job-err --print-job-out | tail -n 40"])
 
 
+@click.command("submit")
+@click.argument("input")
+@click.option("--name", default=None)
+@click.option("--nodes", default=8)
+@click.option("--queue", default="qexp")
+@click.option("--walltime", default="01:00:00", type=WalltimeType())
+@click.option("--project", default="")
+@click.option("--workdir", default="runs")
+@click.option("--profile", default="")
+@click.option("--bootstrap", default=None)
+@click.option("--workon", default=DEFAULT_VENV)
+@click.option("--watch/--no-watch", default=False)
+def submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
+    submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch)
+
+
 @click.group()
 def cli():
     pass
@@ -606,5 +611,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     cli.add_command(benchmark)
-    cli.add_command(submit)
+    cli.add_command(submit_cmd)
     cli()
