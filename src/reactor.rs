@@ -198,6 +198,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         for key in &keys {
             let task_ref = core.get_task_by_key_or_panic(key);
             task_ref.get().get_workers().map(|ws| {
+                let ws = Vec::from_iter(ws.into_iter());
                 ws.choose(&mut rng).map(|w| {
                     worker_map
                         .entry(w.get().address().into())
@@ -346,6 +347,8 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         for ((wr, keys), sizes) in placement.into_iter().zip(sizes.into_iter()) {
             for key in keys.into_iter() {
                 let size: u64 = *sizes.get(&key).unwrap();
+                let mut set = Set::new();
+                set.insert(wr.clone());
                 let task_ref = TaskRef::new(core.new_task_id(), key, None, Default::default(), 0);
                 {
                     let mut task = task_ref.get_mut();
@@ -354,7 +357,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                             size,
                             r#type: vec![],
                         },
-                        vec![wr.clone()],
+                        set,
                     );
                     task.subscribe_client(client_id);
                     notifications.new_finished_task(&task);

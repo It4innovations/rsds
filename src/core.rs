@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::client::{Client, ClientId};
 use crate::comm::Notifications;
-use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell};
+use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell, Set};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
@@ -392,7 +392,18 @@ impl Core {
         let worker = worker_ref.get();
         for key in keys {
             let task_ref = self.get_task_by_key_or_panic(&key);
-            let task = task_ref.get_mut();
+            let mut task = task_ref.get_mut();
+            match &mut task.state {
+                TaskRuntimeState::Finished(_, ws) => {
+                    ws.insert(worker_ref.clone());
+                },
+                TaskRuntimeState::Released => {
+                    /* It ok to ignore the message */
+                },
+                TaskRuntimeState::Error(_) | TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled(_) | TaskRuntimeState::Assigned(_) | TaskRuntimeState::Stealing(_, _) => {
+                    panic!("Invalid task state");
+                },
+            };
             notifications.task_placed(&worker, &task);
             // TODO: Store that task result is on worker
         }
@@ -412,12 +423,14 @@ impl Core {
                 trace_task_finish(task.id, dask_key_ref_to_str(task.key()), worker_ref.id, get_task_duration(&msg));
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
+                let mut set = Set::new();
+                set.insert(worker.clone());
                 task.state = TaskRuntimeState::Finished(
                     DataInfo {
                         size: msg.nbytes,
                         r#type: msg.r#type,
                     },
-                    vec![worker.clone()],
+                    set,
                 );
             }
             {

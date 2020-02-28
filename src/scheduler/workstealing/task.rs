@@ -1,6 +1,7 @@
 use super::worker::WorkerRef;
-use crate::common::Set;
+use crate::common::{Set, Map};
 use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
+
 
 #[derive(Debug)]
 pub enum SchedulerTaskState {
@@ -18,6 +19,7 @@ pub struct Task {
     pub unfinished_deps: u32,
     pub assigned_worker: Option<WorkerRef>,
     pub placement: Set<WorkerRef>,
+    pub future_placement: Map<WorkerRef, u32>,
     pub size: u64,
     pub pinned: bool,
     pub take_flag: bool, // Used in algorithms, no meaning between calls
@@ -45,6 +47,21 @@ impl Task {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_deps == 0
+    }
+
+    pub fn remove_future_placement(&mut self, worker_ref: &WorkerRef) {
+       let count = self.future_placement.get_mut(worker_ref).unwrap();
+       if *count <= 1 {
+           assert_ne!(*count, 0);
+           self.future_placement.remove(worker_ref);
+       } else {
+           *count -= 1;
+       }
+    }
+
+    #[inline]
+    pub fn set_future_placement(&mut self, worker_ref: WorkerRef) {
+        (*self.future_placement.entry(worker_ref).or_insert(0)) += 1;
     }
 
     pub fn sanity_check(&self, task_ref: &TaskRef) {
@@ -94,6 +111,7 @@ impl TaskRef {
             consumers: Default::default(),
             assigned_worker: None,
             placement: Default::default(),
+            future_placement: Default::default(),
             pinned: false,
             take_flag: false,
         });
@@ -118,6 +136,7 @@ impl TaskRef {
             consumers: Default::default(),
             assigned_worker: None,
             placement,
+            future_placement: Default::default(),
             pinned: false,
             take_flag: false,
         })

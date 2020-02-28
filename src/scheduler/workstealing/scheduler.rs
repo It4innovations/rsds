@@ -108,10 +108,18 @@ impl Scheduler {
         notifications: &mut Notifications,
     ) {
         notifications.insert(task_ref.clone());
-        if let Some(wr) = &task.assigned_worker {
+        let assigned_worker = &task.assigned_worker;
+        if let Some(wr) = assigned_worker {
             assert!(!wr.eq(&worker_ref));
             let mut previous_worker = wr.get_mut();
             assert!(previous_worker.tasks.remove(&task_ref));
+        }
+        for tr in &task.inputs {
+                let mut t = tr.get_mut();
+                if let Some(wr) = assigned_worker {
+                    t.remove_future_placement(wr);
+                }
+                t.set_future_placement(worker_ref.clone());
         }
         task.assigned_worker = Some(worker_ref);
         assert!(worker.tasks.insert(task_ref));
@@ -243,12 +251,17 @@ impl Scheduler {
                 assert!(task.is_waiting() && task.is_ready());
                 task.state = SchedulerTaskState::Finished;
                 task.size = tu.size.unwrap();
-                let wr = task.assigned_worker.take().unwrap();
+                let assigned_wr = task.assigned_worker.take().unwrap();
                 let mut invoke_scheduling = {
-                    let mut worker = wr.get_mut();
-                    assert!(worker.tasks.remove(&tref));
-                    worker.is_underloaded()
+                    let mut assigned_worker = assigned_wr.get_mut();
+                    assert!(assigned_worker.tasks.remove(&tref));
+                    assigned_worker.is_underloaded()
                 };
+                for tref in &task.inputs {
+                    let mut t = tref.get_mut();
+                    t.placement.insert(worker.clone());
+                    t.remove_future_placement(&assigned_wr);
+                }
                 for tref in &task.consumers {
                     let mut t = tref.get_mut();
                     if t.unfinished_deps <= 1 {
@@ -296,6 +309,11 @@ impl Scheduler {
             let wref = task.assigned_worker.as_ref().unwrap();
             if wref == new_wref {
                 return false;
+            }
+            for tref in &task.inputs {
+                let mut t = tref.get_mut();
+                t.remove_future_placement(&wref);
+                t.set_future_placement(new_wref.clone());
             }
             let mut worker = wref.get_mut();
             worker.tasks.remove(&tref);
@@ -421,9 +439,11 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
             let t = tr.get();
             if t.placement.contains(worker_ref) {
                 0u64
-            } else if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
-                t.size / 8
-            } else {
+            } else if t.future_placement.contains_key(worker_ref) {
+                t.size / 4
+            } /*if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
+                t.size / 2
+            }*/ else {
                 t.size
             }
         })

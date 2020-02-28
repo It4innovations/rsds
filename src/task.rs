@@ -19,7 +19,7 @@ pub enum TaskRuntimeState {
     Scheduled(WorkerRef),
     Assigned(WorkerRef),
     Stealing(WorkerRef, WorkerRef), // (from, to)
-    Finished(DataInfo, Vec<WorkerRef>),
+    Finished(DataInfo, Set<WorkerRef>),
     Released,
     Error(Rc<ErrorInfo>),
 }
@@ -283,7 +283,7 @@ impl Task {
     }
 
     #[inline]
-    pub fn get_workers(&self) -> Option<&Vec<WorkerRef>> {
+    pub fn get_workers(&self) -> Option<&Set<WorkerRef>> {
         match &self.state {
             TaskRuntimeState::Finished(_, ws) => Some(ws),
             _ => None,
