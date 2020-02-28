@@ -36,7 +36,14 @@ criterion = "0.3"
 name = "reactor"
 harness = false
 
+[[bench]]
+name = "scheduler"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
 opt-level = 3
+
+[profile.bench]
+incremental = true
