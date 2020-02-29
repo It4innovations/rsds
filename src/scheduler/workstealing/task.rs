@@ -1,7 +1,6 @@
 use super::worker::WorkerRef;
-use crate::common::{Set, Map};
+use crate::common::{Set, HasCycle, Map};
 use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
-
 
 #[derive(Debug)]
 pub enum SchedulerTaskState {
@@ -25,6 +24,7 @@ pub struct Task {
     pub take_flag: bool, // Used in algorithms, no meaning between calls
 }
 
+pub type OwningTaskRef = crate::common::CycleOwner<Task>;
 pub type TaskRef = crate::common::WrappedRcRefCell<Task>;
 
 impl Task {
@@ -90,7 +90,18 @@ impl Task {
     }
 }
 
-impl TaskRef {
+impl HasCycle for Task {
+    #[inline]
+    fn clear_cycle(&mut self) {
+        // consumers are not cleared, it's enough to break one direction of the cycle
+        self.inputs.clear();
+        self.assigned_worker = None;
+        self.placement.clear();
+        self.future_placement.clear();
+    }
+}
+
+impl OwningTaskRef {
     pub fn new(ti: TaskInfo, inputs: Vec<TaskRef>) -> Self {
         let mut unfinished_deps = 0;
         for inp in &inputs {

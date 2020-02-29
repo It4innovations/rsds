@@ -1,8 +1,9 @@
 use super::task::TaskRef;
 use crate::common::Map;
 use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::workstealing::task::OwningTaskRef;
 
-pub fn compute_b_level(tasks: &Map<TaskId, TaskRef>) {
+pub fn compute_b_level(tasks: &Map<TaskId, OwningTaskRef>) {
     let mut n_consumers: Map<TaskRef, u32> = Map::with_capacity(tasks.len());
     let mut stack: Vec<TaskRef> = Vec::new();
     for (_, tref) in tasks.iter() {
