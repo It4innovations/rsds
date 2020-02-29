@@ -235,13 +235,16 @@ class Benchmark:
             bootstrap = pd.DataFrame()
 
         results, timeouted = self.benchmark_configurations(timeout, bootstrap)
+        results["submit-id"] = get_submit_id()
+        results = pd.concat((bootstrap, results), ignore_index=True, sort=False)
 
         try:
-            check_results(results, self.reference)
+            check_results(results, self.reference, timeouted)
+            logging.info("Result check succeeded")
         except:
             logging.error("Result check failed")
             traceback.print_exc()
-        return pd.concat((bootstrap, results), ignore_index=True, sort=False), timeouted
+        return results, timeouted
 
     def benchmark_configurations(self, timeout, bootstrap):
         def repeat_configs():
@@ -422,6 +425,13 @@ def get_pbs_nodes():
         return [line.strip() for line in f]
 
 
+def get_submit_id():
+    if is_inside_pbs():
+        return os.environ["PBS_JOBID"]
+    else:
+        return f"{os.getpid()}-{int(time.time())}
+
+
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
     workers = f"{workers['nodes']}n-{workers['processes']}p-{workers.get('threads', 1)}t"
@@ -429,7 +439,7 @@ def format_cluster_info(cluster_info):
     return f"{scheduler}-{workers}"
 
 
-def check_results(frame, reference):
+def check_results(frame, reference, timeouted):
     clusters = list(frame["cluster"].unique())
     functions = list(frame["function"].unique())
 
@@ -440,7 +450,7 @@ def check_results(frame, reference):
             raise Exception(f"Inconsistent result for {cluster}/{function}: {results}")
 
     # reference equality
-    if reference:
+    if reference and not timeouted:
         assert any(reference in cl for cl in clusters)
         for (cluster, function) in itertools.product(clusters, functions):
             results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])

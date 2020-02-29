@@ -40,8 +40,11 @@ def iter_files(dir, prefix):
 
 
 def frame_create_datetime(frame):
-    frame["datetime"] = frame["timestamp"].apply(lambda t: datetime.datetime.utcfromtimestamp(t))
-    frame["datetime"] = pd.to_datetime(frame["datetime"])
+    if len(frame) > 0:
+        frame["datetime"] = frame["timestamp"].apply(lambda t: datetime.datetime.utcfromtimestamp(t))
+        frame["datetime"] = pd.to_datetime(frame["datetime"])
+    else:
+        frame["datetime"] = []
     return frame
 
 
