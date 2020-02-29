@@ -3,7 +3,7 @@ use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
 use crate::core::CoreRef;
-use crate::protocol::clientmsg::{task_spec_to_memory, ClientTaskSpec, UpdateGraphMsg};
+use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
 
 use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::protocol::{
@@ -37,18 +37,13 @@ pub fn update_graph(
 ) -> crate::Result<()> {
     log::debug!("Updating graph from client {}", client_id);
 
-    let tasks: Vec<(DaskKey, ClientTaskSpec<SerializedMemory>)> = std::mem::take(&mut update.tasks)
-        .into_iter()
-        .map(|(k, v)| (k, task_spec_to_memory(v, &mut update.frames)))
-        .collect();
-
     let mut core = core_ref.get_mut();
-    let mut new_tasks = Vec::with_capacity(tasks.len());
+    let mut new_tasks = Vec::with_capacity(update.tasks.len());
 
     let mut new_task_ids: Map<DaskKey, TaskId> = Default::default();
 
     let lowest_id = core.new_task_id();
-    for (task_key, _) in &tasks {
+    for (task_key, _) in &update.tasks {
         new_task_ids.insert(task_key.clone(), core.new_task_id());
     }
 
@@ -61,8 +56,7 @@ pub fn update_graph(
     /* client send a user_priority in inverse meaning, so we use negative value
        to make same meaning in the rsds */
     let user_priority = -update.user_priority;
-
-    for (task_key, task_spec) in tasks {
+    for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
         let inputs = if let Some(deps) = update.dependencies.get(&task_key) {
             let mut inputs: Vec<_> = deps
@@ -93,6 +87,7 @@ pub fn update_graph(
             })
             .sum();
         log::debug!("New task id={}, key={}", task_id, task_key);
+        let task_spec = task_spec_to_memory(task_spec, &mut update.frames);
         let client_priority = update.priority.get(&task_key).map(|x| *x).unwrap_or_default();
         let task_ref = TaskRef::new(
             task_id, task_key, Some(task_spec), inputs, unfinished_deps, user_priority,
@@ -145,9 +140,7 @@ pub fn update_graph(
     for task_key in update.keys {
         let task_ref = core.get_task_by_key_or_panic(&task_key);
         let mut task = task_ref.get_mut();
-        if is_actor {
-            task.actor = true;
-        }
+        task.actor = is_actor;
         task.subscribe_client(client_id);
     }
     Ok(())
