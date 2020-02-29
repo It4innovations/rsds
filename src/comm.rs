@@ -170,6 +170,14 @@ pub struct Notifications {
 }
 
 impl Notifications {
+    pub fn with_scheduler_capacity(capacity: usize) -> Self {
+        Self {
+            workers: Default::default(),
+            clients: Default::default(),
+            scheduler_messages: Vec::with_capacity(capacity)
+        }
+    }
+
     pub fn new_worker(&mut self, worker: &Worker) {
         self.scheduler_messages
             .push(ToSchedulerMessage::NewWorker(worker.make_sched_info()));
