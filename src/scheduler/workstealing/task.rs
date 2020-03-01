@@ -13,7 +13,7 @@ pub struct Task {
     pub id: TaskId,
     pub state: SchedulerTaskState,
     pub inputs: Vec<TaskRef>,
-    pub consumers: Set<TaskRef>,
+    pub consumers: Vec<TaskRef>,
     pub b_level: i32,
     pub unfinished_deps: u32,
     pub assigned_worker: Option<WorkerRef>,
@@ -130,7 +130,7 @@ impl OwningTaskRef {
             let task = task_ref.get();
             for inp in &task.inputs {
                 let mut t = inp.get_mut();
-                t.consumers.insert(task_ref.clone());
+                t.consumers.push(task_ref.clone());
             }
         }
         task_ref
