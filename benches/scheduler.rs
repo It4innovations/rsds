@@ -68,11 +68,12 @@ pub fn update(c: &mut Criterion) {
                 |mut sched| sched.schedule(&mut Default::default()),
             )
         });
-        /*c.bench_with_input(BenchmarkId::new("Finish tasks", i), i, |b, &i| {
+        c.bench_with_input(BenchmarkId::new("Finish tasks", i), i, |b, &i| {
             b.iter_with_setup(
                 || {
                     let mut scheduler = create_scheduler(4);
                     scheduler.update(new_tasks(i));
+                    scheduler.schedule(&mut Default::default());
                     (scheduler, finish_tasks(i, 4))
                 },
                 |(mut sched, tasks)| sched.update(tasks),
@@ -83,6 +84,7 @@ pub fn update(c: &mut Criterion) {
                 || {
                     let mut scheduler = create_scheduler(4);
                     scheduler.update(new_tasks(i));
+                    scheduler.schedule(&mut Default::default());
                     scheduler.update(finish_tasks(i, 4));
                     let tasks = remove_tasks(i);
                     (scheduler, tasks)
@@ -90,19 +92,6 @@ pub fn update(c: &mut Criterion) {
                 |(mut sched, tasks)| sched.update(tasks),
             )
         });
-        c.bench_with_input(BenchmarkId::new("Remove tasks backwards", i), i, |b, &i| {
-            b.iter_with_setup(
-                || {
-                    let mut scheduler = create_scheduler(4);
-                    scheduler.update(new_tasks(i));
-                    scheduler.update(finish_tasks(i, 4));
-                    let mut tasks = remove_tasks(i);
-                    tasks.reverse();
-                    (scheduler, tasks)
-                },
-                |(mut sched, tasks)| sched.update(tasks),
-            )
-        });*/
     }
 }
 

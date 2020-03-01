@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
 use rsds::client::{Client, ClientId};
 use rsds::comm::CommRef;
 use rsds::core::CoreRef;
@@ -13,12 +13,13 @@ struct Context {
     core: CoreRef,
     comm: CommRef,
     client_id: ClientId,
-    client_receiver: UnboundedReceiver<DaskPacket>,
-    comm_receiver: UnboundedReceiver<Vec<ToSchedulerMessage>>,
+    _client_receiver: UnboundedReceiver<DaskPacket>,
+    _comm_receiver: UnboundedReceiver<Vec<ToSchedulerMessage>>,
 }
 
-pub fn reactor(c: &mut Criterion) {
-    c.bench_function("update_graph", |b| {
+pub fn update_graph_bench(c: &mut Criterion) {
+    let task_count = 2000;
+    c.bench_with_input(BenchmarkId::new("Tasks without deps", task_count), &task_count, |b, &task_count| {
         b.iter_with_setup(|| {
             let core_ref = CoreRef::new();
             let (ctx, _crx) = tokio::sync::mpsc::unbounded_channel();
@@ -33,7 +34,7 @@ pub fn reactor(c: &mut Criterion) {
             let comm = CommRef::new(tx);
 
             let mut tasks: Vec<(DaskKey, ClientTaskSpec<SerializedTransport>)> = vec![];
-            for i in 0..2000 {
+            for i in 0..task_count {
                 tasks.push((
                     format!("key-{}", i).into(),
                     ClientTaskSpec::Serialized(SerializedTransport::Inline(rmpv::Value::Binary(vec![
@@ -53,12 +54,12 @@ pub fn reactor(c: &mut Criterion) {
                 core: core_ref,
                 comm,
                 client_id,
-                client_receiver: _crx,
-                comm_receiver: _rx
+                _client_receiver: _crx,
+                _comm_receiver: _rx
             }, msg)
         }, |(ctx, msg)| update_graph(&ctx.core, &ctx.comm, ctx.client_id, msg));
     });
 }
 
-criterion_group!(benches, reactor);
-criterion_main!(benches);
+criterion_group!(reactor, update_graph_bench);
+criterion_main!(reactor);
