@@ -438,7 +438,9 @@ pub async fn client_rpc_loop<
                         subscribe_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
                     }
                     FromClientMessage::UpdateGraph(update) => {
-                        update_graph(&core_ref, &comm_ref, client_id, update)?;
+                        trace_time!("client", "update_graph", {
+                            update_graph(&core_ref, &comm_ref, client_id, update)?;
+                        });
                     }
                     FromClientMessage::CloseClient => {
                         log::debug!("CloseClient message received");
@@ -542,6 +544,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     let (reader, writer) = tokio::io::split(stream);
     let mut reader = dask_parse_stream::<GenericMessage, _>(asyncread_to_stream(reader));
     let mut writer = asyncwrite_to_sink(writer);
+    let address_str: &str = &address.to_string();
 
     'outer: while let Some(messages) = reader.next().await {
         for message in messages? {
@@ -630,7 +633,9 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
-                    gather(&core_ref, &comm_ref, address, &mut writer, msg.keys).await?;
+                    trace_time!(address_str, "gather", {
+                        gather(&core_ref, &comm_ref, address, &mut writer, msg.keys).await?;
+                    });
                 }
                 GenericMessage::Scatter(msg) => {
                     log::debug!("Scatter request from {}", &address);

@@ -86,9 +86,9 @@ impl Scheduler {
             if self.update(msgs) {
                 let mut notifications = Notifications::new();
 
-                trace_time!("schedule", {
+                trace_time!("scheduler", "schedule", {
                     if self.schedule(&mut notifications) {
-                        trace_time!("balance", self.balance(&mut notifications));
+                        trace_time!("scheduler", "balance", self.balance(&mut notifications));
                     }
                 });
 
@@ -134,7 +134,10 @@ impl Scheduler {
         log::debug!("Scheduling started");
         if !self.new_tasks.is_empty() {
             // TODO: utilize information and do not recompute all b-levels
-            compute_b_level(&self.tasks);
+            trace_time!("scheduler", "blevel", {
+                compute_b_level(&self.tasks);
+            });
+
             self.new_tasks = Vec::new()
         }
 

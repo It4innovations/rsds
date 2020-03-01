@@ -3,12 +3,12 @@ import json
 import tqdm
 
 
-def chrome_schedule_event(timestamp, start):
+def chrome_method_event(timestamp, process, method, start):
     return {
-        "name": "schedule",
+        "name": method,
         "ts": timestamp,
         "ph": "B" if start else "E",
-        "pid": "scheduler",
+        "pid": process,
     }
 
 
@@ -34,8 +34,9 @@ def generate_chrome_trace(trace_path, output, pretty):
             fields = record["fields"]
             action = fields["action"]
 
-            if action == "schedule":
-                events.append(chrome_schedule_event(timestamp, fields["event"] == "start"))
+            if action == "measure":
+                events.append(
+                    chrome_method_event(timestamp, fields["process"], fields["method"], fields["event"] == "start"))
             elif action == "compute-task":
                 is_start = fields["event"] == "start"
                 worker_id = fields["worker"]
