@@ -2,13 +2,13 @@ import os
 from multiprocessing import Pool
 
 import click
-
 from monitor.report import generate, serve
 from monitor.src.cluster import CLUSTER_FILENAME
-from postprocessing.chrome import generate_chrome_trace
-from postprocessing.trace import generate_trace_summary
-from postprocessing.summary import generate_summary
 from postprocessing.charts import generate_charts
+from postprocessing.chrome import generate_chrome_trace
+from postprocessing.summary import generate_summary
+from postprocessing.timeline import generate_timeline
+from postprocessing.trace import generate_trace_summary
 
 
 @click.command()
@@ -24,6 +24,13 @@ def chrome_trace(trace_path, output, pretty):
 @click.argument("output")
 def trace_summary(trace_path, output):
     generate_trace_summary(trace_path, output)
+
+
+@click.command()
+@click.argument("trace-path")
+@click.argument("output")
+def timeline(trace_path, output):
+    generate_timeline(trace_path, output)
 
 
 @click.command()
@@ -70,6 +77,10 @@ def generate_dir(path):
         print(f"Generating trace summary: {trace_summary}")
         generate_trace_summary(trace, trace_summary)
 
+        trace_timeline = os.path.join(path, "trace-timeline.html")
+        print(f"Generating timeline: {trace_timeline}")
+        generate_timeline(trace, trace_timeline)
+
 
 @click.command()
 @click.argument("directory")
@@ -92,6 +103,7 @@ def cli():
 if __name__ == "__main__":
     cli.add_command(chrome_trace)
     cli.add_command(trace_summary)
+    cli.add_command(timeline)
     cli.add_command(monitor_html)
     cli.add_command(monitor_serve)
     cli.add_command(summary)

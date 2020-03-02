@@ -37,7 +37,7 @@ def generate_trace_summary(trace_path, output):
             action = fields["action"]
 
             if action == "measure":
-                method = fields["method"]
+                method = f"{fields['process']}/{fields['method']}"
                 is_start = fields["event"] == "start"
                 if is_start:
                     assert method not in action_timestamps
@@ -53,7 +53,7 @@ def generate_trace_summary(trace_path, output):
 
                 assert worker_id in workers
                 if not is_start:
-                    duration = fields["duration"]
+                    duration = fields["stop"] - fields["start"]
                     task_durations[task_id] = duration
                     workers[worker_id].finish_task(task_id, timestamp, duration)
                 else:

@@ -66,8 +66,13 @@ pub async fn observe_scheduler(
             FromSchedulerMessage::TaskAssignments(assignments) => {
                 let mut core = core_ref.get_mut();
                 let mut notifications = Default::default();
-                core.process_assignments(assignments, &mut notifications);
-                comm_ref.get_mut().notify(&mut core, notifications).unwrap();
+
+                trace_time!("core", "process_assignments", {
+                    core.process_assignments(assignments, &mut notifications);
+                    trace_time!("core", "notify", {
+                        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
+                    });
+                });
             }
             FromSchedulerMessage::Register(_) => {
                 return Err(DsError::SchedulerError(

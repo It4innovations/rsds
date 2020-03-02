@@ -12,10 +12,10 @@ def chrome_method_event(timestamp, process, method, start):
     }
 
 
-def chrome_worker_compute_event(timestamp, worker_id, task_id, start, name=""):
+def chrome_worker_compute_event(timestamp, worker_id, task_id, start, name=None):
     compute_id = f"compute-{task_id}"
     return {
-        "name": f"{compute_id}{name}",
+        "name": name if name else compute_id,
         "ts": timestamp,
         "ph": "b" if start else "e",
         "pid": f"worker-{worker_id}",
@@ -43,10 +43,9 @@ def generate_chrome_trace(trace_path, output, pretty):
                 task_id = fields["task"]
                 events.append(chrome_worker_compute_event(timestamp, worker_id, task_id, is_start))
                 if not is_start:
-                    duration = fields["duration"]
                     events.append(
-                        chrome_worker_compute_event(timestamp - duration, worker_id, task_id, True, name="actual"))
-                    events.append(chrome_worker_compute_event(timestamp - 1, worker_id, task_id, False, name="actual"))
+                        chrome_worker_compute_event(fields["start"], worker_id, task_id, True, name="compute"))
+                    events.append(chrome_worker_compute_event(fields["stop"], worker_id, task_id, False, name="compute"))
 
     with open(output, "w") as f:
         json.dump(events, f, indent=4 if pretty else None)
