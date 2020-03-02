@@ -96,9 +96,17 @@ def trace_process(capture_interval, dump_interval, file, capture_fn, finish_fn):
     records = []
     last_update = time.time()
 
+    def capture():
+        now = time.time()
+        record = capture_fn(now)
+        if record is not None:
+            records.append(record)
+        return now
+
     def finish(sig, frame):
         nonlocal record_count
 
+        capture()
         record_count += len(records)
         dump_records(file, records)
         print(f"Interrupting monitoring, wrote {record_count} records")
@@ -107,14 +115,10 @@ def trace_process(capture_interval, dump_interval, file, capture_fn, finish_fn):
     signal.signal(signal.SIGINT, finish)
 
     while True:
-        time.sleep(capture_interval)
-
-        now = time.time()
-        record = capture_fn(now)
-        if record is not None:
-            records.append(record)
+        now = capture()
 
         if now - last_update > dump_interval:
             last_update = now
             record_count += len(records)
             dump_records(file, records)
+        time.sleep(capture_interval)

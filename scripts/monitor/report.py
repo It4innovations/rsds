@@ -1,17 +1,17 @@
-import os
-import datetime
 import base64
+import datetime
+import os
 
+import pandas as pd
 from bokeh.embed import file_html
 from bokeh.io import save
 from bokeh.layouts import gridplot
 from bokeh.models import Div, NumeralTickFormatter, Panel, Tabs, Title
-from bokeh.plotting import figure
-from bokeh.resources import CDN
 from bokeh.models import Range1d
 from bokeh.palettes import d3
+from bokeh.plotting import figure
+from bokeh.resources import CDN
 from tornado import ioloop, web
-import pandas as pd
 
 from .src.cluster import Cluster
 from .src.trace_io import TraceReport
@@ -55,8 +55,8 @@ def plot_time_chart(data, draw_fn, min_datetime, max_datetime, generate_rows=Non
             columns = []
             for col in row:
                 f = figure(plot_width=1000, plot_height=250,
-                        x_range=[min_datetime, max_datetime],
-                        x_axis_type='datetime')
+                           x_range=[min_datetime, max_datetime],
+                           x_axis_type='datetime')
                 draw_fn(col, f)
                 columns.append(f)
 
@@ -139,7 +139,8 @@ def plot_resources_usage(report):
             for (i, cpu) in enumerate(cpus):
                 color = palette[i % 20]
                 figure.line(cpu.index, cpu / 100.0, color=color, legend_label=f"CPU #{i}")
-            figure.line(cpu_mean.index, cpu_mean / 100.0, color="red", legend_label=f"Average CPU", line_dash="dashed", line_width=5)
+            figure.line(cpu_mean.index, cpu_mean / 100.0, color="red", legend_label=f"Average CPU", line_dash="dashed",
+                        line_width=5)
         elif method == "mem":
             mem = resample(resources.apply(lambda res: res["mem"]), time)
             figure.yaxis[0].formatter = NumeralTickFormatter(format="0 %")
@@ -152,14 +153,15 @@ def plot_resources_usage(report):
         elif method == "io":
             draw_bytes("Disk", "disk-read", "disk-write")
 
-    return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime, generate_rows=generate_rows)
+    return plot_time_chart(data, draw, min_datetime=min_datetime, max_datetime=max_datetime,
+                           generate_rows=generate_rows)
 
 
 def plot_profile(flamegraph):
     with open(flamegraph, "rb") as f:
         data = f.read()
         base64_content = base64.b64encode(data).decode()
-        content = f"""<object type="image/svg+xml" data="data:image/svg+xml;base64,{base64_content}"></object>"""
+        content = f"""<object type="image/svg+xml" width="1600px" data="data:image/svg+xml;base64,{base64_content}"></object>"""
         return Div(text=content)
 
 
@@ -218,7 +220,6 @@ def generate(cluster_file, output):
 
 def serve(cluster_file, port):
     directory = os.path.dirname(cluster_file)
-
 
     class Handler(web.RequestHandler):
         def get(self):

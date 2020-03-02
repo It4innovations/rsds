@@ -22,9 +22,9 @@ class Worker:
 
 def generate_trace_summary(trace_path, output):
     workers = {}
-    schedule_durations = []
+    measurements = {}
     task_durations = {}
-    last_schedule = None
+    action_timestamps = {}
     steals = []
     packets_sent = []
     packets_received = []
@@ -36,13 +36,16 @@ def generate_trace_summary(trace_path, output):
             fields = record["fields"]
             action = fields["action"]
 
-            if action == "schedule":
+            if action == "measure":
+                method = fields["method"]
                 is_start = fields["event"] == "start"
                 if is_start:
-                    last_schedule = timestamp
+                    assert method not in action_timestamps
+                    action_timestamps[method] = timestamp
                 else:
-                    assert last_schedule
-                    schedule_durations.append(timestamp - last_schedule)
+                    assert method in action_timestamps
+                    measurements.setdefault(method, []).append(timestamp - action_timestamps[method])
+                    del action_timestamps[method]
             elif action == "compute-task":
                 is_start = fields["event"] == "start"
                 worker_id = fields["worker"]
@@ -68,8 +71,6 @@ def generate_trace_summary(trace_path, output):
                 packets_sent.append(fields["size"])
             elif action == "packet-receive":
                 packets_received.append(fields["size"])
-            elif action in {"balance"}:
-                pass
             else:
                 raise Exception(f"Unknown action {action}")
 
@@ -85,8 +86,10 @@ def generate_trace_summary(trace_path, output):
             f.write("\n")
 
             with pd.option_context("display.float_format", lambda x: f"{x:.3f}"):
-                f.write("---SCHEDULE summary---\n")
-                f.write(f"{(pd.Series(schedule_durations) / 1000).describe()}\n\n")
+                f.write("---MEASURE summary---\n")
+                for (method, times) in measurements.items():
+                    f.write(f"---{method}---\n")
+                    f.write(f"{(pd.Series(times) / 1000).describe()}\n\n")
 
                 f.write("---STEAL summary---\n")
                 f.write(f"{pd.Series(steals).value_counts()}\n\n")
