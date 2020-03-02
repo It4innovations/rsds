@@ -74,6 +74,7 @@ pub fn update_graph(
         } else {
             Vec::new()
         };
+
         let unfinished_deps = inputs
             .iter()
             .map(|task_id| {
@@ -112,7 +113,7 @@ pub fn update_graph(
     let mut count = new_tasks.len();
     let mut notifications = Notifications::with_scheduler_capacity(count);
     let mut processed = Set::new();
-    let mut stack: Vec<(TaskRef, usize)> = Vec::with_capacity(dependency_count);
+    let mut stack: Vec<(TaskRef, usize)> = Default::default();
 
     for task_ref in new_tasks {
         if !task_ref.get().has_consumers() {
