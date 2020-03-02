@@ -126,7 +126,7 @@ pub struct ProxyMsg {
     pub worker: DaskKey,
     pub msg: rmpv::Value,
     #[serde(skip)]
-    pub frames: Frames
+    pub frames: Frames,
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -145,7 +145,7 @@ pub enum GenericMessage<T = SerializedMemory> {
     Scatter(ScatterMsg<T>),
     Cancel(CancelKeysMsg),
     Ncores,
-    Proxy(ProxyMsg)
+    Proxy(ProxyMsg),
 }
 
 impl FromDaskTransport for GenericMessage<SerializedMemory> {
@@ -172,8 +172,8 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
             Self::Transport::Proxy(msg) => Self::Proxy(ProxyMsg {
                 worker: msg.worker,
                 msg: msg.msg,
-                frames: std::mem::take(frames)
-            })
+                frames: std::mem::take(frames),
+            }),
         }
     }
 }

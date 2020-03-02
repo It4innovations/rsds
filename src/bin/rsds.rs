@@ -6,9 +6,9 @@ use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use rsds::comm::{observe_scheduler, CommRef};
+use rsds::comm::CommRef;
 use rsds::core::CoreRef;
-use rsds::scheduler::comm::{prepare_scheduler_comm, SchedulerComm};
+use rsds::scheduler::comm::{observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 use serde::export::fmt::Arguments;
 use std::fs::File;
 use std::future::Future;
@@ -16,7 +16,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tracing_subscriber::{FmtSubscriber, fmt::time::FormatTime};
+use tracing_subscriber::{fmt::time::FormatTime, FmtSubscriber};
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;

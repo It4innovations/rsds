@@ -6,9 +6,12 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell, Se
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
-use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef, dask_key_ref_to_str};
+use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{trace_new_worker, trace_task_finish, trace_worker_steal, trace_worker_steal_response, trace_worker_assign, trace_worker_steal_response_missing};
+use crate::trace::{
+    trace_new_worker, trace_task_finish, trace_worker_assign, trace_worker_steal,
+    trace_worker_steal_response, trace_worker_steal_response_missing,
+};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -230,7 +233,12 @@ impl Core {
             .collect()
     }
 
-    fn compute_task(&self, worker_ref: WorkerRef, task_ref: TaskRef, notifications: &mut Notifications) {
+    fn compute_task(
+        &self,
+        worker_ref: WorkerRef,
+        task_ref: TaskRef,
+        notifications: &mut Notifications,
+    ) {
         trace_worker_assign(task_ref.get().id, worker_ref.get().id);
         notifications.compute_task_on_worker(worker_ref, task_ref);
     }
@@ -355,7 +363,7 @@ impl Core {
 
                 task_ref.get_mut().state = new_state;
             }
-            None => trace_worker_steal_response_missing(msg.key.as_str(), worker_ref.get().id)
+            None => trace_worker_steal_response_missing(msg.key.as_str(), worker_ref.get().id),
         }
     }
 
@@ -420,7 +428,12 @@ impl Core {
             {
                 let mut task = task_ref.get_mut();
                 let worker_ref = worker.get();
-                trace_task_finish(task.id, dask_key_ref_to_str(task.key()), worker_ref.id, get_task_duration(&msg));
+                trace_task_finish(
+                    task.id,
+                    dask_key_ref_to_str(task.key()),
+                    worker_ref.id,
+                    get_task_duration(&msg),
+                );
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
                 let mut set = Set::new();
@@ -446,7 +459,7 @@ impl Core {
                         };
                         if let Some(w) = wr {
                             t.state = TaskRuntimeState::Assigned(w.clone());
-                            drop(t);  // avoid refcell problem
+                            drop(t); // avoid refcell problem
                             self.compute_task(w, consumer.clone(), notifications);
                         }
                     }
@@ -504,16 +517,19 @@ impl CoreRef {
 /// Returns task duration as specified by Dask.
 /// Converts from UNIX in seconds to a time difference in microseconds.
 fn get_task_duration(msg: &TaskFinishedMsg) -> u64 {
-    msg.startstops.iter().find(|(key, _, _)| key.as_bytes() == "compute".as_bytes()).map(|(_, start, stop)| {
-        ((stop - start) * 1_000_000f64) as u64
-    }).unwrap_or(0)
+    msg.startstops
+        .iter()
+        .find(|(key, _, _)| key.as_bytes() == "compute".as_bytes())
+        .map(|(_, start, stop)| ((stop - start) * 1_000_000f64) as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::Core;
     use crate::client::Client;
-    use crate::comm::{ClientNotification, Notifications};
+    use crate::comm::{notifications::ClientNotification, Notifications};
+    use crate::core::get_task_duration;
     use crate::protocol::key::DaskKey;
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
@@ -523,7 +539,6 @@ mod tests {
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,
     };
-    use crate::core::get_task_duration;
 
     #[test]
     fn add_remove() {
@@ -564,7 +579,7 @@ mod tests {
                 key,
                 nbytes,
                 r#type: vec![],
-                startstops: vec!()
+                startstops: vec![],
             },
             &mut notifications,
         );
@@ -598,7 +613,7 @@ mod tests {
                 key,
                 nbytes,
                 r#type,
-                startstops: vec!()
+                startstops: vec![],
             },
             &mut notifications,
         );
@@ -628,7 +643,7 @@ mod tests {
                 key,
                 nbytes,
                 r#type: r#type.clone(),
-                startstops: vec!()
+                startstops: vec![],
             },
             &mut notifications,
         );
@@ -666,7 +681,7 @@ mod tests {
                 key,
                 nbytes: 0,
                 r#type: vec![],
-                startstops: vec!()
+                startstops: vec![],
             },
             &mut notifications,
         );
@@ -697,7 +712,7 @@ mod tests {
                 key,
                 nbytes: 16,
                 r#type: vec![1, 2, 3],
-                startstops: vec!()
+                startstops: vec![],
             },
             &mut &mut Default::default(),
         );
@@ -725,23 +740,32 @@ mod tests {
 
     #[test]
     fn task_duration() {
-        assert_eq!(get_task_duration(&TaskFinishedMsg {
-            status: Status::Ok,
-            key: "null".into(),
-            nbytes: 16,
-            r#type: vec![1, 2, 3],
-            startstops: vec!(("send".into(), 100.0, 200.0), ("compute".into(), 200.134, 300.456))
-        }), 100322000);
+        assert_eq!(
+            get_task_duration(&TaskFinishedMsg {
+                status: Status::Ok,
+                key: "null".into(),
+                nbytes: 16,
+                r#type: vec![1, 2, 3],
+                startstops: vec!(
+                    ("send".into(), 100.0, 200.0),
+                    ("compute".into(), 200.134, 300.456)
+                )
+            }),
+            100322000
+        );
     }
 
     #[test]
     fn task_duration_missing() {
-        assert_eq!(get_task_duration(&TaskFinishedMsg {
-            status: Status::Ok,
-            key: "null".into(),
-            nbytes: 16,
-            r#type: vec![1, 2, 3],
-            startstops: vec!()
-        }), 0);
+        assert_eq!(
+            get_task_duration(&TaskFinishedMsg {
+                status: Status::Ok,
+                key: "null".into(),
+                nbytes: 16,
+                r#type: vec![1, 2, 3],
+                startstops: vec!()
+            }),
+            0
+        );
     }
 }

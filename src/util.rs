@@ -31,9 +31,12 @@ macro_rules! from_dask_transport {
         impl $crate::protocol::protocol::FromDaskTransport for $ty {
             type Transport = Self;
 
-            fn deserialize(source: Self::Transport, _frames: &mut $crate::protocol::protocol::Frames) -> Self {
+            fn deserialize(
+                source: Self::Transport,
+                _frames: &mut $crate::protocol::protocol::Frames,
+            ) -> Self {
                 source
             }
         }
-    }
+    };
 }

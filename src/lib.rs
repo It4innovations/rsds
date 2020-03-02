@@ -11,7 +11,6 @@ mod common;
 pub mod core;
 mod error;
 pub mod protocol;
-pub mod reactor;
 pub mod scheduler;
 mod task;
 mod worker;

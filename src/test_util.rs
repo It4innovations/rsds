@@ -6,7 +6,10 @@ use crate::common::WrappedRcRefCell;
 use crate::core::{Core, CoreRef};
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::key::to_dask_key;
-use crate::protocol::protocol::{deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame, FromDaskTransport, SerializedMemory, ToDaskTransport};
+use crate::protocol::protocol::{
+    deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame,
+    FromDaskTransport, SerializedMemory, ToDaskTransport,
+};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
 use crate::task::TaskRef;

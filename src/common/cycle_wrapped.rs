@@ -8,7 +8,7 @@ pub trait HasCycle {
 #[derive(Default, Debug)]
 pub struct CycleOwner<T: HasCycle>(WrappedRcRefCell<T>);
 
-impl <T: HasCycle> CycleOwner<T> {
+impl<T: HasCycle> CycleOwner<T> {
     #[inline]
     pub fn wrap(value: T) -> Self {
         CycleOwner(WrappedRcRefCell::wrap(value))
@@ -20,7 +20,7 @@ impl <T: HasCycle> CycleOwner<T> {
     }
 }
 
-impl <T: HasCycle> Deref for CycleOwner<T> {
+impl<T: HasCycle> Deref for CycleOwner<T> {
     type Target = WrappedRcRefCell<T>;
 
     #[inline]
@@ -29,7 +29,7 @@ impl <T: HasCycle> Deref for CycleOwner<T> {
     }
 }
 
-impl <T: HasCycle> Drop for CycleOwner<T> {
+impl<T: HasCycle> Drop for CycleOwner<T> {
     #[inline]
     fn drop(&mut self) {
         self.0.get_mut().clear_cycle();

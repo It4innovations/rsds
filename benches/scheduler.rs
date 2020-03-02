@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use rsds::scheduler::schedproto::{TaskInfo, WorkerInfo, TaskUpdate, TaskUpdateType};
+use rsds::scheduler::schedproto::{TaskInfo, TaskUpdate, TaskUpdateType, WorkerInfo};
 use rsds::scheduler::workstealing::Scheduler;
 use rsds::scheduler::ToSchedulerMessage;
 
@@ -41,12 +41,14 @@ fn remove_tasks(count: u64) -> Vec<ToSchedulerMessage> {
 
 fn finish_tasks(count: u64, worker_count: u64) -> Vec<ToSchedulerMessage> {
     (0..count)
-        .map(|i| ToSchedulerMessage::TaskUpdate(TaskUpdate{
-            id: i,
-            state: TaskUpdateType::Finished,
-            worker: i % worker_count,
-            size: Some(i)
-        }))
+        .map(|i| {
+            ToSchedulerMessage::TaskUpdate(TaskUpdate {
+                id: i,
+                state: TaskUpdateType::Finished,
+                worker: i % worker_count,
+                size: Some(i),
+            })
+        })
         .collect()
 }
 

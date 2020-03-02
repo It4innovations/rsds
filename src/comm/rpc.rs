@@ -1,297 +1,32 @@
-use crate::client::{Client, ClientId};
-use crate::common::{Map, WrappedRcRefCell};
-use crate::core::{Core, CoreRef};
-use crate::protocol::clientmsg::{
-    FromClientMessage, KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
+use crate::client::Client;
+use crate::comm::notifications::Notifications;
+use crate::comm::reactor::{
+    gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
+    who_has,
 };
+use crate::comm::CommRef;
+use crate::core::CoreRef;
+use crate::protocol::clientmsg::FromClientMessage;
 use crate::protocol::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
 };
 use crate::protocol::key::{to_dask_key, DaskKey};
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
-    serialize_single_packet, MessageBuilder,
+    serialize_single_packet, Batch, DaskPacket,
 };
-use crate::protocol::protocol::{Batch, DaskPacket};
-use crate::protocol::workermsg::{
-    DeleteDataMsg, FromWorkerMessage, RegisterWorkerResponseMsg, Status, StealRequestMsg,
-    ToWorkerMessage,
-};
-use crate::reactor::{gather, get_ncores, release_keys, scatter, update_graph, who_has, proxy_to_worker, subscribe_keys};
-use crate::scheduler::schedproto::{
-    NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
-};
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use crate::task::TaskRuntimeState;
-use crate::task::{ErrorInfo, Task, TaskRef};
-use crate::worker::Worker;
-use crate::worker::{create_worker, WorkerRef};
-use crate::DsError;
-use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
+use crate::protocol::workermsg::FromWorkerMessage;
+use crate::protocol::workermsg::RegisterWorkerResponseMsg;
+use crate::protocol::workermsg::Status;
+
+use crate::task::ErrorInfo;
+use crate::worker::create_worker;
+
+use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use smallvec::smallvec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::UnboundedSender;
-
-pub type CommRef = WrappedRcRefCell<Comm>;
-
-pub struct Comm {
-    sender: UnboundedSender<Vec<ToSchedulerMessage>>,
-}
-
-impl Comm {
-    pub fn notify(&mut self, core: &mut Core, notifications: Notifications) -> crate::Result<()> {
-        if !notifications.scheduler_messages.is_empty() {
-            self.sender.send(notifications.scheduler_messages).unwrap();
-        }
-        self.notify_workers(&core, notifications.workers)?;
-        self.notify_clients(core, notifications.clients)?;
-
-        Ok(())
-    }
-
-    fn notify_clients(
-        &mut self,
-        core: &mut Core,
-        notifications: Map<ClientId, ClientNotification>,
-    ) -> crate::Result<()> {
-        for (client_id, c_update) in notifications {
-            let mut mbuilder = MessageBuilder::<ToClientMessage>::with_capacity(
-                c_update.error_tasks.len() + c_update.in_memory_tasks.len(),
-            );
-            for task_ref in c_update.error_tasks {
-                let task = task_ref.get();
-                if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.copy_serialized(&error_info.exception);
-                    let traceback = mbuilder.copy_serialized(&error_info.traceback);
-                    mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key().into(),
-                        exception,
-                        traceback,
-                    }));
-                } else {
-                    panic!("Task is not in error state");
-                };
-            }
-
-            for task_ref in c_update.in_memory_tasks {
-                let task = task_ref.get();
-                mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key().into(),
-                    r#type: task.data_info().unwrap().r#type.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                self.send_client_packet(
-                    core.get_client_by_id_or_panic(client_id),
-                    mbuilder.build_batch()?,
-                )?;
-            }
-        }
-        Ok(())
-    }
-    fn notify_workers(
-        &mut self,
-        core: &Core,
-        notifications: Map<WorkerRef, WorkerNotification>,
-    ) -> crate::Result<()> {
-        for (worker_ref, w_update) in notifications {
-            let mut mbuilder = MessageBuilder::new();
-
-            for task in w_update.compute_tasks {
-                task.get().make_compute_task_msg(core, &mut mbuilder);
-            }
-
-            if !w_update.delete_keys.is_empty() {
-                mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
-                    keys: w_update.delete_keys,
-                    report: false,
-                }));
-            }
-
-            for tref in w_update.steal_tasks {
-                let task = tref.get();
-                mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key().into(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                self.send_worker_packet(&worker_ref, mbuilder.build_batch()?)
-                    .unwrap_or_else(|_| {
-                        // !!! Do not propagate error right now, we need to finish sending protocol to others
-                        // Worker cleanup is done elsewhere (when worker future terminates),
-                        // so we can safely ignore this. Since we are nice guys we log (debug) message.
-                        log::debug!("Sending tasks to worker {} failed", worker_ref.get().id);
-                    });
-            }
-        }
-
-        Ok(())
-    }
-
-    #[inline]
-    fn send_worker_packet(&mut self, worker: &WorkerRef, packet: DaskPacket) -> crate::Result<()> {
-        worker.get_mut().send_dask_packet(packet)
-    }
-    #[inline]
-    fn send_client_packet(&mut self, client: &mut Client, packet: DaskPacket) -> crate::Result<()> {
-        client.send_dask_packet(packet)
-    }
-}
-
-impl CommRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        Self::wrap(Comm { sender })
-    }
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct WorkerNotification {
-    pub(crate) compute_tasks: Vec<TaskRef>,
-    pub(crate) delete_keys: Vec<DaskKey>,
-    pub(crate) steal_tasks: Vec<TaskRef>,
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Default, Debug)]
-pub(crate) struct ClientNotification {
-    pub(crate) in_memory_tasks: Vec<TaskRef>,
-    pub(crate) error_tasks: Vec<TaskRef>,
-}
-
-#[derive(Default, Debug)]
-pub struct Notifications {
-    pub(crate) workers: Map<WorkerRef, WorkerNotification>,
-    pub(crate) clients: Map<ClientId, ClientNotification>,
-    pub(crate) scheduler_messages: Vec<ToSchedulerMessage>,
-}
-
-impl Notifications {
-    pub fn with_scheduler_capacity(capacity: usize) -> Self {
-        Self {
-            workers: Default::default(),
-            clients: Default::default(),
-            scheduler_messages: Vec::with_capacity(capacity)
-        }
-    }
-
-    pub fn new_worker(&mut self, worker: &Worker) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::NewWorker(worker.make_sched_info()));
-    }
-
-    #[inline]
-    pub fn new_task(&mut self, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::NewTask(task.make_sched_info()));
-    }
-
-    #[inline]
-    pub fn new_finished_task(&mut self, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::NewFinishedTask(NewFinishedTaskInfo {
-                id: task.id,
-                workers: task
-                    .get_workers()
-                    .unwrap()
-                    .iter()
-                    .map(|wr| wr.get().id)
-                    .collect(),
-                size: task.data_info().unwrap().size,
-            }));
-    }
-
-    pub fn remove_task(&mut self, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::RemoveTask(task.id));
-    }
-
-    pub fn delete_key_from_worker(&mut self, worker_ref: WorkerRef, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
-                state: TaskUpdateType::Removed,
-                id: task.id,
-                worker: worker_ref.get().id,
-                size: None,
-            }));
-        self.workers
-            .entry(worker_ref)
-            .or_default()
-            .delete_keys
-            .push(task.key().into());
-    }
-
-    pub fn task_placed(&mut self, worker: &Worker, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
-                state: TaskUpdateType::Placed,
-                id: task.id,
-                worker: worker.id,
-                size: None,
-            }));
-    }
-
-    pub fn task_finished(&mut self, worker: &Worker, task: &Task) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::TaskUpdate(TaskUpdate {
-                state: TaskUpdateType::Finished,
-                id: task.id,
-                worker: worker.id,
-                size: Some(task.data_info().unwrap().size),
-            }));
-    }
-
-    pub fn task_steal_response(
-        &mut self,
-        from_worker: &Worker,
-        to_worker: &Worker,
-        task: &Task,
-        success: bool,
-    ) {
-        self.scheduler_messages
-            .push(ToSchedulerMessage::TaskStealResponse(TaskStealResponse {
-                id: task.id,
-                from_worker: from_worker.id,
-                to_worker: to_worker.id,
-                success,
-            }));
-    }
-
-    pub fn compute_task_on_worker(&mut self, worker_ref: WorkerRef, task_ref: TaskRef) {
-        self.workers
-            .entry(worker_ref)
-            .or_default()
-            .compute_tasks
-            .push(task_ref);
-    }
-
-    pub fn steal_task_from_worker(&mut self, worker_ref: WorkerRef, task_ref: TaskRef) {
-        self.workers
-            .entry(worker_ref)
-            .or_default()
-            .steal_tasks
-            .push(task_ref);
-    }
-
-    pub fn notify_client_about_task_error(&mut self, client_id: ClientId, task_ref: TaskRef) {
-        self.clients
-            .entry(client_id)
-            .or_default()
-            .error_tasks
-            .push(task_ref);
-    }
-
-    pub fn notify_client_key_in_memory(&mut self, client_id: ClientId, task_ref: TaskRef) {
-        self.clients
-            .entry(client_id)
-            .or_default()
-            .in_memory_tasks
-            .push(task_ref);
-    }
-}
+use tokio::stream::Stream;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -472,48 +207,6 @@ pub async fn client_rpc_loop<
     Ok(())
 }
 
-pub async fn observe_scheduler(
-    core_ref: CoreRef,
-    comm_ref: CommRef,
-    mut receiver: UnboundedReceiver<FromSchedulerMessage>,
-) -> crate::Result<()> {
-    log::debug!("Starting scheduler");
-
-    match receiver.next().await {
-        Some(crate::scheduler::FromSchedulerMessage::Register(r)) => {
-            log::debug!("Scheduler registered: {:?}", r)
-        }
-        None => {
-            return Err(DsError::SchedulerError(
-                "Scheduler closed connection without registration".to_owned(),
-            ))
-        }
-        _ => {
-            return Err(DsError::SchedulerError(
-                "First message of scheduler has to be registration".to_owned(),
-            ))
-        }
-    }
-
-    while let Some(msg) = receiver.next().await {
-        match msg {
-            FromSchedulerMessage::TaskAssignments(assignments) => {
-                let mut core = core_ref.get_mut();
-                let mut notifications = Default::default();
-                core.process_assignments(assignments, &mut notifications);
-                comm_ref.get_mut().notify(&mut core, notifications).unwrap();
-            }
-            FromSchedulerMessage::Register(_) => {
-                return Err(DsError::SchedulerError(
-                    "Double registration of scheduler".to_owned(),
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Must be called within a LocalTaskSet
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -658,7 +351,8 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 
 #[cfg(test)]
 mod tests {
-    use crate::comm::{generic_rpc_loop, Notifications};
+    use crate::comm::notifications::Notifications;
+    use crate::comm::rpc::generic_rpc_loop;
     use crate::protocol::clientmsg::{
         ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };

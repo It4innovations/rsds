@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 
+use crate::trace::{trace_packet_receive, trace_packet_send};
 use crate::util::{OptionExt, ResultExt};
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::stream::Map;
@@ -13,7 +14,6 @@ use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use crate::trace::{trace_packet_send, trace_packet_receive};
 
 /// Commonly used types
 pub type Frame = Bytes;
@@ -122,7 +122,8 @@ impl Decoder for DaskCodec {
         self.sizes = None;
 
         let main_frame = self.main_message.take().ensure();
-        let total_size = main_frame.len() + self.other_messages.iter().map(|i| i.len()).sum::<usize>();
+        let total_size =
+            main_frame.len() + self.other_messages.iter().map(|i| i.len()).sum::<usize>();
         trace_packet_receive(total_size);
 
         Ok(Some(DaskPacket {
@@ -423,7 +424,10 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::{ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, UpdateGraphMsg, task_spec_to_memory};
+    use crate::protocol::clientmsg::{
+        task_spec_to_memory, ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
+        UpdateGraphMsg,
+    };
     use crate::protocol::protocol::{
         serialize_single_packet, Batch, DaskCodec, DaskPacket, SerializedMemory,
     };
@@ -432,13 +436,13 @@ mod tests {
     use futures::SinkExt;
     use maplit::hashmap;
 
+    use crate::common::Map;
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
     use std::io::Cursor;
     use tokio_util::codec::{Decoder, Encoder, Framed};
-    use crate::common::Map;
 
     #[tokio::test]
     async fn parse_message_simple() -> Result<()> {
@@ -643,7 +647,10 @@ mod tests {
     }
 
     fn parse_tasks(msg: &mut UpdateGraphMsg) -> Map<DaskKey, ClientTaskSpec<SerializedMemory>> {
-        std::mem::take(&mut msg.tasks).into_iter().map(|(k, v)| (k, task_spec_to_memory(v, &mut msg.frames))).collect()
+        std::mem::take(&mut msg.tasks)
+            .into_iter()
+            .map(|(k, v)| (k, task_spec_to_memory(v, &mut msg.frames)))
+            .collect()
     }
 
     fn get_binary(serialized: &SerializedMemory) -> Vec<u8> {

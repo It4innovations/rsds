@@ -33,7 +33,7 @@ impl Worker {
 
     pub fn hostname(&self) -> String {
         let s = self.listen_address.as_str();
-        let s : &str = s.find("://").map(|p| &s[p + 3..]).unwrap_or(s);
+        let s: &str = s.find("://").map(|p| &s[p + 3..]).unwrap_or(s);
         s.chars().take_while(|x| *x != ':').collect()
     }
 
@@ -41,7 +41,7 @@ impl Worker {
         crate::scheduler::schedproto::WorkerInfo {
             id: self.id,
             n_cpus: self.ncpus,
-            hostname: self.hostname()
+            hostname: self.hostname(),
         }
     }
 

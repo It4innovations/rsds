@@ -1,19 +1,19 @@
 use super::task::{SchedulerTaskState, Task, TaskRef};
 use super::utils::compute_b_level;
-use super::worker::{Worker, WorkerRef, HostnameId};
+use super::worker::{HostnameId, Worker, WorkerRef};
 use crate::common::{Map, Set};
 use crate::scheduler::comm::SchedulerComm;
 use crate::scheduler::schedproto::{
     SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
     WorkerId,
 };
+use crate::scheduler::workstealing::task::OwningTaskRef;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use futures::StreamExt;
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
-use crate::scheduler::workstealing::task::OwningTaskRef;
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -381,7 +381,10 @@ impl Scheduler {
                 }
                 ToSchedulerMessage::NewWorker(wi) => {
                     let hostname_id = self.get_hostname_id(&wi.hostname);
-                    assert!(self.workers.insert(wi.id, WorkerRef::new(wi, hostname_id),).is_none());
+                    assert!(self
+                        .workers
+                        .insert(wi.id, WorkerRef::new(wi, hostname_id),)
+                        .is_none());
                     invoke_scheduling = true;
                 }
                 ToSchedulerMessage::NetworkBandwidth(nb) => {
@@ -527,7 +530,7 @@ mod tests {
             scheduler.update(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
                 id: 100 + i as WorkerId,
                 n_cpus,
-                hostname: "worker".into()
+                hostname: "worker".into(),
             })]);
         }
     }

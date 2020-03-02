@@ -1,4 +1,4 @@
-use crate::protocol::protocol::{Frames, SerializedMemory, SerializedTransport, FromDaskTransport};
+use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 
 use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
@@ -16,12 +16,13 @@ pub enum ClientTaskSpec<T = SerializedMemory> {
     Serialized(T),
 }
 
-pub fn task_spec_to_memory(spec: ClientTaskSpec<SerializedTransport>, frames: &mut Frames) -> ClientTaskSpec<SerializedMemory> {
+pub fn task_spec_to_memory(
+    spec: ClientTaskSpec<SerializedTransport>,
+    frames: &mut Frames,
+) -> ClientTaskSpec<SerializedMemory> {
     match spec {
         ClientTaskSpec::Serialized(v) => {
-            ClientTaskSpec::<SerializedMemory>::Serialized(
-                v.to_memory(frames),
-            )
+            ClientTaskSpec::<SerializedMemory>::Serialized(v.to_memory(frames))
         }
         ClientTaskSpec::Direct {
             function,
@@ -52,7 +53,7 @@ pub struct UpdateGraphMsg {
     pub actors: Option<bool>,
 
     #[serde(skip)]
-    pub frames: Frames
+    pub frames: Frames,
 }
 
 #[cfg_attr(test, derive(Serialize))]

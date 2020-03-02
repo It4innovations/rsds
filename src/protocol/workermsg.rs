@@ -1,6 +1,9 @@
 use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{map_from_transport, map_to_transport, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport, Frames};
+use crate::protocol::protocol::{
+    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
+    SerializedMemory, SerializedTransport, ToDaskTransport,
+};
 use serde::{Deserialize, Serialize};
 
 fn binary_is_empty(transport: &SerializedTransport) -> bool {
@@ -117,7 +120,7 @@ pub struct TaskFinishedMsg {
     pub nbytes: u64,
     #[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,
-    pub startstops: Vec<(DaskKey, f64, f64)>
+    pub startstops: Vec<(DaskKey, f64, f64)>,
 }
 
 #[cfg_attr(test, derive(Serialize))]

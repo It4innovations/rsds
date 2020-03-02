@@ -3,9 +3,9 @@ pub type Set<T> = hashbrown::HashSet<T>;
 
 pub use wrapped::{RcEqWrapper, WrappedRcRefCell};
 
+pub use cycle_wrapped::{CycleOwner, HasCycle};
 pub use id_counter::IdCounter;
 pub use key_id_map::{Identifiable, KeyIdMap};
-pub use cycle_wrapped::{HasCycle, CycleOwner};
 
 pub type Priority = i32;
 
