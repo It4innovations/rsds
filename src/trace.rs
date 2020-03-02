@@ -1,19 +1,19 @@
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerId;
 
-pub struct TimedScope<'a> {
+pub struct ScopedTimer<'a> {
     process: &'a str,
     method: &'static str
 }
 
-impl<'a> TimedScope<'a> {
+impl<'a> ScopedTimer<'a> {
     pub fn new(process: &'a str, method: &'static str) -> Self {
         tracing::info!(action = "measure", process = process, method = method, event = "start");
         Self { process, method }
     }
 }
 
-impl <'a> Drop for TimedScope<'a> {
+impl <'a> Drop for ScopedTimer<'a> {
     fn drop(&mut self) {
         tracing::info!(action = "measure", method = self.method, process = self.process, event = "end");
     }
@@ -22,7 +22,7 @@ impl <'a> Drop for TimedScope<'a> {
 macro_rules! trace_time {
     ($process:tt, $method:tt, $block:expr) => {
         {
-            let _ = $crate::trace::TimedScope::new($process, $method);
+            let _timer = $crate::trace::ScopedTimer::new($process, $method);
             let res = $block;
             res
         }

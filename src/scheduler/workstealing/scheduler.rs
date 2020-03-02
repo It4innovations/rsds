@@ -83,17 +83,19 @@ impl Scheduler {
 
         while let Some(msgs) = comm.recv.next().await {
             /* TODO: Add delay that prevents calling scheduler too often */
-            if self.update(msgs) {
-                let mut notifications = Notifications::new();
+            trace_time!("scheduler", "update", {
+                if self.update(msgs) {
+                    let mut notifications = Notifications::new();
 
-                trace_time!("scheduler", "schedule", {
-                    if self.schedule(&mut notifications) {
-                        trace_time!("scheduler", "balance", self.balance(&mut notifications));
-                    }
-                });
+                    trace_time!("scheduler", "schedule", {
+                        if self.schedule(&mut notifications) {
+                            trace_time!("scheduler", "balance", self.balance(&mut notifications));
+                        }
+                    });
 
-                self.send_notifications(notifications, &mut comm);
-            }
+                    self.send_notifications(notifications, &mut comm);
+                }
+            });
         }
         log::debug!("Scheduler closed");
         Ok(())
