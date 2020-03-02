@@ -429,7 +429,7 @@ def get_submit_id():
     if is_inside_pbs():
         return os.environ["PBS_JOBID"]
     else:
-        return f"{os.getpid()}-{int(time.time())}
+        return f"{os.getpid()}-{int(time.time())}"
 
 
 def format_cluster_info(cluster_info):
@@ -609,7 +609,7 @@ fi
 @click.option("--workon", default=DEFAULT_VENV)
 @click.option("--watch/--no-watch", default=False)
 def submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
-    submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch)
+    submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch)
 
 
 @click.group()
