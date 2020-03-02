@@ -27,6 +27,7 @@ use smallvec::smallvec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
+use std::time::SystemTime;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -249,7 +250,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     log::debug!("Worker registration from {}", address);
                     let hb = RegisterWorkerResponseMsg {
                         status: to_dask_key("OK"),
-                        time: 0.0,
+                        time: SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
                         heartbeat_interval: 1.0,
                         worker_plugins: Vec::new(),
                     };

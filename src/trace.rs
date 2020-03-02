@@ -47,14 +47,15 @@ pub fn trace_worker_assign(task_id: TaskId, worker_id: WorkerId) {
     );
 }
 #[inline]
-pub fn trace_task_finish(task_id: TaskId, task_key: &str, worker_id: WorkerId, duration: u64) {
+pub fn trace_task_finish(task_id: TaskId, task_key: &str, worker_id: WorkerId, duration: (u64, u64)) {
     tracing::info!(
         action = "compute-task",
         event = "end",
         task = task_id,
         task_key = task_key,
         worker = worker_id,
-        duration = duration
+        start = duration.0,
+        stop = duration.1
     );
 }
 #[inline]

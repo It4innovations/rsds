@@ -515,13 +515,13 @@ impl CoreRef {
 }
 
 /// Returns task duration as specified by Dask.
-/// Converts from UNIX in seconds to a time difference in microseconds.
-fn get_task_duration(msg: &TaskFinishedMsg) -> u64 {
+/// Converts from UNIX in seconds to a microseconds.
+fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
     msg.startstops
         .iter()
         .find(|(key, _, _)| key.as_bytes() == "compute".as_bytes())
-        .map(|(_, start, stop)| ((stop - start) * 1_000_000f64) as u64)
-        .unwrap_or(0)
+        .map(|(_, start, stop)| ((start * 1_000_000f64) as u64, (stop * 1_000_000f64) as u64))
+        .unwrap_or((0, 0))
 }
 
 #[cfg(test)]
