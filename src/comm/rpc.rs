@@ -443,7 +443,7 @@ mod tests {
                 size: 0,
                 r#type: r#type.clone(),
             },
-            vec![],
+            Default::default(),
         );
         let key: DaskKey = t.get().key().into();
 

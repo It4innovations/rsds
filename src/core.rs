@@ -539,6 +539,7 @@ mod tests {
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,
     };
+    use crate::common::Set;
 
     #[test]
     fn add_remove() {
@@ -651,7 +652,9 @@ mod tests {
             TaskRuntimeState::Finished(data, workers) => {
                 assert_eq!(data.size, nbytes);
                 assert_eq!(data.r#type, r#type);
-                assert_eq!(workers, &vec!(w));
+                let mut s = Set::new();
+                s.insert(w);
+                assert_eq!(workers, &s);
             }
             _ => panic!("Wrong task state"),
         };
