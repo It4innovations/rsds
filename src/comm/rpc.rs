@@ -342,6 +342,10 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     log::debug!("Proxy request from {}", &address);
                     proxy_to_worker(&core_ref, &comm_ref, &mut writer, msg).await?;
                 }
+                GenericMessage::Unregister => {
+                    // TODO: remove worker
+                    writer.send(serialize_single_packet("OK")?).await?;
+                }
                 _ => panic!("Unhandled generic message: {:?}", message),
             }
         }
