@@ -248,7 +248,7 @@ impl Core {
                 .expect("Worker from assignment not found")
                 .clone();
             let task_ref = self.get_task_by_id_or_panic(assignment.task);
-
+            task_ref.get_mut().scheduler_priority = assignment.priority;
             let state = {
                 let task = task_ref.get();
                 match &task.state {

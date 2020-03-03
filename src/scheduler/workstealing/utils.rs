@@ -17,11 +17,11 @@ pub fn compute_b_level(tasks: &Map<TaskId, TaskRef>) {
     while let Some(tref) = stack.pop() {
         let mut task = tref.get_mut();
 
-        let mut b_level = 0.0f32;
+        let mut b_level = 0;
         for tr in &task.consumers {
             b_level = b_level.max(tr.get().b_level);
         }
-        task.b_level = b_level + 1.0f32;
+        task.b_level = b_level + 1;
 
         for inp in &task.inputs {
             let v: &mut u32 = n_consumers.get_mut(&inp).unwrap();

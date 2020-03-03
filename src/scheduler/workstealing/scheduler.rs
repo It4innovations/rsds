@@ -64,8 +64,7 @@ impl Scheduler {
                 TaskAssignment {
                     task: task.id,
                     worker: worker.id,
-                    priority: 0,
-                    // TODO derive priority from b-level
+                    priority: -task.b_level,
                 }
             })
             .collect();
