@@ -544,7 +544,8 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
     stderr = os.path.join(directory, "stderr")
 
     target_input = os.path.join(directory, os.path.basename(input))
-    shutil.copyfile(input, target_input)
+    if input != target_input:
+        shutil.copyfile(input, target_input)
     script_path = os.path.abspath(__file__)
     args = ["--timeout", str(walltime - 60)]  # lower timeout to save results
     if profile:
