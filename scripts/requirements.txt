@@ -15,4 +15,3 @@ mimesis
 json5
 gitpython
 networkx
-pygraphviz

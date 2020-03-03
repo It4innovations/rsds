@@ -19,7 +19,7 @@ use crate::scheduler::schedproto::TaskId;
 
 use crate::task::{DataInfo, TaskRef, TaskRuntimeState};
 
-use crate::protocol::key::{to_dask_key, DaskKey};
+use crate::protocol::key::{to_dask_key, DaskKey, dask_key_ref_to_str};
 use crate::util::OptionExt;
 use crate::worker::WorkerRef;
 use futures::future::join_all;
@@ -28,6 +28,7 @@ use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::net::TcpStream;
+use crate::trace::trace_task_new;
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -88,6 +89,7 @@ pub fn update_graph(
             })
             .sum();
         log::debug!("New task id={}, key={}", task_id, task_key);
+        trace_task_new(task_id, dask_key_ref_to_str(&task_key), &inputs);
         let task_spec = task_spec_to_memory(task_spec, &mut update.frames);
         let client_priority = update.priority.get(&task_key).map(|x| *x).unwrap_or_default();
         let task_ref = TaskRef::new(

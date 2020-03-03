@@ -1,5 +1,6 @@
 use crate::scheduler::schedproto::TaskId;
 use crate::worker::WorkerId;
+use std::fmt::Write;
 
 pub struct ScopedTimer<'a> {
     process: &'a str,
@@ -37,36 +38,60 @@ macro_rules! trace_time {
     }};
 }
 
-#[inline]
-pub fn trace_worker_assign(task_id: TaskId, worker_id: WorkerId) {
+#[inline(always)]
+pub fn trace_task_new(task_id: TaskId, key: &str, inputs: &[u64]) {
+    let mut input_str = String::with_capacity(2 * inputs.len());
+    for input in inputs {
+        write!(input_str, "{},", input).ok();
+    }
+
     tracing::info!(
-        action = "compute-task",
-        event = "start",
+        action = "task",
+        event = "create",
+        task = task_id,
+        key = key,
+        inputs = input_str.as_str()
+    );
+}
+#[inline(always)]
+pub fn trace_task_assign(task_id: TaskId, worker_id: WorkerId) {
+    tracing::info!(
+        action = "task",
+        event = "assign",
         worker = worker_id,
         task = task_id
     );
 }
-#[inline]
-pub fn trace_task_finish(task_id: TaskId, task_key: &str, worker_id: WorkerId, duration: (u64, u64)) {
+#[inline(always)]
+pub fn trace_task_send(task_id: TaskId, worker_id: WorkerId) {
     tracing::info!(
-        action = "compute-task",
-        event = "end",
+        action = "task",
+        event = "send",
         task = task_id,
-        task_key = task_key,
         worker = worker_id,
-        start = duration.0,
-        stop = duration.1
     );
 }
-#[inline]
-pub fn trace_new_worker(worker_id: WorkerId, ncpus: u32) {
+#[inline(always)]
+pub fn trace_task_finish(task_id: TaskId, worker_id: WorkerId, size: u64, duration: (u64, u64)) {
+    tracing::info!(
+        action = "task",
+        event = "finish",
+        task = task_id,
+        worker = worker_id,
+        start = duration.0,
+        stop = duration.1,
+        size = size
+    );
+}
+#[inline(always)]
+pub fn trace_worker_new(worker_id: WorkerId, ncpus: u32) {
     tracing::info!(action = "new-worker", worker_id = worker_id, cpus = ncpus);
 }
-#[inline]
+#[inline(always)]
 pub fn trace_worker_steal(task_id: TaskId, from: WorkerId, to: WorkerId) {
     tracing::info!(action = "steal", task = task_id, from = from, to = to);
 }
-#[inline]
+#[inline(always)]
 pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId, result: &str) {
     tracing::info!(
         action = "steal-response",
@@ -76,7 +101,7 @@ pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId
         result = result
     );
 }
-#[inline]
+#[inline(always)]
 pub fn trace_worker_steal_response_missing(task_key: &str, from: WorkerId) {
     tracing::info!(
         action = "steal-response",
@@ -86,11 +111,11 @@ pub fn trace_worker_steal_response_missing(task_key: &str, from: WorkerId) {
         result = "missing"
     );
 }
-#[inline]
+#[inline(always)]
 pub fn trace_packet_send(size: usize) {
     tracing::info!(action = "packet-send", size = size);
 }
-#[inline]
+#[inline(always)]
 pub fn trace_packet_receive(size: usize) {
     tracing::info!(action = "packet-receive", size = size);
 }

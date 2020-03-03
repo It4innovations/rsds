@@ -6,12 +6,9 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell, Se
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
-use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
+use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{
-    trace_new_worker, trace_task_finish, trace_worker_assign, trace_worker_steal,
-    trace_worker_steal_response, trace_worker_steal_response_missing,
-};
+use crate::trace::{trace_worker_new, trace_task_finish, trace_task_assign, trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -101,7 +98,7 @@ impl Core {
     pub fn register_worker(&mut self, worker_ref: WorkerRef) {
         {
             let worker = worker_ref.get();
-            trace_new_worker(worker.id, worker.ncpus);
+            trace_worker_new(worker.id, worker.ncpus);
         }
         self.workers.insert(worker_ref);
     }
@@ -239,7 +236,7 @@ impl Core {
         task_ref: TaskRef,
         notifications: &mut Notifications,
     ) {
-        trace_worker_assign(task_ref.get().id, worker_ref.get().id);
+        trace_task_assign(task_ref.get().id, worker_ref.get().id);
         notifications.compute_task_on_worker(worker_ref, task_ref);
     }
 
@@ -430,8 +427,8 @@ impl Core {
                 let worker_ref = worker.get();
                 trace_task_finish(
                     task.id,
-                    dask_key_ref_to_str(task.key()),
                     worker_ref.id,
+                    msg.nbytes,
                     get_task_duration(&msg),
                 );
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);

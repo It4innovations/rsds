@@ -16,6 +16,7 @@ use crate::task::TaskRuntimeState;
 use crate::worker::WorkerRef;
 
 use tokio::sync::mpsc::UnboundedSender;
+use crate::trace::trace_task_send;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -84,7 +85,9 @@ impl Comm {
             let mut mbuilder = MessageBuilder::new();
 
             for task in w_update.compute_tasks {
-                task.get().make_compute_task_msg(core, &mut mbuilder);
+                let task = task.get();
+                trace_task_send(task.id, worker_ref.get().id);
+                task.make_compute_task_msg(core, &mut mbuilder);
             }
 
             if !w_update.delete_keys.is_empty() {

@@ -5,17 +5,15 @@ import click
 from monitor.report import generate, serve
 from monitor.src.cluster import CLUSTER_FILENAME
 from postprocessing.charts import generate_charts
-from postprocessing.chrome import generate_chrome_trace
 from postprocessing.summary import generate_summary
-from postprocessing.timeline import generate_timeline
-from postprocessing.trace import generate_trace_summary
+from postprocessing.trace import generate_chrome_trace, generate_trace_summary, generate_timeline, generate_graph
 
 
 @click.command()
 @click.argument("trace-path")
 @click.argument("output")
 @click.option("--pretty/--no-pretty", default=False)
-def chrome_trace(trace_path, output, pretty):
+def trace_chrome(trace_path, output, pretty):
     generate_chrome_trace(trace_path, output, pretty)
 
 
@@ -29,8 +27,16 @@ def trace_summary(trace_path, output):
 @click.command()
 @click.argument("trace-path")
 @click.argument("output")
-def timeline(trace_path, output):
-    generate_timeline(trace_path, output)
+@click.option("--task-filter", default="")
+def trace_timeline(trace_path, output, task_filter):
+    generate_timeline(trace_path, output, task_filter)
+
+
+@click.command()
+@click.argument("trace-path")
+@click.argument("output")
+def trace_graph(trace_path, output):
+    generate_graph(trace_path, output)
 
 
 @click.command()
@@ -69,17 +75,22 @@ def generate_dir(path):
         generate(cluster, monitor_output)
     trace = os.path.join(path, "scheduler.trace")
     if os.path.isfile(trace):
-        chrome_trace = os.path.join(path, "chrome.json")
-        print(f"Generating Chrome trace: {chrome_trace}")
-        generate_chrome_trace(trace, chrome_trace, False)
+        fns = [
+            ("trace-chrome.json", lambda file: generate_chrome_trace(trace, file, False)),
+            ("trace-summary", lambda file: generate_trace_summary(trace, file)),
+            ("trace-timeline.html", lambda file: generate_timeline(trace, file))
+        ]
 
-        trace_summary = os.path.join(path, "trace-summary.txt")
-        print(f"Generating trace summary: {trace_summary}")
-        generate_trace_summary(trace, trace_summary)
+        try:
+            import pygraphviz
+            fns.append(("trace-graph", lambda file: generate_graph(trace, file)))
+        except:
+            print("Warning: pygraphviz not present, skipping graphs")
 
-        trace_timeline = os.path.join(path, "trace-timeline.html")
-        print(f"Generating timeline: {trace_timeline}")
-        generate_timeline(trace, trace_timeline)
+        for (file, fn) in fns:
+            output = os.path.join(path, file)
+            print(f"Generating {output}")
+            fn(output)
 
 
 @click.command()
@@ -101,9 +112,10 @@ def cli():
 
 
 if __name__ == "__main__":
-    cli.add_command(chrome_trace)
     cli.add_command(trace_summary)
-    cli.add_command(timeline)
+    cli.add_command(trace_chrome)
+    cli.add_command(trace_timeline)
+    cli.add_command(trace_graph)
     cli.add_command(monitor_html)
     cli.add_command(monitor_serve)
     cli.add_command(summary)
