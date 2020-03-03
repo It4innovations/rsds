@@ -39,6 +39,10 @@ pub fn update_graph(
     let mut new_task_ids: Map<DaskKey, TaskId> = Default::default();
 
     let lowest_id = core.new_task_id();
+
+    /* client send a user_priority in inverse meaning, so we use negative value
+       to make same meaning in the rsds */
+    let user_priority = -update.user_priority;
     for task_key in update.tasks.keys() {
         new_task_ids.insert(task_key.clone(), core.new_task_id());
     }
@@ -80,7 +84,11 @@ pub fn update_graph(
             })
             .sum();
         log::debug!("New task id={}, key={}", task_id, task_key);
-        let task_ref = TaskRef::new(task_id, task_key, Some(task_spec), inputs, unfinished_deps);
+        let client_priority = update.priority.get(&task_key).map(|x| *x).unwrap_or_default();
+        let task_ref = TaskRef::new(
+            task_id, task_key, Some(task_spec), inputs, unfinished_deps, user_priority,
+            client_priority
+        );
 
         core.add_task(task_ref.clone());
         new_tasks.push(task_ref);
@@ -349,7 +357,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                 let size: u64 = *sizes.get(&key).unwrap();
                 let mut set = Set::new();
                 set.insert(wr.clone());
-                let task_ref = TaskRef::new(core.new_task_id(), key, None, Default::default(), 0);
+                let task_ref = TaskRef::new(core.new_task_id(), key, None, Default::default(), 0, Default::default(), Default::default());
                 {
                     let mut task = task_ref.get_mut();
                     task.state = TaskRuntimeState::Finished(

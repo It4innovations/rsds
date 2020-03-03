@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::client::ClientId;
 use crate::comm::Notifications;
-use crate::common::{Set, WrappedRcRefCell};
+use crate::common::{Set, WrappedRcRefCell, Priority};
 use crate::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
@@ -61,6 +61,10 @@ pub struct Task {
     pub dependencies: Vec<TaskId>,
 
     pub spec: Option<ClientTaskSpec>,
+
+    pub user_priority: i32,
+    pub scheduler_priority: i32,
+    pub client_priority: i32,
     subscribed_clients: Vec<ClientId>,
 }
 
@@ -220,6 +224,7 @@ impl Task {
             function: msg_function,
             kwargs: msg_kwargs,
             args: msg_args,
+            priority: [self.user_priority, self.scheduler_priority, self.client_priority]
         });
         mbuilder.add_message(msg);
     }
@@ -298,6 +303,8 @@ impl TaskRef {
         spec: Option<ClientTaskSpec>,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
+        user_priority: Priority,
+        client_priority: Priority,
     ) -> Self {
         Self::wrap(Task {
             id,
@@ -306,6 +313,9 @@ impl TaskRef {
             dependencies,
             unfinished_inputs,
             spec,
+            user_priority,
+            client_priority,
+            scheduler_priority: Default::default(),
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
             subscribed_clients: Default::default(),

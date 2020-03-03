@@ -1,4 +1,4 @@
-use crate::common::Map;
+use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
 use crate::protocol::protocol::{
     map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
@@ -47,6 +47,8 @@ pub struct ComputeTaskMsg {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<SerializedTransport>,
+
+    pub priority: [Priority; 3],
 }
 
 #[derive(Serialize, Debug)]

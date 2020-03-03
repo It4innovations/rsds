@@ -1,6 +1,6 @@
 use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 
-use crate::common::Map;
+use crate::common::{Map, Priority};
 use crate::protocol::key::DaskKey;
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,14 @@ pub struct UpdateGraphMsg<T = SerializedMemory> {
     pub tasks: Map<DaskKey, ClientTaskSpec<T>>,
     pub dependencies: Map<DaskKey, Vec<DaskKey>>,
     pub keys: Vec<DaskKey>,
-    pub actors: Option<bool>
+
+    #[serde(default)]
+    pub priority: Map<DaskKey, i32>,
+
+    #[serde(default)]
+    pub user_priority: Priority,
+
+    pub actors: Option<bool>,
 }
 
 #[cfg_attr(test, derive(Serialize))]
@@ -86,7 +93,9 @@ impl FromDaskTransport for FromClientMessage<SerializedMemory> {
                     .collect(),
                 dependencies: data.dependencies,
                 keys: data.keys,
-                actors: data.actors
+                actors: data.actors,
+                priority: data.priority,
+                user_priority: data.user_priority,
             }),
             Self::Transport::ClientReleasesKeys(data) => Self::ClientReleasesKeys(data),
             Self::Transport::ClientDesiresKeys(data) => Self::ClientDesiresKeys(data),
