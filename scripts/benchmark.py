@@ -34,6 +34,7 @@ from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
 MODULES = ("hwloc/2.0.3-GCC-6.3.0-2.27", "numactl/2.0.12-GCC-6.3.0-2.27")
+USECASES_SCRIPT = os.path.join(CURRENT_DIR, "usecases.py")
 
 TIMEOUT_EXIT_CODE = 16
 RESULT_FILE = "result.json"
@@ -166,6 +167,7 @@ class DaskCluster:
                     "--nthreads", str(threads),
                     "--nprocs", str(processes),
                     "--local-directory", "/tmp",
+                    "--preload", USECASES_SCRIPT,
                     "--no-dashboard"] + worker_args
 
         env = {"OMP_NUM_THREADS": "1"}  # TODO
