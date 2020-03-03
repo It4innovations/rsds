@@ -1,6 +1,7 @@
 import collections
 import math
 
+import pandas as pd
 from bokeh.models import ColumnDataSource, HoverTool
 
 TaskStartTraceEvent = collections.namedtuple("TaskStart", ["time", "worker", "task"])
@@ -50,7 +51,7 @@ def format_bytes(size):
 
 
 def task_tooltip(task) -> str:
-    return f"key: {task.key}, id: {task.id}, size: {format_bytes(task.size)}, inputs: {len(task.inputs)}, "\
+    return f"key: {task.key}, id: {task.id}, size: {format_bytes(task.size)}, inputs: {len(task.inputs)}, " \
            f"input_size: {format_bytes(task.input_bytes())}"
 
 
@@ -124,8 +125,9 @@ def plot_tasks_on_workers(trace_events, workers):
             data["worker"].append(worker.id)
             data["color"].append("blue")
 
+        plot.line([0, end_time], [worker_index, worker_index], color="black", line_dash="dashed", alpha=0.5,
+                  line_width=0.5)
         worker_index += 1
-        plot.line([0, end_time], [index, index], color="black", line_dash="dashed", alpha=0.5, line_width=0.5)
 
     source = ColumnDataSource(data=data)
     plot.quad(source=source, left="left", right="right", bottom="bottom", top="top", line_color="color",
@@ -137,10 +139,10 @@ def plot_tasks_on_workers(trace_events, workers):
     return plot
 
 
-def plot_task_lifespan(tasks, end_time, task_filter=None):
+def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
     from bokeh import plotting
 
-    tools_to_show = 'hover,box_zoom,pan,save,reset,wheel_zoom'
+    tools_to_show = 'box_zoom,pan,save,reset,wheel_zoom'
     plot = plotting.figure(plot_width=1600, plot_height=850,
                            x_range=(0, end_time),
                            title='Task lifespan',
@@ -190,11 +192,21 @@ def plot_task_lifespan(tasks, end_time, task_filter=None):
 
     source = ColumnDataSource(data=data)
     plot.quad(source=source, left="left", right="right", bottom="bottom", top="top", line_color="color",
-              fill_color="color", legend_field="event")
+              fill_color="color", legend_field="event", name="tasks")
 
-    hover = plot.select(dict(type=HoverTool))
-    hover.tooltips = [("Task", "@task"), ("Event", "@event"), ("Time", "@time"), ("Worker", "@worker")]
-    hover.mode = 'mouse'
+    packets = pd.DataFrame(packets)
+    packets["y"] = -1
+    packets["color"] = packets["event"].apply(lambda e: "red" if event == "packet-receive" else "blue")
+    packets["size_format"] = packets["size"].apply(lambda s: format_bytes(s))
+
+    packets = ColumnDataSource(data=packets)
+    plot.circle(source=packets, size=10, x="time", y="y", color="color", fill_color="color", name="packets")
+
+    plot.add_tools(
+        HoverTool(tooltips=[("Task", "@task"), ("Event", "@event"), ("Time", "@time"), ("Worker", "@worker")],
+                  names=["tasks"]))
+    plot.add_tools(
+        HoverTool(tooltips=[("Size", "@size_format"), ("Type", "@event"), ("Time", "@time")], names=["packets"]))
 
     return plot
 

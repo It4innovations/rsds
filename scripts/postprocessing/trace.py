@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from typing import Tuple, Dict
 
 import matplotlib.pyplot as plt
@@ -146,6 +147,7 @@ def generate_timeline(trace_path, output, task_filter=None):
     events = []
     first_timestamp = None
     max_normalized_time = 0
+    packets = defaultdict(lambda: [])
 
     def normalize_time(fields, timestamp):
         nonlocal first_timestamp, max_normalized_time
@@ -162,7 +164,8 @@ def generate_timeline(trace_path, output, task_filter=None):
         return timestamp
 
     def handle_event(timestamp, fields, tasks, workers):
-        if fields["action"] == "task" and fields["event"] == "finish":
+        action = fields["action"]
+        if action == "task" and fields["event"] == "finish":
             start = normalize_time(fields, fields["start"])
             end = normalize_time(fields, fields["stop"])
 
@@ -170,6 +173,10 @@ def generate_timeline(trace_path, output, task_filter=None):
             worker = workers[fields["worker"]]
             events.append(TaskStartTraceEvent(time=start, worker=worker, task=task))
             events.append(TaskEndTraceEvent(time=end, worker=worker, task=task))
+        elif action in ("packet-send", "packet-receive"):
+            packets["event"].append(action)
+            packets["size"].append(fields["size"])
+            packets["time"].append(timestamp)
 
     tasks, workers = parse_trace(trace_path, handle_event, normalize_time=normalize_time)
 
@@ -178,7 +185,7 @@ def generate_timeline(trace_path, output, task_filter=None):
 
     def plot_fn():
         return plot_tabs([
-            (lambda: plot_task_lifespan(tasks, max_normalized_time, task_filter), "Task lifespan"),
+            (lambda: plot_task_lifespan(tasks, max_normalized_time, packets, task_filter), "Task lifespan"),
             (lambda: plot_tasks_on_workers(events, worker_list), "Tasks on workers"),
         ])
 
