@@ -40,17 +40,20 @@ macro_rules! trace_time {
 
 #[inline(always)]
 pub fn trace_task_new(task_id: TaskId, key: &str, inputs: &[u64]) {
-    let mut input_str = String::with_capacity(2 * inputs.len());
-    for input in inputs {
-        write!(input_str, "{},", input).ok();
-    }
+    let make_inputs = || {
+        let mut input_str = String::with_capacity(2 * inputs.len());
+        for input in inputs {
+            write!(input_str, "{},", input).ok();
+        }
+        input_str
+    };
 
     tracing::info!(
         action = "task",
         event = "create",
         task = task_id,
         key = key,
-        inputs = input_str.as_str()
+        inputs = make_inputs().as_str()
     );
 }
 #[inline(always)]
