@@ -6,7 +6,7 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell, Se
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
-use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef};
+use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef, dask_key_ref_to_str};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::trace::{trace_worker_new, trace_task_finish, trace_task_assign, trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing};
 use crate::worker::WorkerRef;
@@ -98,7 +98,7 @@ impl Core {
     pub fn register_worker(&mut self, worker_ref: WorkerRef) {
         {
             let worker = worker_ref.get();
-            trace_worker_new(worker.id, worker.ncpus);
+            trace_worker_new(worker.id, worker.ncpus, dask_key_ref_to_str(worker.address()));
         }
         self.workers.insert(worker_ref);
     }

@@ -12,8 +12,9 @@ from .bokeh_timeline import TaskStartTraceEvent, TaskEndTraceEvent, normalize_ta
 
 
 class Worker:
-    def __init__(self, id, cpus):
+    def __init__(self, id, address, cpus):
         self.id = id
+        self.address = address
         self.cpus = cpus
         self.tasks = {}
         self.started_tasks = {}
@@ -52,6 +53,12 @@ class Task:
         return sum(t.size for t in self.inputs)
 
 
+def strip_port(address):
+    if ":" in address:
+        return address[:address.find(":")]
+    return address
+
+
 def generate_trace_summary(trace_path, output):
     measurements = {}
     action_timestamps = {}
@@ -66,9 +73,7 @@ def generate_trace_summary(trace_path, output):
         action = fields["action"]
 
         if action == "measure":
-            process = fields['process']
-            if ":" in process:
-                process = process[:process.find(":")]
+            process = strip_port(fields['process'])
             method = f"{process}/{fields['method']}"
             is_start = fields["event"] == "start"
             if is_start:
@@ -215,7 +220,7 @@ def generate_graph(trace_path, output):
         graph.add_node(task.id,
                        label=f"{worker.id}: {task.id}",
                        tooltip=f"key: {task.key}, duration: {task.duration}, wait: {task.wait_duration}, "
-                               f"inputs: {', '.join(str(i.id) for i in task.inputs)}",
+                               f"worker: {worker.address} inputs: {', '.join(str(i.id) for i in task.inputs)}",
                        style="filled",
                        fixedsize=True,
                        width=dimension,
@@ -230,6 +235,8 @@ def generate_graph(trace_path, output):
                 args["label"] = format_bytes(task.size)
                 args["tooltip"] = f"{src_worker.id}->{worker.id}: {format_bytes(task.size)}"
                 args["penwidth"] = 1 + (task.size / max_size) * max_line_width
+                if strip_port(src_worker.address) == strip_port(worker.address):
+                    args["style"] = "dashed"
             else:
                 args["style"] = "dotted"
 
@@ -347,7 +354,7 @@ def parse_trace(trace_path, handle_event, normalize_time=None) -> Tuple[Dict[int
             elif action == "new-worker":
                 worker_id = fields["worker_id"]
                 assert worker_id not in workers
-                workers[worker_id] = Worker(worker_id, fields["cpus"])
+                workers[worker_id] = Worker(worker_id, fields["address"], fields["cpus"])
 
             handle_event(timestamp, fields, tasks, workers)
 

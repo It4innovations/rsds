@@ -304,9 +304,10 @@ class Benchmark:
         os.makedirs(workdir, exist_ok=True)
 
         with DaskCluster(configuration["cluster"], workdir, profile=self.profile):
+            graph = configuration["function"]()
             start = time.time()
             # the real computation happens here
-            result = dask.compute(configuration["function"]())
+            result = dask.compute(graph)
             duration = time.time() - start
             return (configuration, flatten_result(result), duration)
 

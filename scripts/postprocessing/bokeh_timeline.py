@@ -51,7 +51,8 @@ def format_bytes(size):
 
 
 def task_tooltip(task) -> str:
-    return f"key: {task.key}, id: {task.id}, size: {format_bytes(task.size)}, inputs: {len(task.inputs)}, " \
+    return f"id: {task.id}, key: {task.key}, duration: {task.duration:.3f} s, wait: {task.wait_duration:.3f} s, " \
+           f"size: {format_bytes(task.size)}, inputs: {len(task.inputs)}, "\
            f"input_size: {format_bytes(task.input_bytes())}"
 
 
@@ -122,7 +123,7 @@ def plot_tasks_on_workers(trace_events, workers):
             data["top"].append(normalize_height(rect[3]) - factor)
             data["task"].append(task_tooltip(task))
             data["duration"].append(f"{task.duration} s")
-            data["worker"].append(worker.id)
+            data["worker"].append(f"{worker.id}: {worker.address}")
             data["color"].append("blue")
 
         plot.line([0, end_time], [worker_index, worker_index], color="black", line_dash="dashed", alpha=0.5,
