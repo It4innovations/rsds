@@ -440,10 +440,10 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
             if t.placement.contains(worker_ref) {
                 0u64
             } else if t.future_placement.contains_key(worker_ref) {
-                t.size / 4
-            } /*if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
+                1u64
+            } else if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
                 t.size / 2
-            }*/ else {
+            } else {
                 t.size
             }
         })
