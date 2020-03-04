@@ -1,7 +1,8 @@
 use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 
-use crate::common::{Map, Priority};
+use crate::common::Map;
 use crate::protocol::key::DaskKey;
+use crate::protocol::Priority;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(test, derive(Serialize))]
@@ -96,7 +97,7 @@ impl FromDaskTransport for FromClientMessage {
                 actors: data.actors,
                 priority: data.priority,
                 user_priority: data.user_priority,
-                frames: std::mem::take(frames)
+                frames: std::mem::take(frames),
             }),
             Self::Transport::ClientReleasesKeys(data) => Self::ClientReleasesKeys(data),
             Self::Transport::ClientDesiresKeys(data) => Self::ClientDesiresKeys(data),

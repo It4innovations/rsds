@@ -117,11 +117,11 @@ impl Scheduler {
             assert!(previous_worker.tasks.remove(&task_ref));
         }
         for tr in &task.inputs {
-                let mut t = tr.get_mut();
-                if let Some(wr) = assigned_worker {
-                    t.remove_future_placement(wr);
-                }
-                t.set_future_placement(worker_ref.clone());
+            let mut t = tr.get_mut();
+            if let Some(wr) = assigned_worker {
+                t.remove_future_placement(wr);
+            }
+            t.set_future_placement(worker_ref.clone());
         }
         task.assigned_worker = Some(worker_ref);
         assert!(worker.tasks.insert(task_ref));
@@ -449,7 +449,12 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
                 0u64
             } else if t.future_placement.contains_key(worker_ref) {
                 1u64
-            } else if t.placement.iter().take(32).any(|w| w.get().hostname_id == hostname_id) {
+            } else if t
+                .placement
+                .iter()
+                .take(32)
+                .any(|w| w.get().hostname_id == hostname_id)
+            {
                 t.size / 2
             } else {
                 t.size
@@ -573,13 +578,13 @@ mod tests {
         assert_eq!(scheduler.ready_to_assign[0].get().id, 1);
         connect_workers(&mut scheduler, 1, 1);
         run_schedule(&mut scheduler);
-        assert_eq!(scheduler.get_task(7).get().b_level, 1.0);
-        assert_eq!(scheduler.get_task(6).get().b_level, 2.0);
-        assert_eq!(scheduler.get_task(5).get().b_level, 1.0);
-        assert_eq!(scheduler.get_task(4).get().b_level, 2.0);
-        assert_eq!(scheduler.get_task(3).get().b_level, 3.0);
-        assert_eq!(scheduler.get_task(2).get().b_level, 3.0);
-        assert_eq!(scheduler.get_task(1).get().b_level, 4.0);
+        assert_eq!(scheduler.get_task(7).get().b_level, 1);
+        assert_eq!(scheduler.get_task(6).get().b_level, 2);
+        assert_eq!(scheduler.get_task(5).get().b_level, 1);
+        assert_eq!(scheduler.get_task(4).get().b_level, 2);
+        assert_eq!(scheduler.get_task(3).get().b_level, 3);
+        assert_eq!(scheduler.get_task(2).get().b_level, 3);
+        assert_eq!(scheduler.get_task(1).get().b_level, 4);
     }
 
     #[test]

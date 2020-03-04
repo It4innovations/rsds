@@ -101,6 +101,8 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
         ))),
         deps.iter().map(|t| t.get().id).collect(),
         deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
+        Default::default(),
+        Default::default(),
     );
     for &dep in deps {
         dep.get_mut().add_consumer(task.clone());

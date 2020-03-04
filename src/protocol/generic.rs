@@ -146,7 +146,7 @@ pub enum GenericMessage<T = SerializedMemory> {
     Cancel(CancelKeysMsg),
     Ncores,
     Proxy(ProxyMsg),
-    Unregister
+    Unregister,
 }
 
 impl FromDaskTransport for GenericMessage<SerializedMemory> {
@@ -175,7 +175,7 @@ impl FromDaskTransport for GenericMessage<SerializedMemory> {
                 msg: msg.msg,
                 frames: std::mem::take(frames),
             }),
-            Self::Transport::Unregister => Self::Unregister
+            Self::Transport::Unregister => Self::Unregister,
         }
     }
 }

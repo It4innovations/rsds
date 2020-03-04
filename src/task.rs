@@ -4,10 +4,11 @@ use std::rc::Rc;
 
 use crate::client::ClientId;
 use crate::comm::Notifications;
-use crate::common::{Set, WrappedRcRefCell, Priority};
+use crate::common::{Set, WrappedRcRefCell};
 use crate::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
+use crate::protocol::Priority;
 
 use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
@@ -224,7 +225,11 @@ impl Task {
             function: msg_function,
             kwargs: msg_kwargs,
             args: msg_args,
-            priority: [self.user_priority, self.scheduler_priority, self.client_priority]
+            priority: [
+                self.user_priority,
+                self.scheduler_priority,
+                self.client_priority,
+            ],
         });
         mbuilder.add_message(msg);
     }

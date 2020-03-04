@@ -24,10 +24,10 @@ use crate::worker::create_worker;
 
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use smallvec::smallvec;
+use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
-use std::time::SystemTime;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -477,7 +477,7 @@ mod tests {
         comm.get_mut().notify(&mut core.get_mut(), notifications)?;
 
         let packet = rx.next().await.unwrap();
-        assert_eq!(packet.main_frame, frame(b"\x91\x86\xa2op\xaccompute-task\xa3key\xa10\xa8duration\xca?\0\0\0\xa8function\xc0\xa4args\xc0\xa6kwargs\xc0"));
+        assert_eq!(packet.main_frame, frame(b"\x91\x87\xa2op\xaccompute-task\xa3key\xa10\xa8duration\xca?\0\0\0\xa8function\xc0\xa4args\xc0\xa6kwargs\xc0\xa8priority\x93\0\0\0"));
         assert_eq!(packet.additional_frames, Frames::from(vec!()));
 
         Ok(())

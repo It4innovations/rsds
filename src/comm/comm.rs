@@ -15,8 +15,8 @@ use crate::task::TaskRuntimeState;
 
 use crate::worker::WorkerRef;
 
-use tokio::sync::mpsc::UnboundedSender;
 use crate::trace::trace_task_send;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 

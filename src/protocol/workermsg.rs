@@ -1,9 +1,10 @@
-use crate::common::{Map, Priority};
+use crate::common::Map;
 use crate::protocol::key::DaskKey;
 use crate::protocol::protocol::{
     map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
     SerializedMemory, SerializedTransport, ToDaskTransport,
 };
+use crate::protocol::Priority;
 use serde::{Deserialize, Serialize};
 
 fn binary_is_empty(transport: &SerializedTransport) -> bool {

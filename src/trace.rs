@@ -88,7 +88,12 @@ pub fn trace_task_finish(task_id: TaskId, worker_id: WorkerId, size: u64, durati
 }
 #[inline(always)]
 pub fn trace_worker_new(worker_id: WorkerId, ncpus: u32, address: &str) {
-    tracing::info!(action = "new-worker", worker_id = worker_id, cpus = ncpus, address = address);
+    tracing::info!(
+        action = "new-worker",
+        worker_id = worker_id,
+        cpus = ncpus,
+        address = address
+    );
 }
 #[inline(always)]
 pub fn trace_worker_steal(task_id: TaskId, from: WorkerId, to: WorkerId) {

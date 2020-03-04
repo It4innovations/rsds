@@ -2,13 +2,16 @@ use std::rc::Rc;
 
 use crate::client::{Client, ClientId};
 use crate::comm::Notifications;
-use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, WrappedRcRefCell, Set};
+use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
 
-use crate::protocol::key::{dask_key_ref_to_string, DaskKey, DaskKeyRef, dask_key_ref_to_str};
+use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{trace_worker_new, trace_task_finish, trace_task_assign, trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing};
+use crate::trace::{
+    trace_task_assign, trace_task_finish, trace_worker_new, trace_worker_steal,
+    trace_worker_steal_response, trace_worker_steal_response_missing,
+};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -98,7 +101,11 @@ impl Core {
     pub fn register_worker(&mut self, worker_ref: WorkerRef) {
         {
             let worker = worker_ref.get();
-            trace_worker_new(worker.id, worker.ncpus, dask_key_ref_to_str(worker.address()));
+            trace_worker_new(
+                worker.id,
+                worker.ncpus,
+                dask_key_ref_to_str(worker.address()),
+            );
         }
         self.workers.insert(worker_ref);
     }
@@ -401,13 +408,15 @@ impl Core {
             match &mut task.state {
                 TaskRuntimeState::Finished(_, ws) => {
                     ws.insert(worker_ref.clone());
-                },
-                TaskRuntimeState::Released => {
-                    /* It ok to ignore the message */
-                },
-                TaskRuntimeState::Error(_) | TaskRuntimeState::Waiting | TaskRuntimeState::Scheduled(_) | TaskRuntimeState::Assigned(_) | TaskRuntimeState::Stealing(_, _) => {
+                }
+                TaskRuntimeState::Released => { /* It ok to ignore the message */ }
+                TaskRuntimeState::Error(_)
+                | TaskRuntimeState::Waiting
+                | TaskRuntimeState::Scheduled(_)
+                | TaskRuntimeState::Assigned(_)
+                | TaskRuntimeState::Stealing(_, _) => {
                     panic!("Invalid task state");
-                },
+                }
             };
             notifications.task_placed(&worker, &task);
             // TODO: Store that task result is on worker
@@ -425,12 +434,7 @@ impl Core {
             {
                 let mut task = task_ref.get_mut();
                 let worker_ref = worker.get();
-                trace_task_finish(
-                    task.id,
-                    worker_ref.id,
-                    msg.nbytes,
-                    get_task_duration(&msg),
-                );
+                trace_task_finish(task.id, worker_ref.id, msg.nbytes, get_task_duration(&msg));
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
                 let mut set = Set::new();
@@ -526,6 +530,7 @@ mod tests {
     use super::Core;
     use crate::client::Client;
     use crate::comm::{notifications::ClientNotification, Notifications};
+    use crate::common::Set;
     use crate::core::get_task_duration;
     use crate::protocol::key::DaskKey;
     use crate::protocol::workermsg::Status;
@@ -536,7 +541,6 @@ mod tests {
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,
     };
-    use crate::common::Set;
 
     #[test]
     fn add_remove() {
@@ -751,7 +755,7 @@ mod tests {
                     ("compute".into(), 200.134, 300.456)
                 )
             }),
-            100322000
+            (200134000, 300456000)
         );
     }
 
@@ -765,7 +769,7 @@ mod tests {
                 r#type: vec![1, 2, 3],
                 startstops: vec!()
             }),
-            0
+            (0, 0)
         );
     }
 }

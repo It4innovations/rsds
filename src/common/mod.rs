@@ -7,8 +7,6 @@ pub use cycle_wrapped::{CycleOwner, HasCycle};
 pub use id_counter::IdCounter;
 pub use key_id_map::{Identifiable, KeyIdMap};
 
-pub type Priority = i32;
-
 mod cycle_wrapped;
 mod id_counter;
 mod key_id_map;

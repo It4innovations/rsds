@@ -1,5 +1,5 @@
 use super::worker::WorkerRef;
-use crate::common::{Set, HasCycle, Map};
+use crate::common::{HasCycle, Map, Set};
 use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
 
 #[derive(Debug)]
@@ -50,13 +50,13 @@ impl Task {
     }
 
     pub fn remove_future_placement(&mut self, worker_ref: &WorkerRef) {
-       let count = self.future_placement.get_mut(worker_ref).unwrap();
-       if *count <= 1 {
-           assert_ne!(*count, 0);
-           self.future_placement.remove(worker_ref);
-       } else {
-           *count -= 1;
-       }
+        let count = self.future_placement.get_mut(worker_ref).unwrap();
+        if *count <= 1 {
+            assert_ne!(*count, 0);
+            self.future_placement.remove(worker_ref);
+        } else {
+            *count -= 1;
+        }
     }
 
     #[inline]

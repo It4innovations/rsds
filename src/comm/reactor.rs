@@ -19,7 +19,8 @@ use crate::scheduler::schedproto::TaskId;
 
 use crate::task::{DataInfo, TaskRef, TaskRuntimeState};
 
-use crate::protocol::key::{to_dask_key, DaskKey, dask_key_ref_to_str};
+use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::trace::trace_task_new;
 use crate::util::OptionExt;
 use crate::worker::WorkerRef;
 use futures::future::join_all;
@@ -28,7 +29,6 @@ use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::net::TcpStream;
-use crate::trace::trace_task_new;
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -55,7 +55,7 @@ pub fn update_graph(
     );
 
     /* client send a user_priority in inverse meaning, so we use negative value
-       to make same meaning in the rsds */
+    to make same meaning in the rsds */
     let user_priority = -update.user_priority;
     for (task_key, task_spec) in update.tasks {
         let task_id = *new_task_ids.get(&task_key).unwrap();
@@ -91,10 +91,19 @@ pub fn update_graph(
         log::debug!("New task id={}, key={}", task_id, task_key);
         trace_task_new(task_id, dask_key_ref_to_str(&task_key), &inputs);
         let task_spec = task_spec_to_memory(task_spec, &mut update.frames);
-        let client_priority = update.priority.get(&task_key).map(|x| *x).unwrap_or_default();
+        let client_priority = update
+            .priority
+            .get(&task_key)
+            .map(|x| *x)
+            .unwrap_or_default();
         let task_ref = TaskRef::new(
-            task_id, task_key, Some(task_spec), inputs, unfinished_deps, user_priority,
-            client_priority
+            task_id,
+            task_key,
+            Some(task_spec),
+            inputs,
+            unfinished_deps,
+            user_priority,
+            client_priority,
         );
 
         core.add_task(task_ref.clone());
@@ -362,7 +371,15 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                 let size: u64 = *sizes.get(&key).unwrap();
                 let mut set = Set::new();
                 set.insert(wr.clone());
-                let task_ref = TaskRef::new(core.new_task_id(), key, None, Default::default(), 0, Default::default(), Default::default());
+                let task_ref = TaskRef::new(
+                    core.new_task_id(),
+                    key,
+                    None,
+                    Default::default(),
+                    0,
+                    Default::default(),
+                    Default::default(),
+                );
                 {
                     let mut task = task_ref.get_mut();
                     task.state = TaskRuntimeState::Finished(
