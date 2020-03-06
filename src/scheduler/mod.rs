@@ -4,10 +4,13 @@ use crate::scheduler::protocol::SchedulerRegistration;
 use tokio::sync::mpsc::UnboundedSender;
 
 mod comm;
+mod graph;
 pub mod protocol;
-mod random;
 mod task;
 mod worker;
+
+mod blevel;
+mod random;
 mod workstealing;
 
 pub use comm::{observe_scheduler, prepare_scheduler_comm, scheduler_driver, SchedulerComm};

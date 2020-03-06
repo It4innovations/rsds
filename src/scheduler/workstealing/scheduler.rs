@@ -1,12 +1,11 @@
 use super::utils::compute_b_level;
-use crate::common::{Map, Set};
+use crate::scheduler::graph::{Notifications, SchedulerGraph};
 use crate::scheduler::protocol::{
-    SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
-    WorkerId,
+    SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
-use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
-use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
-use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
+use crate::scheduler::task::Task;
+use crate::scheduler::worker::WorkerRef;
+use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage};
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -14,61 +13,16 @@ use std::time::Duration;
 
 #[derive(Debug)]
 pub struct WorkstealingScheduler {
-    network_bandwidth: f32,
-    workers: Map<WorkerId, WorkerRef>,
-    tasks: Map<TaskId, OwningTaskRef>,
-    ready_to_assign: Vec<TaskRef>,
-    new_tasks: Vec<TaskRef>,
-    hostnames: Map<String, HostnameId>,
+    pub graph: SchedulerGraph,
     rng: ThreadRng,
 }
-
-type Notifications = Set<TaskRef>;
-
-const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
 
 impl WorkstealingScheduler {
     pub fn new() -> Self {
         Self {
-            workers: Default::default(),
-            tasks: Default::default(),
-            ready_to_assign: Default::default(),
-            new_tasks: Default::default(),
-            hostnames: Default::default(),
-            network_bandwidth: 100.0, // Guess better default
+            graph: SchedulerGraph::default(),
             rng: thread_rng(),
         }
-    }
-
-    fn get_task(&self, task_id: TaskId) -> &TaskRef {
-        self.tasks
-            .get(&task_id)
-            .unwrap_or_else(|| panic!("Task {} not found", task_id))
-    }
-
-    fn get_worker(&self, worker_id: WorkerId) -> &WorkerRef {
-        self.workers
-            .get(&worker_id)
-            .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
-    }
-
-    fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerSender) {
-        let assignments: Vec<_> = notifications
-            .into_iter()
-            .map(|tr| {
-                let task = tr.get();
-                let worker_ref = task.assigned_worker.clone().unwrap();
-                let worker = worker_ref.get();
-                TaskAssignment {
-                    task: task.id,
-                    worker: worker.id,
-                    priority: -task.b_level,
-                }
-            })
-            .collect();
-        sender
-            .send(FromSchedulerMessage::TaskAssignments(assignments))
-            .expect("Couldn't send scheduler message");
     }
 
     fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
@@ -82,60 +36,34 @@ impl WorkstealingScheduler {
                     }
                 });
 
-                self.send_notifications(notifications, sender);
+                self.graph.send_notifications(notifications, sender);
             }
         });
     }
 
-    fn assign_task_to_worker(
-        &mut self,
-        task: &mut Task,
-        task_ref: TaskRef,
-        worker: &mut Worker,
-        worker_ref: WorkerRef,
-        notifications: &mut Notifications,
-    ) {
-        notifications.insert(task_ref.clone());
-        let assigned_worker = &task.assigned_worker;
-        if let Some(wr) = assigned_worker {
-            assert!(!wr.eq(&worker_ref));
-            let mut previous_worker = wr.get_mut();
-            assert!(previous_worker.tasks.remove(&task_ref));
-        }
-        for tr in &task.inputs {
-            let mut t = tr.get_mut();
-            if let Some(wr) = assigned_worker {
-                t.remove_future_placement(wr);
-            }
-            t.set_future_placement(worker_ref.clone());
-        }
-        task.assigned_worker = Some(worker_ref);
-        assert!(worker.tasks.insert(task_ref));
-    }
-
     /// Returns true if balancing is needed.
     pub fn schedule(&mut self, mut notifications: &mut Notifications) -> bool {
-        if self.workers.is_empty() {
+        if self.graph.workers.is_empty() {
             return false;
         }
 
         log::debug!("Scheduling started");
-        if !self.new_tasks.is_empty() {
+        if !self.graph.new_tasks.is_empty() {
             // TODO: utilize information and do not recompute all b-levels
             trace_time!("scheduler", "blevel", {
-                compute_b_level(&self.tasks);
+                compute_b_level(&self.graph.tasks);
             });
 
-            self.new_tasks = Vec::new()
+            self.graph.new_tasks = Vec::new()
         }
 
-        for tr in std::mem::take(&mut self.ready_to_assign).into_iter() {
+        for tr in std::mem::take(&mut self.graph.ready_to_assign).into_iter() {
             let mut task = tr.get_mut();
             let worker_ref = self.choose_worker_for_task(&task);
             let mut worker = worker_ref.get_mut();
             log::debug!("Task {} initially assigned to {}", task.id, worker.id);
             assert!(task.assigned_worker.is_none());
-            self.assign_task_to_worker(
+            self.graph.assign_task_to_worker(
                 &mut task,
                 tr.clone(),
                 &mut worker,
@@ -144,7 +72,7 @@ impl WorkstealingScheduler {
             );
         }
 
-        let has_underload_workers = self.workers.values().any(|wr| {
+        let has_underload_workers = self.graph.workers.values().any(|wr| {
             let worker = wr.get();
             worker.is_underloaded()
         });
@@ -156,7 +84,7 @@ impl WorkstealingScheduler {
     fn balance(&mut self, mut notifications: &mut Notifications) {
         log::debug!("Balancing started");
         let mut balanced_tasks = Vec::new();
-        for wr in self.workers.values() {
+        for wr in self.graph.workers.values() {
             let worker = wr.get();
             let len = worker.tasks.len() as u32;
             if len > worker.ncpus {
@@ -169,7 +97,7 @@ impl WorkstealingScheduler {
         }
 
         let mut underload_workers = Vec::new();
-        for wr in self.workers.values() {
+        for wr in self.graph.workers.values() {
             let worker = wr.get();
             let len = worker.tasks.len() as u32;
             if len < worker.ncpus {
@@ -212,7 +140,7 @@ impl WorkstealingScheduler {
                         wid,
                         worker.id
                     );
-                    self.assign_task_to_worker(
+                    self.graph.assign_task_to_worker(
                         &mut task,
                         tr.clone(),
                         &mut worker,
@@ -232,69 +160,23 @@ impl WorkstealingScheduler {
     }
 
     fn task_update(&mut self, tu: TaskUpdate) -> bool {
-        let tref = self.get_task(tu.id).clone();
-        let mut task = tref.get_mut();
         match tu.state {
             TaskUpdateType::Finished => {
-                log::debug!("Task id={} is finished on worker={}", task.id, tu.worker);
-
-                let worker = self.get_worker(tu.worker).clone();
-                assert!(task.is_waiting() && task.is_ready());
-                task.state = SchedulerTaskState::Finished;
-                task.size = tu.size.unwrap();
-                let assigned_wr = task.assigned_worker.take().unwrap();
-                let mut invoke_scheduling = {
-                    let mut assigned_worker = assigned_wr.get_mut();
-                    assert!(assigned_worker.tasks.remove(&tref));
-                    assigned_worker.is_underloaded()
-                };
-                for tref in &task.inputs {
-                    let mut t = tref.get_mut();
-                    t.placement.insert(worker.clone());
-                    t.remove_future_placement(&assigned_wr);
-                }
-                for tref in &task.consumers {
-                    let mut t = tref.get_mut();
-                    if t.unfinished_deps <= 1 {
-                        assert!(t.unfinished_deps > 0);
-                        assert!(t.is_waiting());
-                        t.unfinished_deps -= 1;
-                        log::debug!("Task {} is ready", t.id);
-                        self.ready_to_assign.push(tref.clone());
-                        invoke_scheduling = true;
-                    } else {
-                        t.unfinished_deps -= 1;
-                    }
-                }
-                task.placement.insert(worker);
+                let (mut invoke_scheduling, worker) =
+                    self.graph.finish_task(tu.id, tu.worker, tu.size.unwrap());
+                invoke_scheduling |= worker.get().is_underloaded();
                 return invoke_scheduling;
             }
-            TaskUpdateType::Placed => {
-                let worker = self.get_worker(tu.worker).clone();
-                assert!(task.is_finished());
-                task.placement.insert(worker);
-            }
-            TaskUpdateType::Removed => {
-                let worker = self.get_worker(tu.worker);
-                //task.placement.remove(worker);
-                if !task.placement.remove(worker) {
-                    panic!(
-                        "Worker {} removes task {}, but it was not there.",
-                        worker.get().id,
-                        task.id
-                    );
-                }
-                /*let index = task.placement.iter().position(|x| x == worker).unwrap();
-                task.placement.remove(index);*/
-            }
+            TaskUpdateType::Placed => self.graph.place_task_on_worker(tu.id, tu.worker),
+            TaskUpdateType::Removed => self.graph.remove_task_from_worker(tu.id, tu.worker),
         }
         false
     }
 
     fn rollback_steal(&mut self, response: TaskStealResponse) -> bool {
-        let tref = self.get_task(response.id);
+        let tref = self.graph.get_task(response.id);
         let mut task = tref.get_mut();
-        let new_wref = self.get_worker(response.to_worker);
+        let new_wref = self.graph.get_worker(response.to_worker);
 
         let need_balancing = {
             let wref = task.assigned_worker.as_ref().unwrap();
@@ -330,66 +212,27 @@ impl WorkstealingScheduler {
                     }
                 }
                 ToSchedulerMessage::NewTask(ti) => {
-                    log::debug!("New task {} #inputs={}", ti.id, ti.inputs.len());
-                    let task_id = ti.id;
-                    let inputs: Vec<_> = ti
-                        .inputs
-                        .iter()
-                        .map(|id| self.tasks.get(id).unwrap().clone())
-                        .collect();
-                    let task = OwningTaskRef::new(ti, inputs);
-                    if task.get().is_ready() {
-                        log::debug!("Task {} is ready", task_id);
-                        self.ready_to_assign.push(task.clone());
-                    }
-                    self.new_tasks.push(task.clone());
-                    assert!(self.tasks.insert(task_id, task).is_none());
+                    self.graph.add_task(ti);
                     invoke_scheduling = true;
                 }
-                ToSchedulerMessage::RemoveTask(task_id) => {
-                    log::debug!("Remove task {}", task_id);
-                    {
-                        let tref = self.get_task(task_id);
-                        let task = tref.get_mut();
-                        assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
-                    }
-                    assert!(self.tasks.remove(&task_id).is_some());
-                }
-                ToSchedulerMessage::NewFinishedTask(ti) => {
-                    let placement: Set<WorkerRef> = ti
-                        .workers
-                        .iter()
-                        .map(|id| self.get_worker(*id).clone())
-                        .collect();
-                    let task_id = ti.id;
-                    let task = OwningTaskRef::new_finished(ti, placement);
-                    assert!(self.tasks.insert(task_id, task).is_none());
-                }
+                ToSchedulerMessage::RemoveTask(task_id) => self.graph.remove_task(task_id),
+                ToSchedulerMessage::NewFinishedTask(ti) => self.graph.add_finished_task(ti),
                 ToSchedulerMessage::NewWorker(wi) => {
-                    let hostname_id = self.get_hostname_id(&wi.hostname);
-                    assert!(self
-                        .workers
-                        .insert(wi.id, WorkerRef::new(wi, hostname_id),)
-                        .is_none());
+                    self.graph.add_worker(wi);
                     invoke_scheduling = true;
                 }
                 ToSchedulerMessage::NetworkBandwidth(nb) => {
-                    self.network_bandwidth = nb;
+                    self.graph.network_bandwidth = nb;
                 }
             }
         }
         invoke_scheduling
     }
 
-    pub fn get_hostname_id(&mut self, hostname: &str) -> HostnameId {
-        let new_id = self.hostnames.len() as HostnameId;
-        *self.hostnames.entry(hostname.to_owned()).or_insert(new_id)
-    }
-
     fn choose_worker_for_task(&mut self, task: &Task) -> WorkerRef {
         let mut costs = std::u64::MAX;
         let mut workers = Vec::new();
-        for wr in self.workers.values() {
+        for wr in self.graph.workers.values() {
             let c = task_transfer_cost(task, wr);
             if c < costs {
                 costs = c;
@@ -407,19 +250,7 @@ impl WorkstealingScheduler {
     }
 
     pub fn sanity_check(&self) {
-        for (id, tr) in &self.tasks {
-            let task = tr.get();
-            assert_eq!(task.id, *id);
-            task.sanity_check(&tr);
-            if let Some(w) = &task.assigned_worker {
-                assert!(self.workers.contains_key(&w.get().id));
-            }
-        }
-
-        for wr in self.workers.values() {
-            let worker = wr.get();
-            worker.sanity_check(&wr);
-        }
+        self.graph.sanity_check()
     }
 }
 
@@ -467,7 +298,9 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{Map, Set};
     use crate::scheduler::protocol::{TaskInfo, WorkerInfo};
+    use crate::scheduler::{TaskId, WorkerId};
 
     fn init() {
         let _ = env_logger::try_init().map_err(|_| {
@@ -565,6 +398,7 @@ mod tests {
 
     fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {
         scheduler
+            .graph
             .tasks
             .get(&task_id)
             .expect("Unknown task")
@@ -580,17 +414,17 @@ mod tests {
     fn test_b_level() {
         let mut scheduler = WorkstealingScheduler::new();
         submit_graph_simple(&mut scheduler);
-        assert_eq!(scheduler.ready_to_assign.len(), 1);
-        assert_eq!(scheduler.ready_to_assign[0].get().id, 1);
+        assert_eq!(scheduler.graph.ready_to_assign.len(), 1);
+        assert_eq!(scheduler.graph.ready_to_assign[0].get().id, 1);
         connect_workers(&mut scheduler, 1, 1);
         run_schedule(&mut scheduler);
-        assert_eq!(scheduler.get_task(7).get().b_level, 1);
-        assert_eq!(scheduler.get_task(6).get().b_level, 2);
-        assert_eq!(scheduler.get_task(5).get().b_level, 1);
-        assert_eq!(scheduler.get_task(4).get().b_level, 2);
-        assert_eq!(scheduler.get_task(3).get().b_level, 3);
-        assert_eq!(scheduler.get_task(2).get().b_level, 3);
-        assert_eq!(scheduler.get_task(1).get().b_level, 4);
+        assert_eq!(scheduler.graph.get_task(7).get().b_level, 1);
+        assert_eq!(scheduler.graph.get_task(6).get().b_level, 2);
+        assert_eq!(scheduler.graph.get_task(5).get().b_level, 1);
+        assert_eq!(scheduler.graph.get_task(4).get().b_level, 2);
+        assert_eq!(scheduler.graph.get_task(3).get().b_level, 3);
+        assert_eq!(scheduler.graph.get_task(2).get().b_level, 3);
+        assert_eq!(scheduler.graph.get_task(1).get().b_level, 4);
     }
 
     #[test]
@@ -611,8 +445,8 @@ mod tests {
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
-        let _t2 = scheduler.tasks.get(&2).unwrap();
-        let _t3 = scheduler.tasks.get(&3).unwrap();
+        let _t2 = scheduler.graph.tasks.get(&2).unwrap();
+        let _t3 = scheduler.graph.tasks.get(&3).unwrap();
         assert_eq!(assigned_worker(&mut scheduler, 2), 100);
         assert_eq!(assigned_worker(&mut scheduler, 3), 100);
         scheduler.sanity_check();
@@ -637,8 +471,8 @@ mod tests {
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
-        let _t2 = scheduler.tasks.get(&2).unwrap();
-        let _t3 = scheduler.tasks.get(&3).unwrap();
+        let _t2 = scheduler.graph.tasks.get(&2).unwrap();
+        let _t3 = scheduler.graph.tasks.get(&3).unwrap();
         assert_ne!(
             assigned_worker(&mut scheduler, 2),
             assigned_worker(&mut scheduler, 3)
