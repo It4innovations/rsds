@@ -34,6 +34,10 @@ fn create_scheduler(
             rsds::scheduler::RandomScheduler::default(),
             comm,
         )),
+        SchedulerType::Blevel => Box::pin(scheduler_driver(
+            rsds::scheduler::BlevelScheduler::default(),
+            comm,
+        )),
     }
 }
 
@@ -41,6 +45,7 @@ fn create_scheduler(
 enum SchedulerType {
     Workstealing,
     Random,
+    Blevel,
 }
 
 impl FromStr for SchedulerType {
@@ -49,6 +54,7 @@ impl FromStr for SchedulerType {
         match scheduler {
             "workstealing" => Ok(SchedulerType::Workstealing),
             "random" => Ok(SchedulerType::Random),
+            "blevel" => Ok(SchedulerType::Blevel),
             _ => Err(format!("Scheduler '{}' does not exist", scheduler)),
         }
     }
@@ -198,7 +204,7 @@ async fn main() -> rsds::Result<()> {
     }
 
     log::debug!("Waiting for scheduler to shut down...");
-    scheduler_thread.join().unwrap();
+    scheduler_thread.join().expect("Scheduler thread failed");
     log::info!("rsds ends");
 
     Ok(())

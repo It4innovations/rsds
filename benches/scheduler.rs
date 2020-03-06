@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rsds::scheduler::protocol::{TaskInfo, TaskUpdate, TaskUpdateType, WorkerInfo};
-use rsds::scheduler::workstealing::WorkstealingScheduler;
+use rsds::scheduler::WorkstealingScheduler;
 use rsds::scheduler::ToSchedulerMessage;
 
 fn create_scheduler(workers: u64) -> WorkstealingScheduler {

@@ -1,48 +1,51 @@
-use super::utils::compute_b_level;
-use crate::scheduler::graph::{Notifications, SchedulerGraph};
+use crate::common::Map;
+use crate::scheduler::graph::{assign_task_to_worker, Notifications, SchedulerGraph};
 use crate::scheduler::protocol::{
     SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
 use crate::scheduler::task::Task;
+use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
 use crate::scheduler::worker::WorkerRef;
-use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage};
-use rand::rngs::ThreadRng;
+use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage, WorkerId};
+use rand::prelude::SmallRng;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use std::time::Duration;
+use rand::SeedableRng;
 
 #[derive(Debug)]
 pub struct WorkstealingScheduler {
-    pub graph: SchedulerGraph,
-    rng: ThreadRng,
+    graph: SchedulerGraph,
+    /// Notifications are cached here to avoid reallocating them on every update
+    notifications: Notifications,
+    random: SmallRng,
 }
 
 impl WorkstealingScheduler {
     pub fn new() -> Self {
         Self {
             graph: SchedulerGraph::default(),
-            rng: thread_rng(),
+            notifications: Default::default(),
+            random: SmallRng::from_entropy(),
         }
     }
 
     fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
+        self.notifications.clear();
+
         trace_time!("scheduler", "update", {
             if self.update(messages) {
-                let mut notifications = Notifications::new();
-
                 trace_time!("scheduler", "schedule", {
-                    if self.schedule(&mut notifications) {
-                        trace_time!("scheduler", "balance", self.balance(&mut notifications));
+                    if self.schedule() {
+                        trace_time!("scheduler", "balance", self.balance());
                     }
                 });
 
-                self.graph.send_notifications(notifications, sender);
+                self.graph.send_notifications(&self.notifications, sender);
             }
         });
     }
 
     /// Returns true if balancing is needed.
-    pub fn schedule(&mut self, mut notifications: &mut Notifications) -> bool {
+    pub fn schedule(&mut self) -> bool {
         if self.graph.workers.is_empty() {
             return false;
         }
@@ -54,21 +57,21 @@ impl WorkstealingScheduler {
                 compute_b_level(&self.graph.tasks);
             });
 
-            self.graph.new_tasks = Vec::new()
+            self.graph.new_tasks.clear();
         }
 
-        for tr in std::mem::take(&mut self.graph.ready_to_assign).into_iter() {
+        for tr in self.graph.ready_to_assign.drain(..) {
             let mut task = tr.get_mut();
-            let worker_ref = self.choose_worker_for_task(&task);
+            let worker_ref = choose_worker_for_task(&task, &self.graph.workers, &mut self.random);
             let mut worker = worker_ref.get_mut();
             log::debug!("Task {} initially assigned to {}", task.id, worker.id);
             assert!(task.assigned_worker.is_none());
-            self.graph.assign_task_to_worker(
+            assign_task_to_worker(
                 &mut task,
                 tr.clone(),
                 &mut worker,
                 worker_ref.clone(),
-                &mut notifications,
+                &mut self.notifications,
             );
         }
 
@@ -81,7 +84,7 @@ impl WorkstealingScheduler {
         has_underload_workers
     }
 
-    fn balance(&mut self, mut notifications: &mut Notifications) {
+    fn balance(&mut self) {
         log::debug!("Balancing started");
         let mut balanced_tasks = Vec::new();
         for wr in self.graph.workers.values() {
@@ -140,12 +143,12 @@ impl WorkstealingScheduler {
                         wid,
                         worker.id
                     );
-                    self.graph.assign_task_to_worker(
+                    assign_task_to_worker(
                         &mut task,
                         tr.clone(),
                         &mut worker,
                         wr.clone(),
-                        &mut notifications,
+                        &mut self.notifications,
                     );
                     break;
                 }
@@ -229,26 +232,6 @@ impl WorkstealingScheduler {
         invoke_scheduling
     }
 
-    fn choose_worker_for_task(&mut self, task: &Task) -> WorkerRef {
-        let mut costs = std::u64::MAX;
-        let mut workers = Vec::new();
-        for wr in self.graph.workers.values() {
-            let c = task_transfer_cost(task, wr);
-            if c < costs {
-                costs = c;
-                workers.clear();
-                workers.push(wr.clone());
-            } else if c == costs {
-                workers.push(wr.clone());
-            }
-        }
-        if workers.len() == 1 {
-            workers.pop().unwrap()
-        } else {
-            workers.choose(&mut self.rng).unwrap().clone()
-        }
-    }
-
     pub fn sanity_check(&self) {
         self.graph.sanity_check()
     }
@@ -269,30 +252,28 @@ impl Scheduler for WorkstealingScheduler {
     }
 }
 
-fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
-    // TODO: For large number of inputs, only sample inputs
-    let hostname_id = worker_ref.get().hostname_id;
-    task.inputs
-        .iter()
-        .take(512)
-        .map(|tr| {
-            let t = tr.get();
-            if t.placement.contains(worker_ref) {
-                0u64
-            } else if t.future_placement.contains_key(worker_ref) {
-                1u64
-            } else if t
-                .placement
-                .iter()
-                .take(32)
-                .any(|w| w.get().hostname_id == hostname_id)
-            {
-                t.size / 2
-            } else {
-                t.size
-            }
-        })
-        .sum()
+fn choose_worker_for_task(
+    task: &Task,
+    worker_map: &Map<WorkerId, WorkerRef>,
+    random: &mut SmallRng,
+) -> WorkerRef {
+    let mut costs = std::u64::MAX;
+    let mut workers = Vec::new();
+    for wr in worker_map.values() {
+        let c = task_transfer_cost(task, wr);
+        if c < costs {
+            costs = c;
+            workers.clear();
+            workers.push(wr.clone());
+        } else if c == costs {
+            workers.push(wr.clone());
+        }
+    }
+    if workers.len() == 1 {
+        workers.pop().unwrap()
+    } else {
+        workers.choose(random).unwrap().clone()
+    }
 }
 
 #[cfg(test)]
@@ -389,11 +370,11 @@ mod tests {
     }
 
     fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
-        let mut notifications = Notifications::new();
-        if scheduler.schedule(&mut notifications) {
-            scheduler.balance(&mut notifications);
+        scheduler.notifications.clear();
+        if scheduler.schedule() {
+            scheduler.balance();
         }
-        notifications.iter().map(|tr| tr.get().id).collect()
+        scheduler.notifications.iter().map(|tr| tr.get().id).collect()
     }
 
     fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {

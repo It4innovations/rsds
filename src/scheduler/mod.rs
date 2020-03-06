@@ -7,12 +7,14 @@ mod comm;
 mod graph;
 pub mod protocol;
 mod task;
+mod utils;
 mod worker;
 
 mod blevel;
 mod random;
 mod workstealing;
 
+pub use blevel::BlevelScheduler;
 pub use comm::{observe_scheduler, prepare_scheduler_comm, scheduler_driver, SchedulerComm};
 pub use protocol::{TaskAssignment, TaskId, WorkerId};
 pub use random::RandomScheduler;

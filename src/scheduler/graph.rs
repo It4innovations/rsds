@@ -1,8 +1,8 @@
 use crate::common::{Map, Set};
-use crate::scheduler::{WorkerId, TaskId, SchedulerSender, TaskAssignment, FromSchedulerMessage};
+use crate::scheduler::{WorkerId, TaskId, SchedulerSender, TaskAssignment, FromSchedulerMessage, ToSchedulerMessage};
 use crate::scheduler::worker::{WorkerRef, HostnameId, Worker};
 use crate::scheduler::task::{OwningTaskRef, TaskRef, SchedulerTaskState, Task};
-use crate::scheduler::protocol::{TaskInfo, WorkerInfo, NewFinishedTaskInfo};
+use crate::scheduler::protocol::{TaskInfo, WorkerInfo, NewFinishedTaskInfo, TaskUpdate, TaskUpdateType};
 
 pub type Notifications = Set<TaskRef>;
 
@@ -41,6 +41,20 @@ impl SchedulerGraph {
             .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
     }
 
+    pub fn handle_message(&mut self, message: ToSchedulerMessage) {
+        match message {
+            ToSchedulerMessage::TaskUpdate(tu) => self.update_task(tu),
+            ToSchedulerMessage::NewWorker(wi) => self.add_worker(wi),
+            ToSchedulerMessage::NewTask(ti) => self.add_task(ti),
+            ToSchedulerMessage::NewFinishedTask(ti) => self.add_finished_task(ti),
+            ToSchedulerMessage::RemoveTask(task_id) => self.remove_task(task_id),
+            ToSchedulerMessage::NetworkBandwidth(bandwidth) => {
+                self.network_bandwidth = bandwidth
+            }
+            _ => { /* Ignore */ }
+        }
+    }
+
     pub fn add_task(&mut self, ti: TaskInfo) {
         log::debug!("New task {} #inputs={}", ti.id, ti.inputs.len());
         let task_id = ti.id;
@@ -70,6 +84,13 @@ impl SchedulerGraph {
     pub fn remove_task(&mut self, task_id: TaskId) {
         assert!(self.get_task(task_id).get().is_finished()); // TODO: Define semantics of removing non-finished tasks
         assert!(self.tasks.remove(&task_id).is_some());
+    }
+    pub fn update_task(&mut self, tu: TaskUpdate) {
+        match tu.state {
+            TaskUpdateType::Placed => self.place_task_on_worker(tu.id, tu.worker),
+            TaskUpdateType::Removed => self.remove_task_from_worker(tu.id, tu.worker),
+            TaskUpdateType::Finished => { self.finish_task(tu.id, tu.worker, tu.size.unwrap()); }
+        }
     }
 
     pub fn add_worker(&mut self, wi: WorkerInfo) {
@@ -140,35 +161,9 @@ impl SchedulerGraph {
         }
     }
 
-    pub fn assign_task_to_worker(
-        &mut self,
-        task: &mut Task,
-        task_ref: TaskRef,
-        worker: &mut Worker,
-        worker_ref: WorkerRef,
-        notifications: &mut Notifications,
-    ) {
-        notifications.insert(task_ref.clone());
-        let assigned_worker = &task.assigned_worker;
-        if let Some(wr) = assigned_worker {
-            assert!(!wr.eq(&worker_ref));
-            let mut previous_worker = wr.get_mut();
-            assert!(previous_worker.tasks.remove(&task_ref));
-        }
-        for tr in &task.inputs {
-            let mut t = tr.get_mut();
-            if let Some(wr) = assigned_worker {
-                t.remove_future_placement(wr);
-            }
-            t.set_future_placement(worker_ref.clone());
-        }
-        task.assigned_worker = Some(worker_ref);
-        assert!(worker.tasks.insert(task_ref));
-    }
-
-    pub fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerSender) {
+    pub fn send_notifications(&self, notifications: &Notifications, sender: &mut SchedulerSender) {
         let assignments: Vec<_> = notifications
-            .into_iter()
+            .iter()
             .map(|tr| {
                 let task = tr.get();
                 let worker_ref = task.assigned_worker.clone().unwrap();
@@ -205,4 +200,29 @@ impl SchedulerGraph {
             worker.sanity_check(&wr);
         }
     }
+}
+
+pub fn assign_task_to_worker(
+    task: &mut Task,
+    task_ref: TaskRef,
+    worker: &mut Worker,
+    worker_ref: WorkerRef,
+    notifications: &mut Notifications,
+) {
+    notifications.insert(task_ref.clone());
+    let assigned_worker = &task.assigned_worker;
+    if let Some(wr) = assigned_worker {
+        assert!(!wr.eq(&worker_ref));
+        let mut previous_worker = wr.get_mut();
+        assert!(previous_worker.tasks.remove(&task_ref));
+    }
+    for tr in &task.inputs {
+        let mut t = tr.get_mut();
+        if let Some(wr) = assigned_worker {
+            t.remove_future_placement(wr);
+        }
+        t.set_future_placement(worker_ref.clone());
+    }
+    task.assigned_worker = Some(worker_ref);
+    assert!(worker.tasks.insert(task_ref));
 }
