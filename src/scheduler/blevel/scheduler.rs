@@ -36,7 +36,8 @@ impl BlevelScheduler {
                     .sort_unstable_by_key(|t| -t.get().b_level);
 
                 // TODO: handle multi-CPU workers
-                for tref in self.graph.ready_to_assign.drain(..underloaded_workers.len()) {
+                let end = std::cmp::min(self.graph.ready_to_assign.len(), underloaded_workers.len());
+                for tref in self.graph.ready_to_assign.drain(..end) {
                     let mut task = tref.get_mut();
                     let (windex, worker) = underloaded_workers
                         .iter()

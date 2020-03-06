@@ -285,6 +285,7 @@ class Benchmark:
                     logging.error(f"Error while processing {configuration}")
                     traceback.print_exc()
                     with open(f"{os.path.join(self.workdir, 'ERROR-DURING-COMPUTE.txt')}", "w") as f:
+                        f.write(f"""{configuration['name']} - {format_cluster_info(configuration['cluster'])}""")
                         f.write(traceback.format_exc())
                     break
 
