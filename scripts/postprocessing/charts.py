@@ -43,11 +43,11 @@ def generate_charts(result, directory):
 
     def plot_box(data, clusters, **kwargs):
         y = data["time"] * 1000
-        sns.boxplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters)
+        sns.boxplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters, palette="Set1")
 
     def plot_scatter(data, clusters, **kwargs):
         y = data["time"] * 1000
-        sns.swarmplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters)
+        sns.swarmplot(x=data["cluster"], y=y, hue=data["cluster"], order=clusters, hue_order=clusters, palette="Set1")
 
     if len(frame) > 0:
         for (file, plot_fn) in (

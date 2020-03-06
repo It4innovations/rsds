@@ -180,7 +180,7 @@ class DaskCluster:
             if node_count >= len(nodes):
                 raise Exception("Requesting more nodes than got from PBS (one is reserved for scheduler and client)")
             args = []
-            nodes_spawned = [] 
+            nodes_spawned = []
             for i, node in zip(range(node_count), nodes[1:]):
                 args.append((get_args(), f"worker-{i}", node, env, self.workdir))
                 nodes_spawned.append(node)
@@ -284,6 +284,9 @@ class Benchmark:
                 except:
                     logging.error(f"Error while processing {configuration}")
                     traceback.print_exc()
+                    with open(f"{os.path.join(self.workdir, 'ERROR-DURING-COMPUTE.txt')}", "w") as f:
+                        f.write(traceback.format_exc())
+                    break
 
         timeouted = False
         if timeout is None:
@@ -521,7 +524,7 @@ def benchmark(input, output_dir, profile, timeout, bootstrap):
         exit(TIMEOUT_EXIT_CODE)
 
 
-def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
+def submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch, postprocess):
     if name is None:
         actual_name = f"{datetime.datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}"
     else:
@@ -555,6 +558,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
         assert os.path.isfile(bootstrap)
         args += ["--bootstrap", bootstrap]
 
+    postprocess_cmd = f"python {CURRENT_DIR / 'postprocess.py'} all {directory}" if postprocess else ":"
     command = f"""#!/bin/bash
 #PBS -l select={nodes},walltime={walltime}
 #PBS -q {queue}
@@ -583,7 +587,7 @@ then
 {f"--profile {profile}" if profile else ""} \
 {target_input}
 else
-    python {CURRENT_DIR / "postprocess.py"} all {directory}
+    {postprocess_cmd}
 fi
 """
     fpath = f"/tmp/pbs-{name}-{int(time.time())}.sh"
@@ -612,8 +616,9 @@ fi
 @click.option("--bootstrap", default=None)
 @click.option("--workon", default=DEFAULT_VENV)
 @click.option("--watch/--no-watch", default=False)
-def submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch):
-    submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch)
+@click.option("--postprocess/--no-postprocess", default=True)
+def submit_cmd(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch, postprocess):
+    submit(input, name, nodes, queue, walltime, workdir, project, profile, bootstrap, workon, watch, postprocess)
 
 
 @click.group()

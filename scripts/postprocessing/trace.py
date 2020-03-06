@@ -130,7 +130,7 @@ def generate_trace_summary(trace_path, output):
                     f"Worker {worker.id}: {len(worker.tasks)} tasks, "
                     f"mean task duration: {worker_task_durations.mean()}, "
                     f"mean compute duration: {worker_compute_durations.mean()}\n")
-                f.write("\n")
+            f.write("\n")
 
             f.write("---MEASURE summary---\n")
             for (method, times) in measurements.items():
