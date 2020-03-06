@@ -1,22 +1,19 @@
-use super::task::{SchedulerTaskState, Task, TaskRef};
 use super::utils::compute_b_level;
-use super::worker::{HostnameId, Worker, WorkerRef};
 use crate::common::{Map, Set};
-use crate::scheduler::comm::SchedulerComm;
-use crate::scheduler::schedproto::{
+use crate::scheduler::protocol::{
     SchedulerRegistration, TaskAssignment, TaskId, TaskStealResponse, TaskUpdate, TaskUpdateType,
     WorkerId,
 };
-use crate::scheduler::workstealing::task::OwningTaskRef;
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use futures::StreamExt;
+use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
+use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
+use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Duration;
 
 #[derive(Debug)]
-pub struct Scheduler {
+pub struct WorkstealingScheduler {
     network_bandwidth: f32,
     workers: Map<WorkerId, WorkerRef>,
     tasks: Map<TaskId, OwningTaskRef>,
@@ -30,7 +27,7 @@ type Notifications = Set<TaskRef>;
 
 const MIN_SCHEDULING_DELAY: Duration = Duration::from_millis(15);
 
-impl Scheduler {
+impl WorkstealingScheduler {
     pub fn new() -> Self {
         Self {
             workers: Default::default(),
@@ -55,7 +52,7 @@ impl Scheduler {
             .unwrap_or_else(|| panic!("Worker {} not found", worker_id))
     }
 
-    fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerComm) {
+    fn send_notifications(&self, notifications: Notifications, sender: &mut SchedulerSender) {
         let assignments: Vec<_> = notifications
             .into_iter()
             .map(|tr| {
@@ -69,36 +66,25 @@ impl Scheduler {
                 }
             })
             .collect();
-        sender.send(FromSchedulerMessage::TaskAssignments(assignments));
+        sender
+            .send(FromSchedulerMessage::TaskAssignments(assignments))
+            .expect("Couldn't send scheduler message");
     }
 
-    pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
-        log::debug!("Workstealing scheduler initialized");
+    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
+        trace_time!("scheduler", "update", {
+            if self.update(messages) {
+                let mut notifications = Notifications::new();
 
-        comm.send(FromSchedulerMessage::Register(SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "workstealing-scheduler".into(),
-            scheduler_version: "0.0".into(),
-        }));
+                trace_time!("scheduler", "schedule", {
+                    if self.schedule(&mut notifications) {
+                        trace_time!("scheduler", "balance", self.balance(&mut notifications));
+                    }
+                });
 
-        while let Some(msgs) = comm.recv.next().await {
-            /* TODO: Add delay that prevents calling scheduler too often */
-            trace_time!("scheduler", "update", {
-                if self.update(msgs) {
-                    let mut notifications = Notifications::new();
-
-                    trace_time!("scheduler", "schedule", {
-                        if self.schedule(&mut notifications) {
-                            trace_time!("scheduler", "balance", self.balance(&mut notifications));
-                        }
-                    });
-
-                    self.send_notifications(notifications, &mut comm);
-                }
-            });
-        }
-        log::debug!("Scheduler closed");
-        Ok(())
+                self.send_notifications(notifications, sender);
+            }
+        });
     }
 
     fn assign_task_to_worker(
@@ -437,6 +423,21 @@ impl Scheduler {
     }
 }
 
+impl Scheduler for WorkstealingScheduler {
+    fn identify(&self) -> SchedulerRegistration {
+        SchedulerRegistration {
+            protocol_version: 0,
+            scheduler_name: "workstealing-scheduler".into(),
+            scheduler_version: "0.0".into(),
+        }
+    }
+
+    #[inline]
+    fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
+        self.handle_messages(messages, sender)
+    }
+}
+
 fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
     // TODO: For large number of inputs, only sample inputs
     let hostname_id = worker_ref.get().hostname_id;
@@ -466,7 +467,7 @@ fn task_transfer_cost(task: &Task, worker_ref: &WorkerRef) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scheduler::schedproto::{TaskInfo, WorkerInfo};
+    use crate::scheduler::protocol::{TaskInfo, WorkerInfo};
 
     fn init() {
         let _ = env_logger::try_init().map_err(|_| {
@@ -489,7 +490,7 @@ mod tests {
           T5
 
     */
-    fn submit_graph_simple(scheduler: &mut Scheduler) {
+    fn submit_graph_simple(scheduler: &mut WorkstealingScheduler) {
         scheduler.update(vec![
             new_task(1, vec![]),
             new_task(2, vec![1]),
@@ -509,7 +510,7 @@ mod tests {
                 |
                 n
     */
-    fn submit_graph_reduce(scheduler: &mut Scheduler, size: usize) {
+    fn submit_graph_reduce(scheduler: &mut WorkstealingScheduler, size: usize) {
         let mut tasks: Vec<_> = (0..size)
             .map(|t| new_task(t as TaskId, Vec::new()))
             .collect();
@@ -524,13 +525,13 @@ mod tests {
         | \   \   \     \
         1  2   3   4  .. n-1
     */
-    fn submit_graph_split(scheduler: &mut Scheduler, size: usize) {
+    fn submit_graph_split(scheduler: &mut WorkstealingScheduler, size: usize) {
         let mut tasks = vec![new_task(0, Vec::new())];
         tasks.extend((1..=size).map(|t| new_task(t as TaskId, vec![0])));
         scheduler.update(tasks);
     }
 
-    fn connect_workers(scheduler: &mut Scheduler, count: u32, n_cpus: u32) {
+    fn connect_workers(scheduler: &mut WorkstealingScheduler, count: u32, n_cpus: u32) {
         for i in 0..count {
             scheduler.update(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
                 id: 100 + i as WorkerId,
@@ -540,7 +541,12 @@ mod tests {
         }
     }
 
-    fn finish_task(scheduler: &mut Scheduler, task_id: TaskId, worker_id: WorkerId, size: u64) {
+    fn finish_task(
+        scheduler: &mut WorkstealingScheduler,
+        task_id: TaskId,
+        worker_id: WorkerId,
+        size: u64,
+    ) {
         scheduler.update(vec![ToSchedulerMessage::TaskUpdate(TaskUpdate {
             state: TaskUpdateType::Finished,
             id: task_id,
@@ -549,7 +555,7 @@ mod tests {
         })]);
     }
 
-    fn run_schedule(scheduler: &mut Scheduler) -> Set<TaskId> {
+    fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
         let mut notifications = Notifications::new();
         if scheduler.schedule(&mut notifications) {
             scheduler.balance(&mut notifications);
@@ -557,7 +563,7 @@ mod tests {
         notifications.iter().map(|tr| tr.get().id).collect()
     }
 
-    fn assigned_worker(scheduler: &mut Scheduler, task_id: TaskId) -> WorkerId {
+    fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {
         scheduler
             .tasks
             .get(&task_id)
@@ -572,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_b_level() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         submit_graph_simple(&mut scheduler);
         assert_eq!(scheduler.ready_to_assign.len(), 1);
         assert_eq!(scheduler.ready_to_assign[0].get().id, 1);
@@ -589,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_simple_w1_1() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         submit_graph_simple(&mut scheduler);
         connect_workers(&mut scheduler, 1, 1);
         scheduler.sanity_check();
@@ -615,7 +621,7 @@ mod tests {
     #[test]
     fn test_simple_w2_1() {
         init();
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         submit_graph_simple(&mut scheduler);
         connect_workers(&mut scheduler, 2, 1);
         scheduler.sanity_check();
@@ -643,7 +649,7 @@ mod tests {
     #[test]
     fn test_reduce_w5_1() {
         init();
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         submit_graph_reduce(&mut scheduler, 5000);
         connect_workers(&mut scheduler, 5, 1);
         scheduler.sanity_check();
@@ -670,7 +676,7 @@ mod tests {
     #[test]
     fn test_split_w5_1() {
         init();
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         submit_graph_split(&mut scheduler, 5000);
         connect_workers(&mut scheduler, 5, 1);
         scheduler.sanity_check();
@@ -702,7 +708,7 @@ mod tests {
     #[test]
     fn test_consecutive_submit() {
         init();
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = WorkstealingScheduler::new();
         connect_workers(&mut scheduler, 5, 1);
         scheduler.update(vec![new_task(1, vec![])]);
         let n = run_schedule(&mut scheduler);

@@ -1,5 +1,5 @@
-use crate::scheduler::schedproto::{WorkerId, WorkerInfo};
-use crate::scheduler::workstealing::task::TaskRef;
+use crate::scheduler::protocol::{WorkerId, WorkerInfo};
+use crate::scheduler::task::TaskRef;
 use std::collections::HashSet;
 
 pub type HostnameId = u64;

@@ -10,7 +10,7 @@ use crate::protocol::protocol::{
     deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame,
     FromDaskTransport, SerializedMemory, ToDaskTransport,
 };
-use crate::scheduler::schedproto::{TaskAssignment, TaskId};
+use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
 use crate::task::TaskRef;
 use crate::worker::{create_worker, WorkerRef};

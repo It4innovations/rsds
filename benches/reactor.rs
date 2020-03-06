@@ -53,6 +53,8 @@ pub fn update_graph_bench(c: &mut Criterion) {
                         keys,
                         actors: None,
                         frames: Default::default(),
+                        priority: Default::default(),
+                        user_priority: Default::default(),
                     };
                     (
                         Context {

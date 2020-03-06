@@ -1,4 +1,4 @@
-use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::TaskId;
 use crate::worker::WorkerId;
 use std::fmt::Write;
 

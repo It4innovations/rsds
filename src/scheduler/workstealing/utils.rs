@@ -1,7 +1,6 @@
-use super::task::TaskRef;
 use crate::common::Map;
-use crate::scheduler::schedproto::TaskId;
-use crate::scheduler::workstealing::task::OwningTaskRef;
+use crate::scheduler::protocol::TaskId;
+use crate::scheduler::task::{OwningTaskRef, TaskRef};
 
 pub fn compute_b_level(tasks: &Map<TaskId, OwningTaskRef>) {
     let mut n_consumers: Map<TaskRef, u32> = Map::with_capacity(tasks.len());

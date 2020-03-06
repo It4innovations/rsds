@@ -1,7 +1,7 @@
 use crate::client::ClientId;
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
-use crate::scheduler::schedproto::{
+use crate::scheduler::protocol::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
 use crate::scheduler::ToSchedulerMessage;

@@ -1,42 +1,17 @@
-use crate::scheduler::comm::SchedulerComm;
-use crate::scheduler::schedproto::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use futures::StreamExt;
+use crate::scheduler::protocol::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
+use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
 
-pub struct Scheduler {
+#[derive(Default, Debug)]
+pub struct RandomScheduler {
     workers: Vec<WorkerId>,
     pending_tasks: Vec<TaskId>,
     rng: ThreadRng,
 }
 
-impl Scheduler {
-    pub fn new() -> Self {
-        Self {
-            workers: Default::default(),
-            pending_tasks: Default::default(),
-            rng: Default::default(),
-        }
-    }
-
-    pub async fn start(mut self, mut comm: SchedulerComm) -> crate::Result<()> {
-        log::debug!("Random scheduler initialized");
-
-        comm.send(FromSchedulerMessage::Register(SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "random-scheduler".into(),
-            scheduler_version: "0.0".into(),
-        }));
-
-        while let Some(msgs) = comm.recv.next().await {
-            self.update(msgs, &mut comm);
-        }
-        log::debug!("Scheduler closed");
-        Ok(())
-    }
-
-    fn update(&mut self, messages: Vec<ToSchedulerMessage>, comm: &mut SchedulerComm) {
+impl RandomScheduler {
+    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
         let mut assignments = vec![];
         for message in messages {
             match message {
@@ -68,10 +43,24 @@ impl Scheduler {
         }
 
         if !assignments.is_empty() {
-            comm.send(FromSchedulerMessage::TaskAssignments(assignments));
+            sender
+                .send(FromSchedulerMessage::TaskAssignments(assignments))
+                .expect("Couldn't send scheduler message");
         }
     }
 }
 
-#[cfg(test)]
-mod tests {}
+impl Scheduler for RandomScheduler {
+    fn identify(&self) -> SchedulerRegistration {
+        SchedulerRegistration {
+            protocol_version: 0,
+            scheduler_name: "random-scheduler".into(),
+            scheduler_version: "0.0".into(),
+        }
+    }
+
+    #[inline]
+    fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
+        self.handle_messages(messages, sender)
+    }
+}

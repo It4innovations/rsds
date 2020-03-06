@@ -44,6 +44,7 @@ harness = false
 lto = true
 codegen-units = 1
 opt-level = 3
+panic = "abort"
 
 [profile.bench]
 incremental = true

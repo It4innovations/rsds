@@ -4,7 +4,7 @@ use crate::client::{Client, ClientId};
 use crate::comm::Notifications;
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
-use crate::scheduler::schedproto::{TaskAssignment, TaskId, WorkerId};
+use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
@@ -535,7 +535,7 @@ mod tests {
     use crate::protocol::key::DaskKey;
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
-    use crate::scheduler::schedproto::{TaskUpdate, TaskUpdateType};
+    use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
     use crate::task::{ErrorInfo, TaskRuntimeState};
     use crate::test_util::{

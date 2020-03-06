@@ -1,6 +1,4 @@
 mod scheduler;
-mod task;
 mod utils;
-mod worker;
 
-pub use scheduler::Scheduler;
+pub use scheduler::WorkstealingScheduler;

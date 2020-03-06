@@ -15,7 +15,7 @@ use crate::protocol::protocol::{
 use crate::protocol::workermsg::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
 };
-use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::protocol::TaskId;
 
 use crate::task::{DataInfo, TaskRef, TaskRuntimeState};
 

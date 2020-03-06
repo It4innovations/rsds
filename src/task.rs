@@ -12,7 +12,7 @@ use crate::protocol::Priority;
 
 use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
-use crate::scheduler::schedproto::TaskId;
+use crate::scheduler::protocol::TaskId;
 use crate::worker::WorkerRef;
 
 pub enum TaskRuntimeState {
@@ -121,8 +121,8 @@ impl Task {
         &self.subscribed_clients
     }
 
-    pub fn make_sched_info(&self) -> crate::scheduler::schedproto::TaskInfo {
-        crate::scheduler::schedproto::TaskInfo {
+    pub fn make_sched_info(&self) -> crate::scheduler::protocol::TaskInfo {
+        crate::scheduler::protocol::TaskInfo {
             id: self.id,
             inputs: self.dependencies.clone(),
         }

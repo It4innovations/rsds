@@ -1,6 +1,6 @@
-use super::worker::WorkerRef;
 use crate::common::{HasCycle, Map, Set};
-use crate::scheduler::schedproto::{NewFinishedTaskInfo, TaskId, TaskInfo};
+use crate::scheduler::protocol::{NewFinishedTaskInfo, TaskId, TaskInfo};
+use crate::scheduler::worker::WorkerRef;
 
 #[derive(Debug)]
 pub enum SchedulerTaskState {

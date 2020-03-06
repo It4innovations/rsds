@@ -37,8 +37,8 @@ impl Worker {
         s.chars().take_while(|x| *x != ':').collect()
     }
 
-    pub fn make_sched_info(&self) -> crate::scheduler::schedproto::WorkerInfo {
-        crate::scheduler::schedproto::WorkerInfo {
+    pub fn make_sched_info(&self) -> crate::scheduler::protocol::WorkerInfo {
+        crate::scheduler::protocol::WorkerInfo {
             id: self.id,
             n_cpus: self.ncpus,
             hostname: self.hostname(),

@@ -2,7 +2,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::comm::CommRef;
 use crate::core::CoreRef;
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+use crate::scheduler::{FromSchedulerMessage, Scheduler, ToSchedulerMessage};
 use crate::DsError;
 use futures::StreamExt;
 
@@ -82,5 +82,24 @@ pub async fn observe_scheduler(
         }
     }
 
+    Ok(())
+}
+pub async fn scheduler_driver<S: Scheduler>(
+    mut scheduler: S,
+    mut comm: SchedulerComm,
+) -> crate::Result<()> {
+    let identity = scheduler.identify();
+    let name = identity.scheduler_name.clone();
+
+    log::debug!("Scheduler {} initialized", name);
+
+    comm.send(FromSchedulerMessage::Register(identity));
+
+    while let Some(msgs) = comm.recv.next().await {
+        /* TODO: Add delay that prevents calling scheduler too often */
+        scheduler.update(msgs, &mut comm.send);
+    }
+
+    log::debug!("Scheduler {} closed", name);
     Ok(())
 }

@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::comm::CommRef;
 use rsds::core::CoreRef;
-use rsds::scheduler::comm::{observe_scheduler, prepare_scheduler_comm, SchedulerComm};
+use rsds::scheduler::{observe_scheduler, prepare_scheduler_comm, scheduler_driver, SchedulerComm};
 use serde::export::fmt::Arguments;
 use std::fs::File;
 use std::future::Future;
@@ -26,10 +26,14 @@ fn create_scheduler(
     comm: SchedulerComm,
 ) -> Pin<Box<dyn Future<Output = rsds::Result<()>>>> {
     match r#type {
-        SchedulerType::Workstealing => {
-            Box::pin(rsds::scheduler::workstealing::Scheduler::new().start(comm))
-        }
-        SchedulerType::Random => Box::pin(rsds::scheduler::random::Scheduler::new().start(comm)),
+        SchedulerType::Workstealing => Box::pin(scheduler_driver(
+            rsds::scheduler::WorkstealingScheduler::new(),
+            comm,
+        )),
+        SchedulerType::Random => Box::pin(scheduler_driver(
+            rsds::scheduler::RandomScheduler::default(),
+            comm,
+        )),
     }
 }
 
