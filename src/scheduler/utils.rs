@@ -1,6 +1,6 @@
 use crate::common::Map;
 use crate::scheduler::protocol::TaskId;
-use crate::scheduler::task::{OwningTaskRef, TaskRef, Task};
+use crate::scheduler::task::{OwningTaskRef, Task, TaskRef};
 use crate::scheduler::worker::WorkerRef;
 
 pub fn compute_b_level(tasks: &Map<TaskId, OwningTaskRef>) {

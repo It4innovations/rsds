@@ -1,5 +1,5 @@
-use crate::scheduler::protocol::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
-use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
+use crate::scheduler::protocol::{TaskAssignment, TaskId, WorkerId, SchedulerRegistration};
+use crate::scheduler::{FromSchedulerMessage, SchedulerSender, ToSchedulerMessage, Scheduler};
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
 
@@ -7,16 +7,24 @@ use rand::seq::SliceRandom;
 pub struct RandomScheduler {
     workers: Vec<WorkerId>,
     pending_tasks: Vec<TaskId>,
+    assignments: Vec<TaskAssignment>,
     rng: ThreadRng,
 }
 
-impl RandomScheduler {
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
-        let mut assignments = vec![];
+impl Scheduler for RandomScheduler {
+    fn identify(&self) -> SchedulerRegistration {
+        SchedulerRegistration {
+            protocol_version: 0,
+            scheduler_name: "random-scheduler".into(),
+            scheduler_version: "0.0".into(),
+        }
+    }
+
+    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
         for message in messages {
             match message {
                 ToSchedulerMessage::NewTask(task) => match self.workers.choose(&mut self.rng) {
-                    Some(&worker) => assignments.push(TaskAssignment {
+                    Some(&worker) => self.assignments.push(TaskAssignment {
                         task: task.id,
                         worker,
                         priority: 0,
@@ -27,7 +35,7 @@ impl RandomScheduler {
                     self.workers.push(worker.id);
                     if !self.pending_tasks.is_empty() {
                         for task in self.pending_tasks.drain(..) {
-                            assignments.push(TaskAssignment {
+                            self.assignments.push(TaskAssignment {
                                 task,
                                 worker: worker.id,
                                 priority: 0,
@@ -41,26 +49,14 @@ impl RandomScheduler {
                 _ => { /* Ignore */ }
             }
         }
+        !self.assignments.is_empty()
+    }
 
-        if !assignments.is_empty() {
+    fn schedule(&mut self, sender: &mut SchedulerSender) {
+        if !self.assignments.is_empty() {
             sender
-                .send(FromSchedulerMessage::TaskAssignments(assignments))
+                .send(FromSchedulerMessage::TaskAssignments(std::mem::take(&mut self.assignments)))
                 .expect("Couldn't send scheduler message");
         }
-    }
-}
-
-impl Scheduler for RandomScheduler {
-    fn identify(&self) -> SchedulerRegistration {
-        SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "random-scheduler".into(),
-            scheduler_version: "0.0".into(),
-        }
-    }
-
-    #[inline]
-    fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
-        self.handle_messages(messages, sender)
     }
 }

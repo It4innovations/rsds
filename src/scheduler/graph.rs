@@ -1,8 +1,12 @@
 use crate::common::{Map, Set};
-use crate::scheduler::{WorkerId, TaskId, SchedulerSender, TaskAssignment, FromSchedulerMessage, ToSchedulerMessage};
-use crate::scheduler::worker::{WorkerRef, HostnameId, Worker};
-use crate::scheduler::task::{OwningTaskRef, TaskRef, SchedulerTaskState, Task};
-use crate::scheduler::protocol::{TaskInfo, WorkerInfo, NewFinishedTaskInfo, TaskUpdate, TaskUpdateType};
+use crate::scheduler::protocol::{
+    NewFinishedTaskInfo, TaskInfo, TaskUpdate, TaskUpdateType, WorkerInfo,
+};
+use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
+use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
+use crate::scheduler::{
+    FromSchedulerMessage, SchedulerSender, TaskAssignment, TaskId, ToSchedulerMessage, WorkerId,
+};
 
 pub type Notifications = Set<TaskRef>;
 
@@ -24,7 +28,7 @@ impl Default for SchedulerGraph {
             tasks: Default::default(),
             ready_to_assign: Default::default(),
             new_tasks: Default::default(),
-            hostnames: Default::default()
+            hostnames: Default::default(),
         }
     }
 }
@@ -48,9 +52,7 @@ impl SchedulerGraph {
             ToSchedulerMessage::NewTask(ti) => self.add_task(ti),
             ToSchedulerMessage::NewFinishedTask(ti) => self.add_finished_task(ti),
             ToSchedulerMessage::RemoveTask(task_id) => self.remove_task(task_id),
-            ToSchedulerMessage::NetworkBandwidth(bandwidth) => {
-                self.network_bandwidth = bandwidth
-            }
+            ToSchedulerMessage::NetworkBandwidth(bandwidth) => self.network_bandwidth = bandwidth,
             _ => { /* Ignore */ }
         }
     }
@@ -89,7 +91,9 @@ impl SchedulerGraph {
         match tu.state {
             TaskUpdateType::Placed => self.place_task_on_worker(tu.id, tu.worker),
             TaskUpdateType::Removed => self.remove_task_from_worker(tu.id, tu.worker),
-            TaskUpdateType::Finished => { self.finish_task(tu.id, tu.worker, tu.size.unwrap()); }
+            TaskUpdateType::Finished => {
+                self.finish_task(tu.id, tu.worker, tu.size.unwrap());
+            }
         }
     }
 
@@ -104,7 +108,12 @@ impl SchedulerGraph {
     /// Finishes a task.
     /// Returns the assigned worker of the task and a boolean which states if at least a single
     /// consumer changed to a ready state after this finish.
-    pub fn finish_task(&mut self, task_id: TaskId, worker_id: WorkerId, size: u64) -> (bool, WorkerRef) {
+    pub fn finish_task(
+        &mut self,
+        task_id: TaskId,
+        worker_id: WorkerId,
+        size: u64,
+    ) -> (bool, WorkerRef) {
         let tref = self.get_task(task_id).clone();
         let mut task = tref.get_mut();
         log::debug!("Task id={} is finished on worker={}", task.id, worker_id);

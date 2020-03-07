@@ -15,7 +15,7 @@ mod random;
 mod workstealing;
 
 pub use blevel::BlevelScheduler;
-pub use comm::{observe_scheduler, prepare_scheduler_comm, scheduler_driver, SchedulerComm};
+pub use comm::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 pub use protocol::{TaskAssignment, TaskId, WorkerId};
 pub use random::RandomScheduler;
 pub use workstealing::WorkstealingScheduler;
@@ -24,5 +24,6 @@ pub type SchedulerSender = UnboundedSender<FromSchedulerMessage>;
 
 pub trait Scheduler {
     fn identify(&self) -> SchedulerRegistration;
-    fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender);
+    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool;
+    fn schedule(&mut self, sender: &mut SchedulerSender);
 }

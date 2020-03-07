@@ -8,14 +8,14 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::comm::CommRef;
 use rsds::core::CoreRef;
-use rsds::scheduler::{observe_scheduler, prepare_scheduler_comm, scheduler_driver, SchedulerComm};
+use rsds::scheduler::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 use serde::export::fmt::Arguments;
 use std::fs::File;
 use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tracing_subscriber::{fmt::time::FormatTime, FmtSubscriber};
 
 #[global_allocator]
@@ -23,20 +23,24 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 fn create_scheduler(
     r#type: SchedulerType,
+    msd: Duration,
     comm: SchedulerComm,
 ) -> Pin<Box<dyn Future<Output = rsds::Result<()>>>> {
     match r#type {
-        SchedulerType::Workstealing => Box::pin(scheduler_driver(
-            rsds::scheduler::WorkstealingScheduler::new(),
+        SchedulerType::Workstealing => Box::pin(drive_scheduler(
+            rsds::scheduler::WorkstealingScheduler::default(),
             comm,
+            msd,
         )),
-        SchedulerType::Random => Box::pin(scheduler_driver(
+        SchedulerType::Random => Box::pin(drive_scheduler(
             rsds::scheduler::RandomScheduler::default(),
             comm,
+            msd,
         )),
-        SchedulerType::Blevel => Box::pin(scheduler_driver(
+        SchedulerType::Blevel => Box::pin(drive_scheduler(
             rsds::scheduler::BlevelScheduler::default(),
             comm,
+            msd,
         )),
     }
 }
@@ -67,6 +71,8 @@ struct Opt {
     port: u16,
     #[structopt(long, default_value = "workstealing")]
     scheduler: SchedulerType,
+    #[structopt(long, default_value = "0")]
+    msd: u64,
     #[structopt(long)]
     trace_file: Option<String>,
 }
@@ -166,13 +172,15 @@ async fn main() -> rsds::Result<()> {
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
+    let msd = Duration::from_millis(opt.msd);
     let scheduler_thread = thread::spawn(move || {
         let mut runtime = tokio::runtime::Builder::new()
             .basic_scheduler()
+            .enable_time()
             .build()
             .expect("Runtime creation failed");
         runtime
-            .block_on(create_scheduler(opt.scheduler, comm))
+            .block_on(create_scheduler(opt.scheduler, msd, comm))
             .expect("Scheduler failed");
     });
 

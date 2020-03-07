@@ -2,9 +2,12 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::comm::CommRef;
 use crate::core::CoreRef;
-use crate::scheduler::{FromSchedulerMessage, Scheduler, ToSchedulerMessage};
+use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use crate::DsError;
-use futures::StreamExt;
+use futures::future::Either;
+use futures::{future, StreamExt};
+use std::time::{Duration, Instant};
+use tokio::time::delay_for;
 
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {
@@ -84,22 +87,280 @@ pub async fn observe_scheduler(
 
     Ok(())
 }
-pub async fn scheduler_driver<S: Scheduler>(
+
+pub async fn drive_scheduler<S: Scheduler>(
     mut scheduler: S,
-    mut comm: SchedulerComm,
+    comm: SchedulerComm,
+    minimum_delay: Duration,
 ) -> crate::Result<()> {
     let identity = scheduler.identify();
     let name = identity.scheduler_name.clone();
 
     log::debug!("Scheduler {} initialized", name);
 
-    comm.send(FromSchedulerMessage::Register(identity));
+    let SchedulerComm {
+        send: mut sender,
+        recv: mut receiver,
+    } = comm;
+    sender
+        .send(FromSchedulerMessage::Register(identity))
+        .unwrap();
 
-    while let Some(msgs) = comm.recv.next().await {
-        /* TODO: Add delay that prevents calling scheduler too often */
-        scheduler.update(msgs, &mut comm.send);
+    let infinite_delay = || Duration::from_secs(3600);
+    let mut last_schedule = Instant::now() - minimum_delay * 2;
+
+    // if waiting_for_schedule is true, the delay waits until the next MSD window
+    // if waiting_for_schedule is false, the delay is infinite
+    let mut waiting_for_schedule = false;
+
+    let run_schedule = |scheduler: &mut S,
+                        comm: &mut SchedulerSender,
+                        last_schedule: &mut Instant,
+                        waiting_for_schedule: &mut bool| {
+        trace_time!("scheduler", "schedule", {
+            scheduler.schedule(comm);
+        });
+        *last_schedule = Instant::now();
+        *waiting_for_schedule = false;
+    };
+
+    let mut delay_fut = delay_for(infinite_delay());
+    let mut recv_fut = receiver.next();
+
+    loop {
+        match future::select(recv_fut, delay_fut).await {
+            Either::Left((messages, previous_delay)) => match messages {
+                Some(messages) => {
+                    let needs_schedule = trace_time!("scheduler", "handle_messages", {
+                        scheduler.handle_messages(messages)
+                    });
+
+                    delay_fut = previous_delay;
+                    if needs_schedule {
+                        if last_schedule.elapsed() >= minimum_delay {
+                            run_schedule(
+                                &mut scheduler,
+                                &mut sender,
+                                &mut last_schedule,
+                                &mut waiting_for_schedule,
+                            );
+                            delay_fut = delay_for(infinite_delay());
+                        } else if !waiting_for_schedule {
+                            waiting_for_schedule = true;
+                            delay_fut = delay_for(minimum_delay);
+                        }
+                    }
+                    recv_fut = receiver.next();
+                }
+                None => {
+                    if waiting_for_schedule {
+                        run_schedule(
+                            &mut scheduler,
+                            &mut sender,
+                            &mut last_schedule,
+                            &mut waiting_for_schedule,
+                        );
+                    }
+                    break
+                },
+            },
+            Either::Right((_, previous_recv)) => {
+                if waiting_for_schedule {
+                    run_schedule(
+                        &mut scheduler,
+                        &mut sender,
+                        &mut last_schedule,
+                        &mut waiting_for_schedule,
+                    );
+                }
+                recv_fut = previous_recv;
+                delay_fut = delay_for(infinite_delay());
+            }
+        }
     }
 
     log::debug!("Scheduler {} closed", name);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::scheduler::protocol::SchedulerRegistration;
+    use crate::scheduler::{
+        drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, SchedulerSender,
+        ToSchedulerMessage,
+    };
+    use std::collections::vec_deque::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+    use tokio::task::JoinHandle;
+    use tokio::time::delay_for;
+
+    #[tokio::test]
+    async fn dont_schedule_without_messages() {
+        let (schedule_times, tx, _rx, handle) = create_ctx(Duration::from_millis(5), vec![]);
+        delay_for(Duration::from_millis(100)).await;
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert!(schedule_times.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dont_schedule_if_not_needed() {
+        let (schedule_times, tx, _rx, handle) = create_ctx(Duration::from_millis(5), vec![false]);
+        tx.send(vec![]).unwrap();
+        delay_for(Duration::from_millis(100)).await;
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert!(schedule_times.is_empty());
+    }
+
+    #[tokio::test]
+    async fn schedule_immediately_after_first_message() {
+        let (schedule_times, tx, _rx, handle) = create_ctx(Duration::from_millis(1000), vec![true]);
+        tx.send(vec![]).unwrap();
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert_eq!(schedule_times.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn schedule_immediately_after_long_delay() {
+        let msd = Duration::from_millis(500);
+        let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 3]);
+        tx.send(vec![]).unwrap(); // schedule immediately
+        tx.send(vec![]).unwrap(); // batch
+
+        delay_for(msd * 2).await;
+
+        tx.send(vec![]).unwrap(); // schedule immediately
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert_eq!(schedule_times.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn batch_schedules() {
+        let msd = Duration::from_millis(100);
+        let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 10]);
+        for _ in 0..10 {
+            tx.send(vec![]).unwrap();
+        }
+
+        delay_for(msd * 2).await;
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert_eq!(schedule_times.len(), 2);
+        assert!(schedule_times[1] - schedule_times[0] >= msd);
+    }
+
+    #[tokio::test]
+    async fn zero_msd() {
+        let msd = Duration::from_millis(0);
+        let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 10]);
+        for _ in 0..10 {
+            tx.send(vec![]).unwrap();
+        }
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert_eq!(schedule_times.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn dont_cancel_batch() {
+        let msd = Duration::from_millis(0);
+        let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true, true, false]);
+        for _ in 0..3 {
+            tx.send(vec![]).unwrap();
+        }
+
+        delay_for(msd * 2).await;
+
+        drop(tx);
+        handle.await.unwrap().unwrap();
+
+        let schedule_times = schedule_times.lock().unwrap();
+        assert_eq!(schedule_times.len(), 2);
+    }
+
+    fn create_ctx(
+        msd: Duration,
+        responses: Vec<bool>,
+    ) -> (
+        Arc<Mutex<Vec<Duration>>>,
+        UnboundedSender<Vec<ToSchedulerMessage>>,
+        UnboundedReceiver<FromSchedulerMessage>,
+        JoinHandle<crate::Result<()>>,
+    ) {
+        let start = Instant::now();
+        let schedule_times: Arc<Mutex<Vec<Duration>>> = Default::default();
+        let scheduler = TestScheduler::new(responses, schedule_times.clone(), start);
+        let (comm, tx, rx) = prepare_scheduler_comm();
+        let handle = tokio::spawn(drive_scheduler(scheduler, comm, msd));
+        (schedule_times, tx, rx, handle)
+    }
+
+    struct TestScheduler {
+        responses: VecDeque<bool>,
+        schedule_times: Arc<Mutex<Vec<Duration>>>,
+        start: Instant,
+    }
+    impl TestScheduler {
+        fn new(
+            responses: Vec<bool>,
+            schedule_times: Arc<Mutex<Vec<Duration>>>,
+            start: Instant,
+        ) -> Self {
+            Self {
+                responses: responses.into(),
+                schedule_times,
+                start,
+            }
+        }
+    }
+    impl Scheduler for TestScheduler {
+        fn identify(&self) -> SchedulerRegistration {
+            SchedulerRegistration {
+                protocol_version: 0,
+                scheduler_name: "".to_string(),
+                scheduler_version: "".to_string(),
+            }
+        }
+
+        fn handle_messages(&mut self, _messages: Vec<ToSchedulerMessage>) -> bool {
+            self.responses.pop_front().unwrap()
+        }
+
+        fn schedule(&mut self, _sender: &mut SchedulerSender) {
+            self.schedule_times
+                .lock()
+                .unwrap()
+                .push(self.start.elapsed())
+        }
+    }
+
+    impl Drop for TestScheduler {
+        fn drop(&mut self) {
+            assert!(self.responses.is_empty());
+        }
+    }
 }

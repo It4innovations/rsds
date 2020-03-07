@@ -1,7 +1,8 @@
 use crate::scheduler::graph::{assign_task_to_worker, Notifications, SchedulerGraph};
-use crate::scheduler::protocol::SchedulerRegistration;
+
 use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
-use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage};
+use crate::scheduler::{SchedulerSender, ToSchedulerMessage, Scheduler};
+use crate::scheduler::protocol::SchedulerRegistration;
 
 #[derive(Default, Debug)]
 pub struct BlevelScheduler {
@@ -9,13 +10,24 @@ pub struct BlevelScheduler {
     notifications: Notifications,
 }
 
-impl BlevelScheduler {
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
-        self.notifications.clear();
+impl Scheduler for BlevelScheduler {
+    fn identify(&self) -> SchedulerRegistration {
+        SchedulerRegistration {
+            protocol_version: 0,
+            scheduler_name: "blevel".into(),
+            scheduler_version: "0.0".into(),
+        }
+    }
 
+    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
         for message in messages {
             self.graph.handle_message(message);
         }
+        !self.graph.ready_to_assign.is_empty()
+    }
+
+    fn schedule(&mut self, sender: &mut SchedulerSender) {
+        self.notifications.clear();
 
         if !self.graph.new_tasks.is_empty() {
             compute_b_level(&self.graph.tasks);
@@ -36,7 +48,8 @@ impl BlevelScheduler {
                     .sort_unstable_by_key(|t| -t.get().b_level);
 
                 // TODO: handle multi-CPU workers
-                let end = std::cmp::min(self.graph.ready_to_assign.len(), underloaded_workers.len());
+                let end =
+                    std::cmp::min(self.graph.ready_to_assign.len(), underloaded_workers.len());
                 for tref in self.graph.ready_to_assign.drain(..end) {
                     let mut task = tref.get_mut();
                     let (windex, worker) = underloaded_workers
@@ -57,20 +70,5 @@ impl BlevelScheduler {
         }
 
         self.graph.send_notifications(&self.notifications, sender);
-    }
-}
-
-impl Scheduler for BlevelScheduler {
-    fn identify(&self) -> SchedulerRegistration {
-        SchedulerRegistration {
-            protocol_version: 0,
-            scheduler_name: "blevel".into(),
-            scheduler_version: "0.0".into(),
-        }
-    }
-
-    #[inline]
-    fn update(&mut self, messages: Vec<ToSchedulerMessage>, sender: &mut SchedulerSender) {
-        self.handle_messages(messages, sender)
     }
 }
