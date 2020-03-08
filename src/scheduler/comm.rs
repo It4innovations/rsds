@@ -106,77 +106,80 @@ pub async fn drive_scheduler<S: Scheduler>(
         .send(FromSchedulerMessage::Register(identity))
         .unwrap();
 
-    let infinite_delay = || Duration::from_secs(3600);
     let mut last_schedule = Instant::now() - minimum_delay * 2;
-
-    // if waiting_for_schedule is true, the delay waits until the next MSD window
-    // if waiting_for_schedule is false, the delay is infinite
-    let mut waiting_for_schedule = false;
 
     let run_schedule = |scheduler: &mut S,
                         comm: &mut SchedulerSender,
-                        last_schedule: &mut Instant,
-                        waiting_for_schedule: &mut bool| {
+                        last_schedule: &mut Instant| {
         trace_time!("scheduler", "schedule", {
             scheduler.schedule(comm);
         });
         *last_schedule = Instant::now();
-        *waiting_for_schedule = false;
     };
 
-    let mut delay_fut = delay_for(infinite_delay());
     let mut recv_fut = receiver.next();
+    let mut delay_fut = None;
 
-    loop {
-        match future::select(recv_fut, delay_fut).await {
-            Either::Left((messages, previous_delay)) => match messages {
-                Some(messages) => {
-                    let needs_schedule = trace_time!("scheduler", "handle_messages", {
-                        scheduler.handle_messages(messages)
-                    });
+    let needs_schedule = loop {
+        match delay_fut {
+            Some(delay) => {
+                match future::select(recv_fut, delay).await {
+                    Either::Left((messages, previous_delay)) => match messages {
+                        Some(messages) => {
+                            trace_time!("scheduler", "handle_messages", {
+                                scheduler.handle_messages(messages)
+                            });
 
-                    delay_fut = previous_delay;
-                    if needs_schedule {
-                        if last_schedule.elapsed() >= minimum_delay {
-                            run_schedule(
-                                &mut scheduler,
-                                &mut sender,
-                                &mut last_schedule,
-                                &mut waiting_for_schedule,
-                            );
-                            delay_fut = delay_for(infinite_delay());
-                        } else if !waiting_for_schedule {
-                            waiting_for_schedule = true;
-                            delay_fut = delay_for(minimum_delay);
+                            delay_fut = Some(previous_delay);
+                            recv_fut = receiver.next();
                         }
-                    }
-                    recv_fut = receiver.next();
-                }
-                None => {
-                    if waiting_for_schedule {
+                        None => break true
+                    },
+                    Either::Right((_, previous_recv)) => {
                         run_schedule(
                             &mut scheduler,
                             &mut sender,
                             &mut last_schedule,
-                            &mut waiting_for_schedule,
                         );
+                        recv_fut = previous_recv;
+                        delay_fut = None;
                     }
-                    break
-                },
-            },
-            Either::Right((_, previous_recv)) => {
-                if waiting_for_schedule {
-                    run_schedule(
-                        &mut scheduler,
-                        &mut sender,
-                        &mut last_schedule,
-                        &mut waiting_for_schedule,
-                    );
                 }
-                recv_fut = previous_recv;
-                delay_fut = delay_for(infinite_delay());
+            }
+            None => {
+                match recv_fut.await {
+                    Some(messages) => {
+                        let needs_schedule = trace_time!("scheduler", "handle_messages", {
+                            scheduler.handle_messages(messages)
+                        });
+
+                        if needs_schedule {
+                            let since_last_schedule = last_schedule.elapsed();
+                            if since_last_schedule >= minimum_delay {
+                                run_schedule(
+                                    &mut scheduler,
+                                    &mut sender,
+                                    &mut last_schedule,
+                                );
+                            }
+                            else {
+                                delay_fut = Some(delay_for(minimum_delay - since_last_schedule));
+                            }
+                        }
+                        recv_fut = receiver.next();
+                    }
+                    None => break false
+                }
             }
         }
+    };
+
+    if needs_schedule {
+        run_schedule(
+            &mut scheduler,
+            &mut sender,
+            &mut last_schedule,
+        );
     }
 
     log::debug!("Scheduler {} closed", name);
