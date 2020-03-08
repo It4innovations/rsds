@@ -244,3 +244,189 @@ pub fn assign_task_to_worker(
     task.assigned_worker = Some(worker_ref);
     assert!(worker.tasks.insert(task_ref));
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::scheduler::graph::{assign_task_to_worker, SchedulerGraph};
+    use crate::scheduler::protocol::{TaskInfo, WorkerInfo};
+    use crate::scheduler::{TaskId, WorkerId};
+
+    #[test]
+    fn set_consumers_on_tasks() {
+        let mut graph = SchedulerGraph::default();
+        add_task(&mut graph, 0, vec![]);
+        add_task(&mut graph, 1, vec![0]);
+        add_task(&mut graph, 2, vec![0]);
+        add_task(&mut graph, 3, vec![1, 2]);
+
+        let get_consumers = |tid| -> Vec<TaskId> {
+            let mut ids = graph
+                .get_task(tid)
+                .get()
+                .consumers
+                .iter()
+                .map(|t| t.get().id)
+                .collect::<Vec<_>>();
+            ids.sort();
+            ids
+        };
+
+        assert_eq!(get_consumers(0), vec!(1, 2));
+        assert_eq!(get_consumers(1), vec!(3));
+        assert_eq!(get_consumers(2), vec!(3));
+        assert_eq!(get_consumers(3), vec!() as Vec<TaskId>);
+    }
+
+    #[test]
+    #[should_panic]
+    fn finish_unassigned_task() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_task(&mut graph, 0, vec![]);
+        graph.finish_task(0, 0, 0);
+    }
+
+    #[test]
+    fn reset_inputs_after_delete() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_task(&mut graph, 0, vec![]);
+        add_task(&mut graph, 1, vec![]);
+        add_task(&mut graph, 2, vec![]);
+
+        assign(&mut graph, 0, 0);
+        graph.finish_task(0, 0, 0);
+        graph.remove_task(0);
+
+        assert!(graph.get_task(1).get().inputs.is_empty());
+        assert!(graph.get_task(2).get().inputs.is_empty());
+    }
+
+    #[test]
+    fn assign_task() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_task(&mut graph, 0, vec![]);
+
+        assign(&mut graph, 0, 0);
+        assert_eq!(
+            graph.get_task(0).get().assigned_worker,
+            Some(graph.get_worker(0).clone())
+        );
+        assert_eq!(
+            graph
+                .get_worker(0)
+                .get()
+                .tasks
+                .iter()
+                .map(|t| t.get().id)
+                .collect::<Vec<_>>(),
+            vec!(0)
+        );
+    }
+
+    #[test]
+    fn reassign_task() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_worker(&mut graph, 1);
+        add_task(&mut graph, 0, vec![]);
+
+        assign(&mut graph, 0, 0);
+        assert!(graph.get_worker(0).get().tasks.contains(graph.get_task(0)));
+        assign(&mut graph, 0, 1);
+        assert!(!graph.get_worker(0).get().tasks.contains(graph.get_task(0)));
+        assert!(graph.get_worker(1).get().tasks.contains(graph.get_task(0)));
+    }
+
+    #[test]
+    fn set_placement() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_task(&mut graph, 0, vec![]);
+        add_task(&mut graph, 1, vec![0]);
+
+        assign(&mut graph, 0, 0);
+        graph.finish_task(0, 0, 0);
+        assign(&mut graph, 1, 0);
+        assert_eq!(
+            graph
+                .get_task(0)
+                .get()
+                .future_placement
+                .get(graph.get_worker(0)),
+            Some(&1)
+        );
+        graph.finish_task(1, 0, 0);
+        assert!(graph
+            .get_task(1)
+            .get()
+            .placement
+            .contains(graph.get_worker(0)));
+    }
+
+    #[test]
+    fn mark_assignable_tasks() {
+        let mut graph = SchedulerGraph::default();
+        add_worker(&mut graph, 0);
+        add_task(&mut graph, 0, vec![]);
+        add_task(&mut graph, 1, vec![0]);
+
+        assert_eq!(graph.ready_to_assign, vec!(graph.get_task(0).clone()));
+        graph.ready_to_assign.clear();
+        assign(&mut graph, 0, 0);
+        graph.finish_task(0, 0, 0);
+        assert_eq!(graph.ready_to_assign, vec!(graph.get_task(1).clone()));
+    }
+
+    #[test]
+    fn intern_hostnames() {
+        let mut graph = SchedulerGraph::default();
+        graph.add_worker(WorkerInfo {
+            id: 0,
+            n_cpus: 0,
+            hostname: "foo".to_string(),
+        });
+        graph.add_worker(WorkerInfo {
+            id: 1,
+            n_cpus: 0,
+            hostname: "foo".to_string(),
+        });
+        graph.add_worker(WorkerInfo {
+            id: 2,
+            n_cpus: 0,
+            hostname: "bar".to_string(),
+        });
+        assert_eq!(
+            graph.get_worker(0).get().hostname_id,
+            graph.get_worker(1).get().hostname_id
+        );
+        assert_ne!(
+            graph.get_worker(0).get().hostname_id,
+            graph.get_worker(2).get().hostname_id
+        );
+    }
+
+    fn assign(graph: &mut SchedulerGraph, task_id: TaskId, worker_id: WorkerId) {
+        let tref = graph.get_task(task_id);
+        let wref = graph.get_worker(worker_id);
+        assign_task_to_worker(
+            &mut tref.get_mut(),
+            tref.clone(),
+            &mut wref.get_mut(),
+            wref.clone(),
+            &mut Default::default(),
+        );
+    }
+
+    fn add_worker(graph: &mut SchedulerGraph, id: WorkerId) {
+        graph.add_worker(WorkerInfo {
+            id,
+            n_cpus: 0,
+            hostname: "".to_string(),
+        });
+    }
+    fn add_task(graph: &mut SchedulerGraph, id: TaskId, inputs: Vec<TaskId>) {
+        graph.add_task(TaskInfo { id, inputs });
+    }
+}
