@@ -25,7 +25,9 @@ pub fn compute_b_level(tasks: &Map<TaskId, OwningTaskRef>) {
         task.b_level = b_level + 1;
 
         for inp in &task.inputs {
-            let v: &mut u32 = n_consumers.get_mut(&inp).unwrap();
+            let v: &mut u32 = n_consumers
+                .get_mut(&inp)
+                .expect("Couldn't find task input in B-level computation");
             if *v <= 1 {
                 assert_eq!(*v, 1);
                 stack.push(inp.clone());

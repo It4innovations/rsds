@@ -84,7 +84,16 @@ impl SchedulerGraph {
         assert!(self.tasks.insert(task_id, task).is_none());
     }
     pub fn remove_task(&mut self, task_id: TaskId) {
-        assert!(self.get_task(task_id).get().is_finished()); // TODO: Define semantics of removing non-finished tasks
+        {
+            let mut task = self.get_task(task_id).get_mut();
+            assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
+            for tr in &task.consumers {
+                let mut t = tr.get_mut();
+                t.inputs = Default::default();
+            }
+            task.consumers = Default::default();
+        }
+
         assert!(self.tasks.remove(&task_id).is_some());
     }
     pub fn update_task(&mut self, tu: TaskUpdate) {
