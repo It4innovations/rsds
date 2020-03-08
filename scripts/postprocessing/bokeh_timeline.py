@@ -155,9 +155,11 @@ def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
         "create": "green",
         "assign": "purple",
         "send": "yellow",
-        "compute-start": "red",
+        "place": "brown",
+        "compute-start": "pink",
         "compute-end": "blue",
-        "finish": "black"
+        "finish": "black",
+        "remove": "red"
     }
     data = collections.defaultdict(lambda: [])
 

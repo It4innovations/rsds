@@ -57,6 +57,17 @@ pub fn trace_task_new(task_id: TaskId, key: &str, inputs: &[u64]) {
     );
 }
 #[inline(always)]
+pub fn trace_task_new_finished(task_id: TaskId, key: &str, size: u64, worker_id: WorkerId) {
+    tracing::info!(
+        action = "task",
+        event = "create",
+        task = task_id,
+        key = key,
+        worker = worker_id,
+        size = size
+    );
+}
+#[inline(always)]
 pub fn trace_task_assign(task_id: TaskId, worker_id: WorkerId) {
     tracing::info!(
         action = "task",
@@ -75,6 +86,15 @@ pub fn trace_task_send(task_id: TaskId, worker_id: WorkerId) {
     );
 }
 #[inline(always)]
+pub fn trace_task_place(task_id: TaskId, worker_id: WorkerId) {
+    tracing::info!(
+        action = "task",
+        event = "place",
+        task = task_id,
+        worker = worker_id,
+    );
+}
+#[inline(always)]
 pub fn trace_task_finish(task_id: TaskId, worker_id: WorkerId, size: u64, duration: (u64, u64)) {
     tracing::info!(
         action = "task",
@@ -84,6 +104,14 @@ pub fn trace_task_finish(task_id: TaskId, worker_id: WorkerId, size: u64, durati
         start = duration.0,
         stop = duration.1,
         size = size
+    );
+}
+#[inline(always)]
+pub fn trace_task_remove(task_id: TaskId) {
+    tracing::info!(
+        action = "task",
+        event = "remove",
+        task = task_id,
     );
 }
 #[inline(always)]

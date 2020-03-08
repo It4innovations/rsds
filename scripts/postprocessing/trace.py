@@ -324,14 +324,26 @@ def parse_trace(trace_path, handle_event, normalize_time=None) -> Tuple[Dict[int
                 task_id = fields["task"]
                 if event == "create":
                     assert task_id not in tasks
-                    inputs = tuple(int(i) for i in fields.get("inputs", ()).rstrip(",").split(",") if i)
-                    tasks[task_id] = Task(task_id, fields["key"], inputs, timestamp)
+                    inputs = tuple(int(i) for i in fields.get("inputs", "").rstrip(",").split(",") if i)
+                    task = Task(task_id, fields["key"], inputs, timestamp)
+                    tasks[task_id] = task
+
+                    # finished task
+                    if "size" in fields:
+                        task.size = fields["size"]
+                        task.worker = workers[fields["worker"]]
+                        task.duration = 0
+                        task.wait_duration = 0
+                        task.add_event("finish", timestamp, {"worker": task.worker})
                 else:
-                    worker_id = fields["worker"]
-                    assert worker_id in workers
-                    worker = workers[worker_id]
+                    worker_id = fields.get("worker")
+                    if worker_id is not None:
+                        assert worker_id in workers
+                        worker = workers[worker_id]
+                    else:
+                        worker = None
                     task = tasks[task_id]
-                    task.add_event(event, timestamp, {"worker": worker})
+                    task.add_event(event, timestamp, {"worker": worker} if worker else {})
 
                     if event == "assign":
                         worker.start_task(task_id, timestamp)

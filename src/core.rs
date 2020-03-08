@@ -8,10 +8,7 @@ use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{
-    trace_task_assign, trace_task_finish, trace_worker_new, trace_worker_steal,
-    trace_worker_steal_response, trace_worker_steal_response_missing,
-};
+use crate::trace::{trace_task_assign, trace_task_finish, trace_worker_new, trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing, trace_task_place, trace_task_remove};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -144,6 +141,7 @@ impl Core {
     }
 
     pub fn remove_task(&mut self, task: &Task) {
+        trace_task_remove(task.id);
         assert!(!task.has_consumers());
         assert!(!task.has_subscribed_clients());
         assert!(self.tasks_by_id.remove(&task.id).is_some());
@@ -418,6 +416,7 @@ impl Core {
                     panic!("Invalid task state");
                 }
             };
+            trace_task_place(task.id, worker.id);
             notifications.task_placed(&worker, &task);
             // TODO: Store that task result is on worker
         }

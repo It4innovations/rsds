@@ -20,7 +20,7 @@ use crate::scheduler::protocol::TaskId;
 use crate::task::{DataInfo, TaskRef, TaskRuntimeState};
 
 use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
-use crate::trace::trace_task_new;
+use crate::trace::{trace_task_new, trace_task_new_finished};
 use crate::util::OptionExt;
 use crate::worker::WorkerRef;
 use futures::future::join_all;
@@ -391,7 +391,9 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                     );
                     task.subscribe_client(client_id);
                     notifications.new_finished_task(&task);
+                    trace_task_new_finished(task.id, dask_key_ref_to_str(&task.key()), size, wr.get().id);
                 }
+
                 core.add_task(task_ref.clone());
                 notifications.notify_client_key_in_memory(client_id, task_ref)
             }
