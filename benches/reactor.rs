@@ -25,7 +25,7 @@ pub fn update_graph_bench(c: &mut Criterion) {
         |b, &task_count| {
             b.iter_with_setup(
                 || {
-                    let core_ref = CoreRef::new();
+                    let core_ref = CoreRef::default();
                     let (ctx, _crx) = tokio::sync::mpsc::unbounded_channel();
                     let client_id = {
                         let mut core = core_ref.get_mut();

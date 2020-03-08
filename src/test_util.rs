@@ -80,7 +80,7 @@ pub fn dummy_ctx() -> (
     tokio::sync::mpsc::UnboundedReceiver<Vec<ToSchedulerMessage>>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (CoreRef::new(), CommRef::new(tx), rx)
+    (CoreRef::default(), CommRef::new(tx), rx)
 }
 pub fn dummy_address() -> SocketAddr {
     "127.0.0.1:8080".parse().unwrap()

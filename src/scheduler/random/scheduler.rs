@@ -1,5 +1,5 @@
-use crate::scheduler::protocol::{TaskAssignment, TaskId, WorkerId, SchedulerRegistration};
-use crate::scheduler::{FromSchedulerMessage, SchedulerSender, ToSchedulerMessage, Scheduler};
+use crate::scheduler::protocol::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
+use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
 
@@ -55,7 +55,9 @@ impl Scheduler for RandomScheduler {
     fn schedule(&mut self, sender: &mut SchedulerSender) {
         if !self.assignments.is_empty() {
             sender
-                .send(FromSchedulerMessage::TaskAssignments(std::mem::take(&mut self.assignments)))
+                .send(FromSchedulerMessage::TaskAssignments(std::mem::take(
+                    &mut self.assignments,
+                )))
                 .expect("Couldn't send scheduler message");
         }
     }

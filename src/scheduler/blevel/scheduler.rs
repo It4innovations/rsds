@@ -1,8 +1,8 @@
 use crate::scheduler::graph::{assign_task_to_worker, Notifications, SchedulerGraph};
 
-use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
-use crate::scheduler::{SchedulerSender, ToSchedulerMessage, Scheduler};
 use crate::scheduler::protocol::SchedulerRegistration;
+use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
+use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage};
 
 #[derive(Default, Debug)]
 pub struct BlevelScheduler {

@@ -48,7 +48,7 @@ impl DaskPacket {
     }
 
     pub fn from_batch<T: ToDaskTransport>(batch: Batch<T>) -> crate::Result<DaskPacket> {
-        let mut builder: MessageBuilder<T::Transport> = MessageBuilder::new();
+        let mut builder: MessageBuilder<T::Transport> = MessageBuilder::default();
         for item in batch {
             item.to_transport(&mut builder);
         }
@@ -56,7 +56,7 @@ impl DaskPacket {
     }
 
     pub fn from_simple<T: ToDaskTransport>(item: T) -> crate::Result<DaskPacket> {
-        let mut builder: MessageBuilder<T::Transport> = MessageBuilder::new();
+        let mut builder: MessageBuilder<T::Transport> = MessageBuilder::default();
         item.to_transport(&mut builder);
         builder.build_single()
     }
@@ -293,14 +293,16 @@ pub struct MessageBuilder<T> {
     frames: Frames,
 }
 
-impl<T: Serialize> MessageBuilder<T> {
-    pub fn new() -> Self {
+impl <T> Default for MessageBuilder<T> {
+    fn default() -> Self {
         Self {
             messages: Default::default(),
             frames: Default::default(),
         }
     }
+}
 
+impl<T: Serialize> MessageBuilder<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             messages: Batch::<T>::with_capacity(capacity),

@@ -35,7 +35,7 @@ pub fn dask_key_ref_to_string(key: &DaskKeyRef) -> String {
 }
 #[inline]
 pub fn dask_key_ref_to_str(key: &DaskKeyRef) -> &str {
-    unsafe { std::mem::transmute(key) }
+    unsafe { std::str::from_utf8_unchecked(key) }
 }
 
 impl Display for DaskKey {

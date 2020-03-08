@@ -82,7 +82,7 @@ impl Comm {
         notifications: Map<WorkerRef, WorkerNotification>,
     ) -> crate::Result<()> {
         for (worker_ref, w_update) in notifications {
-            let mut mbuilder = MessageBuilder::new();
+            let mut mbuilder = MessageBuilder::default();
 
             for task in w_update.compute_tasks {
                 let task = task.get();

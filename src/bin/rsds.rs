@@ -187,7 +187,7 @@ async fn main() -> rsds::Result<()> {
     {
         let task_set = tokio::task::LocalSet::new();
         let comm_ref = CommRef::new(sender);
-        let core_ref = CoreRef::new();
+        let core_ref = CoreRef::default();
         let core_ref2 = core_ref.clone();
         let comm_ref2 = comm_ref.clone();
         task_set

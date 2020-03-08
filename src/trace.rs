@@ -33,8 +33,7 @@ impl<'a> Drop for ScopedTimer<'a> {
 macro_rules! trace_time {
     ($process:tt, $method:tt, $block:expr) => {{
         let _timer = $crate::trace::ScopedTimer::new($process, $method);
-        let res = $block;
-        res
+        $block
     }};
 }
 
@@ -108,11 +107,7 @@ pub fn trace_task_finish(task_id: TaskId, worker_id: WorkerId, size: u64, durati
 }
 #[inline(always)]
 pub fn trace_task_remove(task_id: TaskId) {
-    tracing::info!(
-        action = "task",
-        event = "remove",
-        task = task_id,
-    );
+    tracing::info!(action = "task", event = "remove", task = task_id,);
 }
 #[inline(always)]
 pub fn trace_worker_new(worker_id: WorkerId, ncpus: u32, address: &str) {

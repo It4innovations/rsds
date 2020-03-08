@@ -57,15 +57,6 @@ impl<Type: Identifiable> KeyIdMap<Type::Id, Type, Type::Key> {
     }
 
     #[inline]
-    pub fn get_mut_by_key<Q: Eq + Hash + ?Sized>(&mut self, key: &Q) -> Option<&mut Type>
-    where
-        Type::Key: Borrow<Q>,
-    {
-        self.get_id_by_key(&key)
-            .and_then(move |id| self.get_mut_by_id(id))
-    }
-
-    #[inline]
     pub fn get_id_by_key<Q: Eq + Hash + ?Sized>(&self, key: &Q) -> Option<Type::Id>
     where
         Type::Key: Borrow<Q>,
@@ -73,14 +64,6 @@ impl<Type: Identifiable> KeyIdMap<Type::Id, Type, Type::Key> {
         self.key_to_id.get(key).copied()
     }
 
-    #[inline]
-    pub fn remove_by_key<Q: Eq + Hash + ?Sized>(&mut self, key: &Q)
-    where
-        Type::Key: Borrow<Q>,
-    {
-        let id = self.key_to_id.remove(key).expect("Key does not exist");
-        assert!(self.id_to_item.remove(&id).is_some());
-    }
     #[inline]
     pub fn remove_by_id(&mut self, id: Type::Id) {
         let item = self.id_to_item.remove(&id).unwrap();

@@ -91,11 +91,7 @@ pub fn update_graph(
         log::debug!("New task id={}, key={}", task_id, task_key);
         trace_task_new(task_id, dask_key_ref_to_str(&task_key), &inputs);
         let task_spec = task_spec_to_memory(task_spec, &mut update.frames);
-        let client_priority = update
-            .priority
-            .get(&task_key)
-            .map(|x| *x)
-            .unwrap_or_default();
+        let client_priority = update.priority.get(&task_key).copied().unwrap_or_default();
         let task_ref = TaskRef::new(
             task_id,
             task_key,
@@ -391,7 +387,12 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                     );
                     task.subscribe_client(client_id);
                     notifications.new_finished_task(&task);
-                    trace_task_new_finished(task.id, dask_key_ref_to_str(&task.key()), size, wr.get().id);
+                    trace_task_new_finished(
+                        task.id,
+                        dask_key_ref_to_str(&task.key()),
+                        size,
+                        wr.get().id,
+                    );
                 }
 
                 core.add_task(task_ref.clone());
@@ -436,7 +437,7 @@ pub async fn update_data_on_worker(
 ) -> crate::Result<Map<DaskKey, u64>> {
     let mut connection = connect_to_worker(worker_address).await?;
 
-    let mut builder = MessageBuilder::<ToWorkerMessage>::new();
+    let mut builder = MessageBuilder::<ToWorkerMessage>::default();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
         data: map_to_transport(data, &mut builder),
         reply: true,

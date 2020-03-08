@@ -8,7 +8,10 @@ use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 
 use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
-use crate::trace::{trace_task_assign, trace_task_finish, trace_worker_new, trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing, trace_task_place, trace_task_remove};
+use crate::trace::{
+    trace_task_assign, trace_task_finish, trace_task_place, trace_task_remove, trace_worker_new,
+    trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing,
+};
 use crate::worker::WorkerRef;
 
 impl Identifiable for Client {
@@ -56,8 +59,8 @@ pub struct Core {
 
 pub type CoreRef = WrappedRcRefCell<Core>;
 
-impl Core {
-    pub fn new() -> Self {
+impl Default for Core {
+    fn default() -> Self {
         Self {
             tasks_by_id: Default::default(),
             tasks_by_key: Default::default(),
@@ -73,7 +76,9 @@ impl Core {
             scatter_counter: 0,
         }
     }
+}
 
+impl Core {
     #[inline]
     pub fn uid(&self) -> &DaskKeyRef {
         &self.uid
@@ -508,18 +513,12 @@ impl Core {
     }
 }
 
-impl CoreRef {
-    pub fn new() -> Self {
-        Self::wrap(Core::new())
-    }
-}
-
 /// Returns task duration as specified by Dask.
 /// Converts from UNIX in seconds to a microseconds.
 fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
     msg.startstops
         .iter()
-        .find(|(key, _, _)| key.as_bytes() == "compute".as_bytes())
+        .find(|(key, _, _)| key.as_bytes() == b"compute")
         .map(|(_, start, stop)| ((start * 1_000_000f64) as u64, (stop * 1_000_000f64) as u64))
         .unwrap_or((0, 0))
 }
@@ -543,7 +542,7 @@ mod tests {
 
     #[test]
     fn add_remove() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
         assert_eq!(core.get_task_by_key_or_panic(&t.get().key()), &t);
 
@@ -553,7 +552,7 @@ mod tests {
 
     #[test]
     fn assign_task() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
@@ -564,7 +563,7 @@ mod tests {
 
     #[test]
     fn finish_task_scheduler_notification() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
@@ -597,7 +596,7 @@ mod tests {
 
     #[test]
     fn release_task_without_consumers() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
@@ -626,7 +625,7 @@ mod tests {
 
     #[test]
     fn finish_task_with_consumers() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
         let _ = task_add_deps(&mut core, 1, &[&t]);
         let (w, _w_rx) = worker(&mut core, "w0");
@@ -662,7 +661,7 @@ mod tests {
 
     #[test]
     fn finish_task_inmemory_notification() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
@@ -702,7 +701,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn finish_unassigned_task() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
@@ -724,7 +723,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn error_unassigned_task() {
-        let mut core = Core::new();
+        let mut core = Core::default();
         let t = task_add(&mut core, 0);
 
         let (w, _w_rx) = worker(&mut core, "w0");
