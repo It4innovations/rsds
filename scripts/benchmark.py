@@ -29,7 +29,7 @@ from git import Repo
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
 from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
-    bench_tree, bench_xarray
+    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
@@ -48,7 +48,9 @@ USECASES = {
     "merge": bench_merge,
     "merge_slow": bench_merge_slow,
     "pandas_groupby": bench_pandas_groupby,
-    "pandas_join": bench_pandas_join
+    "pandas_join": bench_pandas_join,
+    "wordbatch_vectorizer": bench_wordbatch_vectorizer,
+    "wordbatch_wordbag": bench_wordbatch_wordbag
 }
 HASHES = {}
 GIT_REPOSITORY = Repo(BUILD_DIR)
@@ -307,12 +309,15 @@ class Benchmark:
                                f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}")
         os.makedirs(workdir, exist_ok=True)
 
-        with DaskCluster(configuration["cluster"], workdir, profile=self.profile):
-            graph = configuration["function"]()
-            start = time.time()
-            # the real computation happens here
-            result = dask.compute(graph)
-            duration = time.time() - start
+        with DaskCluster(configuration["cluster"], workdir, profile=self.profile) as cluster:
+            if configuration["needs_client"]:
+                result, duration = configuration["function"](cluster.client)
+            else:
+                graph = configuration["function"]()
+                start = time.time()
+                # the real computation happens here
+                result = dask.compute(graph)
+                duration = time.time() - start
             return (configuration, flatten_result(result), duration)
 
     def _gen_configurations(self, configurations):
@@ -323,10 +328,18 @@ class Benchmark:
             if not isinstance(args, (list, tuple)):
                 args = (args,)
 
-            name = f"{function}-{'-'.join((str(arg) for arg in args))}"
+            def format_arg(arg):
+                if arg is None:
+                    return "default"
+                if isinstance(arg, str):
+                    return os.path.basename(arg)
+                return str(arg)
+
+            name = f"{function}-{'-'.join(format_arg(arg) for arg in args)}"
             yield {
                 "name": name,
                 "function": functools.partial(USECASES[function], *args),
+                "needs_client": usecase.get("needs_client", False),
                 "cluster": configuration["cluster"]
             }
 

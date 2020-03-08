@@ -7,14 +7,14 @@ from matplotlib import ticker
 
 def create_plot(frame, plot_fn):
     def extract(fn):
-        items = list(fn.split("-"))
-        for i in range(len(items)):
+        sortkey = []
+        for item in fn.split("-"):
             try:
-                num = float(items[i])
-                items[i] = num
+                num = float(item)
+                sortkey.append(num)
             except:
                 pass
-        return tuple(items)
+        return tuple(sortkey)
 
     clusters = sorted(set(frame["cluster"]))
     functions = sorted(set(frame["function"]), key=extract)

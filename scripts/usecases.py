@@ -1,16 +1,67 @@
 import datetime
 import os
+import re
 import time
 
 import dask
 import dask.array as da
 import joblib
 import numpy as np
+import pandas as pd
 import xarray as xr
 from dask import delayed
+from nltk.stem.porter import PorterStemmer
 from sklearn.datasets import make_classification
+from sklearn.feature_extraction.text import HashingVectorizer
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
+from wordbatch.batcher import Batcher
+from wordbatch.extractors import WordBag
+from wordbatch.pipelines import WordBatch, ApplyBatch
+from wordbatch.transformers import Tokenizer, Dictionary
+
+non_alphanums = re.compile(r'[\W+]')
+nums_re = re.compile(r"\W*[0-9]+\W*")
+triples_re = re.compile(r"(\w)\1{2,}")
+trash_re = [re.compile(r"<[^>]*>"), re.compile(r"[^a-z0-9' -]+"), re.compile(r" [.0-9'-]+ "), re.compile(r"[-']{2,}"),
+            re.compile(r" '"), re.compile(r"  +")]
+
+
+def normalize_text(text):
+    text = text.lower()
+    text = nums_re.sub(" NUM ", text)
+    text = " ".join([word for word in non_alphanums.sub(" ", text).strip().split() if len(word) > 1])
+    return text
+
+
+def bench_wordbatch_vectorizer(input, data_size, client):
+    texts = pd.read_csv(input, nrows=data_size, squeeze=True)
+    batcher = Batcher(procs=1, minibatch_size=5000, backend="dask", backend_handle=client)
+    hv = HashingVectorizer(decode_error='ignore', n_features=2 ** 25, preprocessor=normalize_text,
+                           ngram_range=(1, 2), norm='l2')
+
+    start = time.time()
+    t = ApplyBatch(hv.transform, batcher=batcher).transform(texts)
+    duration = time.time() - start
+    return (np.sum(t.data), duration)
+
+
+def bench_wordbatch_wordbag(input, data_size, client):
+    texts = pd.read_csv(input, nrows=data_size, squeeze=True)
+
+    stemmer = PorterStemmer()
+    batcher = Batcher(procs=1, minibatch_size=5000, backend="dask", backend_handle=client)
+    wb = WordBatch(normalize_text=normalize_text,
+                   dictionary=Dictionary(min_df=10, max_words=1000000, verbose=0),
+                   tokenizer=Tokenizer(spellcor_count=2, spellcor_dist=2, stemmer=stemmer),
+                   extractor=WordBag(hash_ngrams=0, norm='l2', tf='binary', idf=50.0),
+                   batcher=batcher,
+                   verbose=0)
+
+    start = time.time()
+    t = wb.fit_transform(texts)
+    duration = time.time() - start
+    return (np.sum(t.data), duration)
 
 
 def bench_pandas_groupby(days=1, freq="1s", partition_freq="1H"):
@@ -107,7 +158,7 @@ def bench_tree(exp=10):
         for i in range(0, len(L), 2):
             lazy = add(L[i], L[i + 1])  # add neighbors
             new_L.append(lazy)
-        L = new_L                       # swap old list for new
+        L = new_L  # swap old list for new
 
     return L
 
