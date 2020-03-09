@@ -5,6 +5,9 @@ use crate::scheduler::worker::WorkerRef;
 #[derive(Debug)]
 pub enum SchedulerTaskState {
     Waiting,
+    AssignedFresh,
+    Assigned,
+    AssignedPinned,
     Finished,
 }
 
@@ -20,7 +23,6 @@ pub struct Task {
     pub placement: Set<WorkerRef>,
     pub future_placement: Map<WorkerRef, u32>,
     pub size: u64,
-    pub pinned: bool,
     pub take_flag: bool, // Used in algorithms, no meaning between calls
 }
 
@@ -41,6 +43,22 @@ impl Task {
         match self.state {
             SchedulerTaskState::Finished => true,
             _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_pinned(&self) -> bool {
+        match self.state {
+            SchedulerTaskState::AssignedPinned => true,
+            _ => false
+        }
+    }
+
+    #[inline]
+    pub fn is_fresh(&self) -> bool {
+        match self.state {
+            SchedulerTaskState::AssignedFresh => true,
+            _ => false
         }
     }
 
@@ -80,11 +98,14 @@ impl Task {
                 for c in &self.consumers {
                     assert!(c.get().is_waiting());
                 }
-            }
+            },
             SchedulerTaskState::Finished => {
                 for inp in &self.inputs {
                     assert!(inp.get().is_finished());
                 }
+            },
+            _ => {
+                /* TODO */
             }
         };
     }
@@ -123,7 +144,6 @@ impl OwningTaskRef {
             assigned_worker: None,
             placement: Default::default(),
             future_placement: Default::default(),
-            pinned: false,
             take_flag: false,
         });
         {
@@ -148,7 +168,6 @@ impl OwningTaskRef {
             assigned_worker: None,
             placement,
             future_placement: Default::default(),
-            pinned: false,
             take_flag: false,
         })
     }

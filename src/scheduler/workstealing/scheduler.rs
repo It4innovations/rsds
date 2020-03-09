@@ -3,7 +3,8 @@ use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, Sch
 use crate::scheduler::protocol::{
     SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
-use crate::scheduler::task::{Task, TaskRef};
+
+use crate::scheduler::task::{Task, TaskRef, SchedulerTaskState};
 use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
@@ -83,7 +84,7 @@ impl WorkstealingScheduler {
                 for tr in &worker.tasks {
                     tr.get_mut().take_flag = false;
                 }
-                balanced_tasks.extend(worker.tasks.iter().filter(|tr| !tr.get().pinned).cloned());
+                balanced_tasks.extend(worker.tasks.iter().filter(|tr| !tr.get().is_pinned()).cloned());
             }
         }
 
@@ -94,7 +95,15 @@ impl WorkstealingScheduler {
             if len < worker.ncpus {
                 log::debug!("Worker {} is underloaded ({} tasks)", worker.id, len);
                 let mut ts = balanced_tasks.clone();
-                ts.sort_by_cached_key(|tr| std::u64::MAX - task_transfer_cost(&tr.get(), &wr));
+                ts.sort_by_cached_key(|tr| {
+                    let task = tr.get();
+                    let mut cost = task_transfer_cost(&task, &wr);
+                    if !task.is_fresh() {
+                        cost += cost / 8;
+                        cost += 10_000_000;
+                    }
+                    std::u64::MAX - cost
+                });
                 underload_workers.push((wr.clone(), ts));
             }
         }
@@ -183,7 +192,7 @@ impl WorkstealingScheduler {
             worker.tasks.remove(&tref);
             worker.is_underloaded()
         };
-        task.pinned = true;
+        task.state = SchedulerTaskState::AssignedPinned;
         task.assigned_worker = Some(new_wref.clone());
         let mut new_worker = new_wref.get_mut();
         new_worker.tasks.insert(tref.clone());
@@ -373,12 +382,18 @@ mod tests {
         })]);
     }
 
-    fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
+    fn run_schedule(scheduler: &mut WorkstealingScheduler) -> &DirtyTaskSet {
         scheduler.dirty_tasks.clear();
         if scheduler.schedule_available_tasks() {
             scheduler.balance();
         }
-        scheduler.dirty_tasks.iter().map(|tr| tr.get().id).collect()
+        &scheduler.dirty_tasks
+    }
+
+    fn run_schedule_get_task_ids(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
+        run_schedule(scheduler).iter()
+        .map(|tr| tr.get().id)
+        .collect()
     }
 
     fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {
@@ -402,7 +417,7 @@ mod tests {
         assert_eq!(scheduler.graph.ready_to_assign.len(), 1);
         assert_eq!(scheduler.graph.ready_to_assign[0].get().id, 1);
         connect_workers(&mut scheduler, 1, 1);
-        run_schedule(&mut scheduler);
+        run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(scheduler.graph.get_task(7).get().b_level, 1);
         assert_eq!(scheduler.graph.get_task(6).get().b_level, 2);
         assert_eq!(scheduler.graph.get_task(5).get().b_level, 1);
@@ -419,14 +434,14 @@ mod tests {
         connect_workers(&mut scheduler, 1, 1);
         scheduler.sanity_check();
 
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&1));
         scheduler.sanity_check();
 
         let w = assigned_worker(&mut scheduler, 1);
         finish_task(&mut scheduler, 1, w, 1);
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
@@ -445,14 +460,14 @@ mod tests {
         connect_workers(&mut scheduler, 2, 1);
         scheduler.sanity_check();
 
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&1));
         scheduler.sanity_check();
 
         let w = assigned_worker(&mut scheduler, 1);
         finish_task(&mut scheduler, 1, w, 1);
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 2);
         assert!(n.contains(&2));
         assert!(n.contains(&3));
@@ -473,7 +488,7 @@ mod tests {
         connect_workers(&mut scheduler, 5, 1);
         scheduler.sanity_check();
 
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 5000);
         scheduler.sanity_check();
 
@@ -500,12 +515,12 @@ mod tests {
         connect_workers(&mut scheduler, 5, 1);
         scheduler.sanity_check();
 
-        let _n = run_schedule(&mut scheduler);
+        let _n = run_schedule_get_task_ids(&mut scheduler);
         let w = assigned_worker(&mut scheduler, 0);
         finish_task(&mut scheduler, 0, w, 100_000_000);
         scheduler.sanity_check();
 
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 5000);
         scheduler.sanity_check();
 
@@ -530,16 +545,34 @@ mod tests {
         let mut scheduler = WorkstealingScheduler::default();
         connect_workers(&mut scheduler, 5, 1);
         scheduler.handle_messages(vec![new_task(1, vec![])]);
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&1));
         scheduler.sanity_check();
         finish_task(&mut scheduler, 1, 101, 1000_1000);
         scheduler.sanity_check();
         scheduler.handle_messages(vec![new_task(2, vec![1])]);
-        let n = run_schedule(&mut scheduler);
+        let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&2));
         scheduler.sanity_check();
+    }
+
+    #[test]
+    fn test_many_submits() {
+        init();
+        let WORKERS : u32 = 100;
+        let TASKS : usize = 99;
+        let mut scheduler = WorkstealingScheduler::default();
+        connect_workers(&mut scheduler, WORKERS, 1);
+        let mut ts = Set::new();
+        for i in 0..TASKS {
+            scheduler.handle_messages(vec![new_task((i + 1) as u64, vec![])]);
+            let n = run_schedule(&mut scheduler);
+            ts.extend(n.iter().cloned());
+        }
+        assert_eq!(ts.len(), TASKS);
+        let workers: Set<_> = ts.iter().map(|tr| tr.get().assigned_worker.as_ref().unwrap().get().id).collect();
+        assert_eq!(workers.len(), TASKS);
     }
 }

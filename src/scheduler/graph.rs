@@ -198,7 +198,10 @@ impl SchedulerGraph {
 }
 
 pub fn create_task_assignment(task: &TaskRef) -> TaskAssignment {
-    let task = task.get();
+    let mut task = task.get_mut();
+    if task.is_fresh() { /* Mainly because to not changed AssignedPinned to Assigned */
+        task.state = SchedulerTaskState::Assigned;
+    }
     TaskAssignment {
         task: task.id,
         worker: task.assigned_worker.clone().unwrap().get().id,
