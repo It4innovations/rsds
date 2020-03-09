@@ -123,7 +123,7 @@ impl SchedulerGraph {
         let mut task = tref.get_mut();
         log::debug!("Task id={} is finished on worker={}", task.id, worker_id);
 
-        assert!(task.is_waiting() && task.is_ready());
+        assert!(!task.is_finished() && task.is_ready());
         task.state = SchedulerTaskState::Finished;
         task.size = size;
         let assigned_wr = {
