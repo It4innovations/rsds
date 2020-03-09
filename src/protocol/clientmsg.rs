@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 #[serde(untagged)]
 pub enum ClientTaskSpec<T = SerializedMemory> {
     Direct {
-        function: T,
-        args: T,
+        function: Option<T>,
+        args: Option<T>,
         kwargs: Option<T>,
     },
     Serialized(T),
@@ -30,8 +30,8 @@ pub fn task_spec_to_memory(
             args,
             kwargs,
         } => ClientTaskSpec::<SerializedMemory>::Direct {
-            function: function.to_memory(frames),
-            args: args.to_memory(frames),
+            function: function.map(|v| v.to_memory(frames)),
+            args: args.map(|v| v.to_memory(frames)),
             kwargs: kwargs.map(|v| v.to_memory(frames)),
         },
     }

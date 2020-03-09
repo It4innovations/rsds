@@ -1,10 +1,9 @@
 use std::net::{Ipv4Addr, SocketAddr};
-use std::{fmt, thread};
+use std::thread;
 
 use futures::{FutureExt, StreamExt};
 use structopt::StructOpt;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::comm::CommRef;
 use rsds::scheduler::{
@@ -12,14 +11,12 @@ use rsds::scheduler::{
     TLevelMetric,
 };
 use rsds::server::core::CoreRef;
-use serde::export::fmt::Arguments;
-use std::fs::File;
+use rsds::setup_interrupt;
+use rsds::trace::setup_file_trace;
 use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
-use tracing_subscriber::{fmt::time::FormatTime, FmtSubscriber};
+use std::time::Duration;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -87,18 +84,6 @@ struct Opt {
     trace_file: Option<String>,
 }
 
-fn setup_interrupt() -> UnboundedReceiver<()> {
-    let (end_tx, end_rx) = tokio::sync::mpsc::unbounded_channel();
-    ctrlc::set_handler(move || {
-        log::debug!("Received SIGINT, attempting to stop server");
-        end_tx
-            .send(())
-            .unwrap_or_else(|_| log::error!("Sending signal failed"))
-    })
-    .expect("Error setting Ctrl-C handler");
-    end_rx
-}
-
 fn setup_logging(trace_file: Option<String>) {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info");
@@ -106,64 +91,7 @@ fn setup_logging(trace_file: Option<String>) {
     env_logger::builder().format_timestamp_millis().init();
 
     if let Some(trace_file) = trace_file {
-        struct Timestamp;
-        impl FormatTime for Timestamp {
-            fn format_time(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-                write!(
-                    w,
-                    "{}",
-                    SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_micros()
-                )
-            }
-        }
-
-        struct FileGuard(Arc<Mutex<std::fs::File>>);
-        impl std::io::Write for FileGuard {
-            #[inline]
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().write(buf)
-            }
-            #[inline]
-            fn flush(&mut self) -> std::io::Result<()> {
-                self.0.lock().unwrap().flush()
-            }
-            #[inline]
-            fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-                self.0.lock().unwrap().write_all(buf)
-            }
-            #[inline]
-            fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
-                self.0.lock().unwrap().write_fmt(fmt)
-            }
-        }
-
-        let file = File::create(&trace_file).expect("Unable to create trace file");
-        let file = Arc::new(Mutex::new(file));
-
-        log::info!(
-            "Writing trace to {}",
-            std::path::PathBuf::from(trace_file)
-                .canonicalize()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        );
-
-        let make_writer = move || FileGuard(file.clone());
-
-        let subscriber = FmtSubscriber::builder()
-            .with_writer(make_writer)
-            .json()
-            .with_target(false)
-            .with_ansi(false)
-            .with_timer(Timestamp)
-            .finish();
-
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("Unable to set global tracing subscriber");
+        setup_file_trace(trace_file);
     }
 }
 
@@ -195,7 +123,7 @@ async fn main() -> rsds::Result<()> {
     });
 
     {
-        let task_set = tokio::task::LocalSet::new();
+        let task_set = tokio::task::LocalSet::default();
         let comm_ref = CommRef::new(sender);
         let core_ref = CoreRef::default();
         let core_ref2 = core_ref.clone();
