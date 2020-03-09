@@ -293,9 +293,13 @@ impl Core {
                             assignment.worker,
                             previous_worker_id
                         );
-                        trace_worker_steal(task.id, previous_worker_id, wref.get().id);
-                        notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
-                        TaskRuntimeState::Stealing(wref.clone(), worker_ref)
+                        if previous_worker_id != assignment.worker {
+                            trace_worker_steal(task.id, previous_worker_id, assignment.worker);
+                            notifications.steal_task_from_worker(wref.clone(), task_ref.clone());
+                            TaskRuntimeState::Stealing(wref.clone(), worker_ref)
+                        } else {
+                            TaskRuntimeState::Assigned(wref.clone())
+                        }
                     }
                     TaskRuntimeState::Stealing(wref1, _) => {
                         log::debug!(
