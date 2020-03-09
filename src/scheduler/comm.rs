@@ -109,11 +109,16 @@ pub async fn drive_scheduler<S: Scheduler>(
     let mut last_schedule = Instant::now() - minimum_delay * 2;
 
     let run_schedule =
-        |scheduler: &mut S, comm: &mut SchedulerSender, last_schedule: &mut Instant| {
-            trace_time!("scheduler", "schedule", {
-                scheduler.schedule(comm);
+        |scheduler: &mut S,
+         sender: &mut SchedulerSender,
+         last_schedule: &mut Instant| {
+            let assignments = trace_time!("scheduler", "schedule", {
+                scheduler.schedule()
             });
             *last_schedule = Instant::now();
+            sender
+                .send(FromSchedulerMessage::TaskAssignments(assignments))
+                .expect("Couldn't send scheduler assignments");
         };
 
     let mut recv_fut = receiver.next();
@@ -171,10 +176,7 @@ pub async fn drive_scheduler<S: Scheduler>(
 #[cfg(test)]
 mod tests {
     use crate::scheduler::protocol::SchedulerRegistration;
-    use crate::scheduler::{
-        drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, SchedulerSender,
-        ToSchedulerMessage,
-    };
+    use crate::scheduler::{drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, ToSchedulerMessage, TaskAssignment};
     use std::collections::vec_deque::VecDeque;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -335,11 +337,12 @@ mod tests {
             self.responses.pop_front().unwrap()
         }
 
-        fn schedule(&mut self, _sender: &mut SchedulerSender) {
+        fn schedule(&mut self) -> Vec<TaskAssignment> {
             self.schedule_times
                 .lock()
                 .unwrap()
-                .push(self.start.elapsed())
+                .push(self.start.elapsed());
+            Default::default()
         }
     }
 

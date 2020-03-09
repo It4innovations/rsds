@@ -4,11 +4,7 @@ use crate::scheduler::protocol::{
 };
 use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
-use crate::scheduler::{
-    FromSchedulerMessage, SchedulerSender, TaskAssignment, TaskId, ToSchedulerMessage, WorkerId,
-};
-
-pub type Notifications = Set<TaskRef>;
+use crate::scheduler::{TaskId, WorkerId, ToSchedulerMessage, TaskAssignment};
 
 #[derive(Debug)]
 pub struct SchedulerGraph {
@@ -179,25 +175,6 @@ impl SchedulerGraph {
         }
     }
 
-    pub fn send_notifications(&self, notifications: &Notifications, sender: &mut SchedulerSender) {
-        let assignments: Vec<_> = notifications
-            .iter()
-            .map(|tr| {
-                let task = tr.get();
-                let worker_ref = task.assigned_worker.clone().unwrap();
-                let worker = worker_ref.get();
-                TaskAssignment {
-                    task: task.id,
-                    worker: worker.id,
-                    priority: -task.b_level,
-                }
-            })
-            .collect();
-        sender
-            .send(FromSchedulerMessage::TaskAssignments(assignments))
-            .expect("Couldn't send scheduler message");
-    }
-
     pub fn get_hostname_id(&mut self, hostname: &str) -> HostnameId {
         let new_id = self.hostnames.len() as HostnameId;
         *self.hostnames.entry(hostname.to_owned()).or_insert(new_id)
@@ -220,14 +197,20 @@ impl SchedulerGraph {
     }
 }
 
+pub fn create_task_assignment(task: &TaskRef) -> TaskAssignment {
+    let task = task.get();
+    TaskAssignment {
+        task: task.id,
+        worker: task.assigned_worker.clone().unwrap().get().id,
+        priority: -task.b_level
+    }
+}
 pub fn assign_task_to_worker(
     task: &mut Task,
     task_ref: TaskRef,
     worker: &mut Worker,
-    worker_ref: WorkerRef,
-    notifications: &mut Notifications,
+    worker_ref: WorkerRef
 ) {
-    notifications.insert(task_ref.clone());
     let assigned_worker = &task.assigned_worker;
     if let Some(wr) = assigned_worker {
         assert!(!wr.eq(&worker_ref));
@@ -415,7 +398,6 @@ mod tests {
             tref.clone(),
             &mut wref.get_mut(),
             wref.clone(),
-            &mut Default::default(),
         );
     }
 

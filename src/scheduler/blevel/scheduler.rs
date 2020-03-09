@@ -1,13 +1,14 @@
-use crate::scheduler::graph::{assign_task_to_worker, Notifications, SchedulerGraph};
+use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, SchedulerGraph};
 
 use crate::scheduler::protocol::SchedulerRegistration;
+use crate::scheduler::task::{Task, TaskRef};
 use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
-use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage};
+use crate::scheduler::worker::{Worker, WorkerRef};
+use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage};
 
 #[derive(Default, Debug)]
 pub struct BlevelScheduler {
     graph: SchedulerGraph,
-    notifications: Notifications,
 }
 
 impl Scheduler for BlevelScheduler {
@@ -26,8 +27,8 @@ impl Scheduler for BlevelScheduler {
         !self.graph.ready_to_assign.is_empty()
     }
 
-    fn schedule(&mut self, sender: &mut SchedulerSender) {
-        self.notifications.clear();
+    fn schedule(&mut self) -> Vec<TaskAssignment> {
+        let mut assignments = vec![];
 
         if !self.graph.new_tasks.is_empty() {
             compute_b_level(&self.graph.tasks);
@@ -57,18 +58,28 @@ impl Scheduler for BlevelScheduler {
                         .enumerate()
                         .min_by_key(|(_, w)| task_transfer_cost(&task, &w))
                         .unwrap();
-                    assign_task_to_worker(
+                    assign(
                         &mut task,
                         tref.clone(),
                         &mut worker.get_mut(),
                         (*worker).clone(),
-                        &mut self.notifications,
+                        &mut assignments,
                     );
                     underloaded_workers.swap_remove(windex);
                 }
             }
         }
-
-        self.graph.send_notifications(&self.notifications, sender);
+        assignments
     }
+}
+
+fn assign(
+    task: &mut Task,
+    task_ref: TaskRef,
+    worker: &mut Worker,
+    worker_ref: WorkerRef,
+    assignments: &mut Vec<TaskAssignment>,
+) {
+    assign_task_to_worker(task, task_ref.clone(), worker, worker_ref);
+    assignments.push(create_task_assignment(&task_ref));
 }

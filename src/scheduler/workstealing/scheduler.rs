@@ -1,21 +1,23 @@
-use crate::common::Map;
-use crate::scheduler::graph::{assign_task_to_worker, Notifications, SchedulerGraph};
+use crate::common::{Map, Set};
+use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, SchedulerGraph};
 use crate::scheduler::protocol::{
     SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
-use crate::scheduler::task::Task;
+use crate::scheduler::task::{Task, TaskRef};
 use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
-use crate::scheduler::worker::WorkerRef;
-use crate::scheduler::{Scheduler, SchedulerSender, ToSchedulerMessage, WorkerId};
+use crate::scheduler::worker::{Worker, WorkerRef};
+use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
 use rand::prelude::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
+type DirtyTaskSet = Set<TaskRef>;
+
 #[derive(Debug)]
 pub struct WorkstealingScheduler {
     graph: SchedulerGraph,
-    /// Notifications are cached here to avoid reallocating them on every update
-    notifications: Notifications,
+    // The set is cached here to reduce allocations
+    dirty_tasks: DirtyTaskSet,
     random: SmallRng,
 }
 
@@ -23,7 +25,7 @@ impl Default for WorkstealingScheduler {
     fn default() -> Self {
         Self {
             graph: Default::default(),
-            notifications: Default::default(),
+            dirty_tasks: Default::default(),
             random: SmallRng::from_entropy(),
         }
     }
@@ -52,12 +54,12 @@ impl WorkstealingScheduler {
             let mut worker = worker_ref.get_mut();
             log::debug!("Task {} initially assigned to {}", task.id, worker.id);
             assert!(task.assigned_worker.is_none());
-            assign_task_to_worker(
+            assign(
+                &mut self.dirty_tasks,
                 &mut task,
                 tr.clone(),
                 &mut worker,
                 worker_ref.clone(),
-                &mut self.notifications,
             );
         }
 
@@ -129,12 +131,12 @@ impl WorkstealingScheduler {
                         wid,
                         worker.id
                     );
-                    assign_task_to_worker(
+                    assign(
+                        &mut self.dirty_tasks,
                         &mut task,
                         tr.clone(),
                         &mut worker,
                         wr.clone(),
-                        &mut self.notifications,
                     );
                     break;
                 }
@@ -193,6 +195,17 @@ impl WorkstealingScheduler {
     }
 }
 
+fn assign(
+    dirty_tasks: &mut DirtyTaskSet,
+    task: &mut Task,
+    task_ref: TaskRef,
+    worker: &mut Worker,
+    worker_ref: WorkerRef,
+) {
+    dirty_tasks.insert(task_ref.clone());
+    assign_task_to_worker(task, task_ref, worker, worker_ref);
+}
+
 impl Scheduler for WorkstealingScheduler {
     fn identify(&self) -> SchedulerRegistration {
         SchedulerRegistration {
@@ -232,13 +245,14 @@ impl Scheduler for WorkstealingScheduler {
         invoke_scheduling
     }
 
-    fn schedule(&mut self, sender: &mut SchedulerSender) {
-        self.notifications.clear();
+    fn schedule(&mut self) -> Vec<TaskAssignment> {
         if self.schedule_available_tasks() {
             trace_time!("scheduler", "balance", self.balance());
         }
-
-        self.graph.send_notifications(&self.notifications, sender);
+        self.dirty_tasks
+            .drain()
+            .map(|t| create_task_assignment(&t))
+            .collect()
     }
 }
 
@@ -360,15 +374,11 @@ mod tests {
     }
 
     fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
-        scheduler.notifications.clear();
+        scheduler.dirty_tasks.clear();
         if scheduler.schedule_available_tasks() {
             scheduler.balance();
         }
-        scheduler
-            .notifications
-            .iter()
-            .map(|tr| tr.get().id)
-            .collect()
+        scheduler.dirty_tasks.iter().map(|tr| tr.get().id).collect()
     }
 
     fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {
