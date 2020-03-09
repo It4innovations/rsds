@@ -1,5 +1,5 @@
 use crate::scheduler::TaskId;
-use crate::worker::WorkerId;
+use crate::server::worker::WorkerId;
 use std::fmt::Write;
 
 pub struct ScopedTimer<'a> {

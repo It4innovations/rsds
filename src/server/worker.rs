@@ -1,5 +1,5 @@
 use crate::common::WrappedRcRefCell;
-use crate::core::Core;
+use crate::server::core::Core;
 
 use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::protocol::DaskPacket;

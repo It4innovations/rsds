@@ -1,7 +1,7 @@
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::comm::CommRef;
-use crate::core::CoreRef;
+use crate::server::core::CoreRef;
 use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use crate::DsError;
 use futures::future::Either;

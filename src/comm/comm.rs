@@ -1,9 +1,9 @@
-use crate::client::{Client, ClientId};
+use crate::server::client::{Client, ClientId};
 use crate::comm::notifications::{ClientNotification, WorkerNotification};
 
 use crate::comm::Notifications;
 use crate::common::{Map, WrappedRcRefCell};
-use crate::core::Core;
+use crate::server::core::Core;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
 
 use crate::protocol::protocol::DaskPacket;
@@ -11,9 +11,9 @@ use crate::protocol::protocol::MessageBuilder;
 use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 
 use crate::scheduler::ToSchedulerMessage;
-use crate::task::TaskRuntimeState;
+use crate::server::task::TaskRuntimeState;
 
-use crate::worker::WorkerRef;
+use crate::server::worker::WorkerRef;
 
 use crate::trace::trace_task_send;
 use tokio::sync::mpsc::UnboundedSender;

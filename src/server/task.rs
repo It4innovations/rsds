@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::client::ClientId;
+use crate::server::client::ClientId;
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
-use crate::core::Core;
+use crate::server::core::Core;
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 use crate::protocol::Priority;
@@ -13,7 +13,7 @@ use crate::protocol::Priority;
 use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::protocol::TaskId;
-use crate::worker::WorkerRef;
+use crate::server::worker::WorkerRef;
 
 pub enum TaskRuntimeState {
     Waiting,

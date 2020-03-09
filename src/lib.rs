@@ -5,15 +5,12 @@ mod trace;
 #[macro_use]
 mod util;
 
-pub mod client;
 pub mod comm;
 mod common;
-pub mod core;
 mod error;
 pub mod protocol;
 pub mod scheduler;
-mod task;
-mod worker;
+pub mod server;
 
 #[cfg(test)]
 mod test_util;

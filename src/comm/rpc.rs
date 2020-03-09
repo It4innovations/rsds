@@ -1,11 +1,11 @@
-use crate::client::Client;
+use crate::server::client::Client;
 use crate::comm::notifications::Notifications;
 use crate::comm::reactor::{
     gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
     who_has,
 };
 use crate::comm::CommRef;
-use crate::core::CoreRef;
+use crate::server::core::CoreRef;
 use crate::protocol::clientmsg::FromClientMessage;
 use crate::protocol::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
@@ -19,8 +19,8 @@ use crate::protocol::workermsg::FromWorkerMessage;
 use crate::protocol::workermsg::RegisterWorkerResponseMsg;
 use crate::protocol::workermsg::Status;
 
-use crate::task::ErrorInfo;
-use crate::worker::create_worker;
+use crate::server::task::ErrorInfo;
+use crate::server::worker::create_worker;
 
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use smallvec::smallvec;
@@ -368,7 +368,7 @@ mod tests {
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::{serialize_single_packet, Batch, Frames, SerializedTransport};
     use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
-    use crate::task::{DataInfo, TaskRuntimeState};
+    use crate::server::task::{DataInfo, TaskRuntimeState};
     use crate::test_util::{
         bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,
         packet_to_msg, packets_to_bytes, task_add, worker, MemoryStream,

@@ -1,9 +1,9 @@
 #![cfg(test)]
 
-use crate::client::{Client, ClientId};
+use crate::server::client::{Client, ClientId};
 use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
-use crate::core::{Core, CoreRef};
+use crate::server::core::{Core, CoreRef};
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::key::to_dask_key;
 use crate::protocol::protocol::{
@@ -12,8 +12,8 @@ use crate::protocol::protocol::{
 };
 use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
-use crate::task::TaskRef;
-use crate::worker::{create_worker, WorkerRef};
+use crate::server::task::TaskRef;
+use crate::server::worker::{create_worker, WorkerRef};
 use bytes::BytesMut;
 use std::io::Cursor;
 use std::net::SocketAddr;

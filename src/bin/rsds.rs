@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::comm::CommRef;
-use rsds::core::CoreRef;
+use rsds::server::core::CoreRef;
 use rsds::scheduler::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 use serde::export::fmt::Arguments;
 use std::fs::File;
