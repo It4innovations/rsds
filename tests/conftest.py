@@ -10,6 +10,7 @@ import pytest
 PYTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(PYTEST_DIR)
 RSDS_BIN = os.path.join(ROOT, "target", "debug", "rsds-scheduler")
+RSDS_WORKER_BIN = os.path.join(ROOT, "target", "debug", "rsds-worker")
 
 
 def check_free_port(port):
@@ -66,19 +67,25 @@ class RsdsEnv(Env):
     def no_final_check(self):
         self.do_final_check = False
 
-    def start_worker(self, ncpus, port):
+    def start_worker(self, ncpus, port, rsds_worker):
         worker_id = self.id_counter
         self.id_counter += 1
         name = "worker{}".format(worker_id)
-        args = ["dask-worker", "localhost:{}".format(port), "--nthreads", str(ncpus)]
         env = os.environ.copy()
         env["PYTHONPATH"] = PYTEST_DIR + ":" + env.get("PYTHONPATH", "")
+        if rsds_worker:
+            env["RUST_BACKTRACE"] = "FULL"
+            program = RSDS_WORKER_BIN
+        else:
+            program = "dask-worker"
+        args = [program, "localhost:{}".format(port), "--nthreads", str(ncpus)]
         self.workers[name] = self.start_process(name, args, env)
 
     def start(self,
               workers=(),
               port=None,
-              scheduler=None):
+              scheduler=None,
+              rsds_worker=False):
         print("Starting rsds env in ", self.work_path)
 
         """
@@ -100,6 +107,7 @@ class RsdsEnv(Env):
         args = [RSDS_BIN, "--port", str(port)]
         if scheduler:
             args += ["--scheduler", scheduler]
+
         self.server = self.start_process("server", args, env=env)
         assert self.server is not None
 
@@ -112,7 +120,7 @@ class RsdsEnv(Env):
                 raise Exception("Server not started after 5")
 
         for cpus in workers:
-            self.start_worker(cpus, port=port)
+            self.start_worker(cpus, port=port, rsds_worker=rsds_worker)
 
         time.sleep(0.2)  # TODO: Replace with real check that worker is
 

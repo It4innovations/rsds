@@ -1,19 +1,21 @@
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{
-    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
-    SerializedMemory, SerializedTransport, ToDaskTransport,
-};
+use crate::protocol::protocol::{map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport};
 use crate::protocol::Priority;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
-fn binary_is_empty(transport: &SerializedTransport) -> bool {
+fn binary_is_empty(transport: &Option<SerializedTransport>) -> bool {
     match transport {
-        SerializedTransport::Indexed { .. } => false,
-        SerializedTransport::Inline(v) => match v {
-            rmpv::Value::Binary(v) => v.is_empty(),
-            _ => false,
-        },
+        Some(transport) => {
+            match transport {
+                SerializedTransport::Indexed { .. } => false,
+                SerializedTransport::Inline(v) => match v {
+                    rmpv::Value::Binary(v) => v.is_empty(),
+                    _ => false,
+                }
+            }
+        }
+        None => false
     }
 }
 
@@ -21,27 +23,30 @@ fn bool_is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ComputeTaskMsg {
     pub key: DaskKey,
     pub duration: f32, // estimated duration, [in seconds?]
 
     #[serde(skip_serializing_if = "bool_is_false")]
+    #[serde(default)]
     pub actor: bool,
 
     #[serde(with = "tuple_vec_map")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub who_has: Vec<(DaskKey, Vec<DaskKey>)>,
 
     #[serde(with = "tuple_vec_map")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub nbytes: Vec<(DaskKey, u64)>,
 
     #[serde(skip_serializing_if = "binary_is_empty")]
-    pub function: SerializedTransport,
+    pub function: Option<SerializedTransport>,
 
     #[serde(skip_serializing_if = "binary_is_empty")]
-    pub args: SerializedTransport,
+    pub args: Option<SerializedTransport>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kwargs: Option<SerializedTransport>,
@@ -49,18 +54,19 @@ pub struct ComputeTaskMsg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<SerializedTransport>,
 
+    #[serde(default)]
     pub priority: [Priority; 3],
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DeleteDataMsg {
     pub keys: Vec<DaskKey>,
     pub report: bool,
 }
 
-#[derive(Serialize, Debug)]
-pub struct GetDataMsg<'a> {
-    pub keys: &'a [&'a str],
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetDataMsg {
+    pub keys: Vec<DaskKey>,
     pub who: Option<u64>,
     // ?
     pub max_connections: bool,
@@ -68,33 +74,55 @@ pub struct GetDataMsg<'a> {
     pub reply: bool,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct UpdateDataMsg {
     pub data: Map<DaskKey, SerializedTransport>,
     pub reply: bool,
     pub report: bool,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StealRequestMsg {
     pub key: DaskKey,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
-pub enum ToWorkerMessage<'a> {
+pub enum ToWorkerMessage {
     ComputeTask(ComputeTaskMsg),
     DeleteData(DeleteDataMsg),
     #[serde(rename = "get_data")]
-    GetData(GetDataMsg<'a>),
+    GetData(GetDataMsg),
     #[serde(rename = "update_data")]
     UpdateData(UpdateDataMsg),
     StealRequest(StealRequestMsg),
 }
+from_dask_transport!(ToWorkerMessage);
 
-#[cfg_attr(test, derive(Deserialize))]
-#[derive(Serialize, Debug)]
+// Worker side protocol
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "op")]
+#[serde(rename_all = "kebab-case")]
+pub enum ToWorkerStreamMessage {
+    ComputeTask(ComputeTaskMsg),
+    DeleteData(DeleteDataMsg),
+    StealRequest(StealRequestMsg),
+}
+from_dask_transport!(ToWorkerStreamMessage);
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "op")]
+#[serde(rename_all = "kebab-case")]
+pub enum ToWorkerGenericMessage {
+    #[serde(rename = "get_data")]
+    GetData(GetDataMsg),
+    UpdateData(UpdateDataMsg),
+    DeleteData(DeleteDataMsg),
+}
+from_dask_transport!(ToWorkerGenericMessage);
+
+#[derive(Deserialize, Serialize, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct RegisterWorkerResponseMsg {
     pub status: DaskKey,
@@ -102,10 +130,10 @@ pub struct RegisterWorkerResponseMsg {
     pub heartbeat_interval: f64,
     pub worker_plugins: Vec<()>, // type of plugins??
 }
-from_dask_transport!(test, RegisterWorkerResponseMsg);
+from_dask_transport!(RegisterWorkerResponseMsg);
 
 // FIX: Deserialize from string (does it working for msgpack??)
-#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub enum Status {
     #[serde(rename = "OK")]
     Ok,
@@ -113,8 +141,19 @@ pub enum Status {
     Error,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+impl Serialize for Status {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match self {
+            Self::Ok => "OK",
+            Self::Error => "error",
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFinishedMsg {
     pub status: Status,
     pub key: DaskKey,
@@ -124,8 +163,7 @@ pub struct TaskFinishedMsg {
     pub startstops: Vec<(DaskKey, f64, f64)>,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TaskErredMsg<T = SerializedMemory> {
     pub status: Status,
     pub key: DaskKey,
@@ -134,14 +172,12 @@ pub struct TaskErredMsg<T = SerializedMemory> {
     pub traceback: T,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AddKeysMsg {
     pub keys: Vec<DaskKey>,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkerState {
     Waiting,
@@ -154,29 +190,18 @@ pub enum WorkerState {
     LongRunning,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StealResponseMsg {
     pub key: DaskKey,
     pub state: WorkerState,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ReleaseMsg {
     pub key: DaskKey,
 }
 
-/*#[derive(Deserialize, Debug)]
-pub struct RemoveKeysMsg {
-    // It seems that it just informative message, ignoring
-}
-
-    #[serde(rename = "remove_keys")]
-    RemoveKeys(RemoveKeysMsg),*/
-
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum FromWorkerMessage<T = SerializedMemory> {
@@ -211,7 +236,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Empty;
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -242,7 +267,7 @@ impl ToDaskTransport for GetDataResponse<SerializedMemory> {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct UpdateDataResponse {
     pub status: DaskKey,
     pub nbytes: Map<DaskKey, u64>,

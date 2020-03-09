@@ -3,7 +3,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use crate::comm::CommRef;
 use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use crate::server::core::CoreRef;
-use crate::DsError;
+use crate::Error;
 use futures::future::Either;
 use futures::{future, StreamExt};
 use std::time::{Duration, Instant};
@@ -53,12 +53,12 @@ pub async fn observe_scheduler(
             log::debug!("Scheduler registered: {:?}", r)
         }
         None => {
-            return Err(DsError::SchedulerError(
+            return Err(Error::SchedulerError(
                 "Scheduler closed connection without registration".to_owned(),
             ))
         }
         _ => {
-            return Err(DsError::SchedulerError(
+            return Err(Error::SchedulerError(
                 "First message of scheduler has to be registration".to_owned(),
             ))
         }
@@ -78,7 +78,7 @@ pub async fn observe_scheduler(
                 });
             }
             FromSchedulerMessage::Register(_) => {
-                return Err(DsError::SchedulerError(
+                return Err(Error::SchedulerError(
                     "Double registration of scheduler".to_owned(),
                 ));
             }

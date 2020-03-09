@@ -142,7 +142,7 @@ type WhoHasMsgResponse = {
 
 
 //---------------------//
-// WORKER -> SCHEDULER //
+// WORKER -> SCHEDULER /
 //---------------------//
 type HeartbeatWorkerMsg = {
     "op": "heartbeat_worker",

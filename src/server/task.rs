@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
 use crate::protocol::clientmsg::ClientTaskSpec;
-use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
+use crate::protocol::protocol::{MessageBuilder, SerializedMemory};
 use crate::protocol::Priority;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
@@ -194,8 +194,8 @@ impl Task {
             })
             .collect();
 
-        let mut msg_function = SerializedTransport::Inline(rmpv::Value::Binary(vec![]));
-        let mut msg_args = SerializedTransport::Inline(rmpv::Value::Binary(vec![]));
+        let mut msg_function = None;
+        let mut msg_args = None;
         let mut msg_kwargs = None;
         let mut msg_task = None;
 
@@ -205,8 +205,8 @@ impl Task {
                 args,
                 kwargs,
             }) => {
-                msg_function = function.to_transport_clone(mbuilder);
-                msg_args = args.to_transport_clone(mbuilder);
+                msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
                 msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
             }
             Some(ClientTaskSpec::Serialized(v)) => {

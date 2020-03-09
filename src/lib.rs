@@ -1,7 +1,5 @@
-pub use crate::error::DsError;
-
 #[macro_use]
-mod trace;
+pub mod trace;
 #[macro_use]
 mod util;
 
@@ -11,8 +9,12 @@ mod error;
 pub mod protocol;
 pub mod scheduler;
 pub mod server;
+pub mod worker;
+
+pub use util::setup_interrupt;
 
 #[cfg(test)]
 mod test_util;
 
-pub type Result<T> = std::result::Result<T, DsError>;
+pub type Error = error::DsError;
+pub type Result<T> = std::result::Result<T, Error>;

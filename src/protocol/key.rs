@@ -24,6 +24,7 @@ pub type DaskKeyRef = [u8];
 pub struct DaskKey {
     bytes: Box<[u8]>,
 }
+from_dask_transport!(DaskKey);
 
 #[inline]
 pub fn to_dask_key(string: &str) -> DaskKey {

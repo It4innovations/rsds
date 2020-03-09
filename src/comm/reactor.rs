@@ -22,7 +22,6 @@ use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
 use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
-use crate::util::OptionExt;
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use futures::{Sink, SinkExt, StreamExt};
@@ -202,14 +201,14 @@ pub fn subscribe_keys(
     comm_ref.get_mut().notify(&mut core, notifications)
 }
 
-pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     address: std::net::SocketAddr,
     sink: &mut W,
     keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
-    let mut worker_map: Map<DaskKey, Vec<&str>> = Default::default();
+    let mut worker_map: Map<DaskKey, Vec<DaskKey>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
@@ -221,7 +220,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
                     worker_map
                         .entry(w.get().address().into())
                         .or_default()
-                        .push(key.as_str());
+                        .push(key.clone());
                 })
             });
         }
@@ -230,8 +229,8 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
-            .iter()
-            .map(|(worker, keys)| get_data_from_worker(worker.clone(), &keys)),
+            .into_iter()
+            .map(|(worker, keys)| get_data_from_worker(worker, keys)),
     );
 
     while let Some(data) = worker_futures.next().await {
@@ -239,7 +238,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
         let mut responses: Batch<GetDataResponse> = deserialize_packet(data)?;
         assert_eq!(responses.len(), 1);
 
-        let response = responses.pop().ensure();
+        let response = responses.pop().unwrap();
         assert_eq!(response.status.as_bytes(), b"OK");
         response.data.into_iter().for_each(|(k, v)| {
             debug_assert!(!result_map.contains_key(&k));
@@ -257,7 +256,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     Ok(())
 }
 
-pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     writer: &mut W,
@@ -311,7 +310,7 @@ fn scatter_tasks(
     result
 }
 
-pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     writer: &mut W,
@@ -408,7 +407,7 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
 
 pub async fn get_data_from_worker(
     worker_address: DaskKey,
-    keys: &[&str],
+    keys: Vec<DaskKey>,
 ) -> crate::Result<DaskPacket> {
     let mut connection = connect_to_worker(worker_address).await?;
     let msg = ToWorkerMessage::GetData(GetDataMsg {
@@ -455,7 +454,7 @@ pub async fn update_data_on_worker(
     Ok(response.pop().unwrap().nbytes)
 }
 
-pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,
@@ -480,7 +479,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
     sink.send(serialize_single_packet(response)?).await
 }
 
-pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::DsError> + Unpin>(
+pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,

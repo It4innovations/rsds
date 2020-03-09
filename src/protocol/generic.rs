@@ -5,8 +5,7 @@ use crate::protocol::protocol::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct IdentityMsg {
     //pub reply: bool,
 }
@@ -59,14 +58,12 @@ pub struct IdentityResponse {
 
 from_dask_transport!(test, IdentityResponse);
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterClientMsg {
     pub client: DaskKey,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
     pub address: DaskKey,
     pub nthreads: u32,
@@ -74,23 +71,20 @@ pub struct RegisterWorkerMsg {
     pub nanny: String,*/
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct HeartbeatWorkerMsg {
     pub now: f64,
     // TODO
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct GatherMsg {
     pub keys: Vec<DaskKey>,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub struct ScatterMsg<T = SerializedMemory> {
     pub client: DaskKey,
@@ -103,8 +97,7 @@ pub struct ScatterMsg<T = SerializedMemory> {
 
 pub type ScatterResponse = Vec<DaskKey>;
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CancelKeysMsg {
     keys: Vec<DaskKey>,
     client: DaskKey,
@@ -112,16 +105,14 @@ pub struct CancelKeysMsg {
     reply: bool,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct WhoHasMsg {
     pub keys: Option<Vec<DaskKey>>,
 }
 
 pub type WhoHasMsgResponse = Map<DaskKey, Vec<DaskKey>>; // key -> [worker address]
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ProxyMsg {
     pub worker: DaskKey,
     pub msg: rmpv::Value,
@@ -129,8 +120,7 @@ pub struct ProxyMsg {
     pub frames: Frames,
 }
 
-#[cfg_attr(test, derive(Serialize))]
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 #[serde(rename_all = "kebab-case")]
 pub enum GenericMessage<T = SerializedMemory> {

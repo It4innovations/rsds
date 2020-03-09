@@ -28,19 +28,20 @@ use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
+use crate::util::forward_queue_to_sink;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
-    Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
+    Writer: Sink<DaskPacket, Error = crate::Error> + Unpin,
 >(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     address: std::net::SocketAddr,
     mut receiver: Reader,
-    mut sender: Writer,
+    sender: Writer,
     msg: RegisterWorkerMsg,
 ) -> crate::Result<()> {
-    let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
     let worker_ref = create_worker(
         &mut core_ref.get_mut(),
@@ -57,15 +58,7 @@ pub async fn worker_rpc_loop<
 
     log::info!("Worker {} registered from {}", worker_id, address);
 
-    let snd_loop = async move {
-        while let Some(data) = queue_receiver.next().await {
-            if let Err(e) = sender.send(data).await {
-                log::error!("Send to worker failed");
-                return Err(e);
-            }
-        }
-        Ok(())
-    };
+    let snd_loop = forward_queue_to_sink(queue_receiver, sender);
 
     let core_ref2 = core_ref.clone();
     let recv_loop = async move {
@@ -127,19 +120,19 @@ pub async fn worker_rpc_loop<
 
 pub async fn client_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
-    Writer: Sink<DaskPacket, Error = crate::DsError> + Unpin,
+    Writer: Sink<DaskPacket, Error = crate::Error> + Unpin,
 >(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     address: std::net::SocketAddr,
     mut receiver: Reader,
-    mut sender: Writer,
+    sender: Writer,
     client_key: DaskKey,
 ) -> crate::Result<()> {
     let core_ref = core_ref.clone();
     let core_ref2 = core_ref.clone();
 
-    let (snd_sender, mut snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
+    let (snd_sender, snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
     let client_id = {
         let mut core = core_ref.get_mut();
@@ -151,15 +144,7 @@ pub async fn client_rpc_loop<
 
     log::info!("Client {} registered from {}", client_id, address);
 
-    let snd_loop = async move {
-        while let Some(data) = snd_receiver.next().await {
-            if let Err(e) = sender.send(data).await {
-                return Err(e);
-            }
-        }
-        Ok(())
-    };
-
+    let snd_loop = forward_queue_to_sink(snd_receiver, sender);
     let recv_loop = async move {
         'outer: while let Some(messages) = receiver.next().await {
             let messages = messages?;
@@ -468,8 +453,8 @@ mod tests {
 
         let t = task_add(&mut core.get_mut(), 0);
         t.get_mut().spec = Some(ClientTaskSpec::Direct {
-            function: dummy_serialized(),
-            args: dummy_serialized(),
+            function: Some(dummy_serialized()),
+            args: Some(dummy_serialized()),
             kwargs: Some(dummy_serialized()),
         });
         let mut notifications = Notifications::default();

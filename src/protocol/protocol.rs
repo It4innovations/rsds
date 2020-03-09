@@ -4,9 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 
-use crate::protocol::protocol::DaskPacketPart::{HeaderPart, PayloadPart};
 use crate::trace::{trace_packet_receive, trace_packet_send};
-use crate::util::{OptionExt, ResultExt};
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::sink::WithFlatMap;
 use futures::stream::Map;
@@ -116,7 +114,7 @@ pub enum DaskPacketPart {
 
 impl Decoder for DaskCodec {
     type Item = DaskPacket;
-    type Error = crate::DsError;
+    type Error = crate::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> crate::Result<Option<Self::Item>> {
         let src = if self.sizes.is_none() {
@@ -126,20 +124,20 @@ impl Decoder for DaskCodec {
             }
             let mut cursor = std::io::Cursor::new(src);
             // Following read_u64 cannot failed, hence do not propagate and leave .unwrap() here
-            let count: u64 = cursor.read_u64::<Endianness>().ensure();
+            let count: u64 = cursor.read_u64::<Endianness>().unwrap();
             let header_size = (count + 1) * 8;
             if size < header_size {
                 return Ok(None);
             }
-            let first_size = cursor.read_u64::<Endianness>().ensure();
+            let first_size = cursor.read_u64::<Endianness>().unwrap();
             assert_eq!(first_size, 0);
-            let main_size = cursor.read_u64::<Endianness>().ensure();
+            let main_size = cursor.read_u64::<Endianness>().unwrap();
             let mut total_size: u64 = main_size;
-            let mut sizes = Vec::new();
+            let mut sizes = Vec::with_capacity((count - 2) as usize);
             for _ in 2..count {
-                let size = cursor.read_u64::<Endianness>().ensure();
-                total_size += size;
+                let size = cursor.read_u64::<Endianness>().unwrap();
                 sizes.push(size);
+                total_size += size;
             }
             trace_packet_receive(total_size as usize);
 
@@ -190,7 +188,7 @@ impl Decoder for DaskCodec {
 }
 impl Encoder for DaskCodec {
     type Item = DaskPacketPart;
-    type Error = crate::DsError;
+    type Error = crate::Error;
 
     fn encode(&mut self, data: Self::Item, dst: &mut BytesMut) -> crate::Result<()> {
         let views = match data {
@@ -419,7 +417,7 @@ impl<T: Serialize> MessageBuilder<T> {
 
     pub fn build_single(mut self) -> crate::Result<DaskPacket> {
         assert_eq!(self.messages.len(), 1);
-        let wrapper = MessageWrapper::Message(self.messages.pop().ensure());
+        let wrapper = MessageWrapper::Message(self.messages.pop().unwrap());
 
         DaskPacket::from_wrapper(wrapper, self.frames)
     }
@@ -467,13 +465,13 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
         }
 
         if i == 0 {
-            parts.push(HeaderPart {
+            parts.push(DaskPacketPart::HeaderPart {
                 frame_sizes: std::mem::take(&mut frame_sizes),
                 views,
                 max_part_size: limit,
             });
         } else {
-            parts.push(PayloadPart {
+            parts.push(DaskPacketPart::PayloadPart {
                 views,
                 max_part_size: limit,
             });
@@ -535,7 +533,7 @@ where
 
 pub fn asyncwrite_to_sink<W: AsyncWrite>(
     sink: W,
-) -> impl Sink<DaskPacket, Error = crate::DsError> + IntoInner<FramedWrite<W, DaskCodec>> {
+) -> impl Sink<DaskPacket, Error = crate::Error> + IntoInner<FramedWrite<W, DaskCodec>> {
     FramedWrite::new(sink, DaskCodec::default()).with_flat_map(|packet| {
         let parts = split_packet_into_parts(packet, WRITE_BUFFER_SIZE);
         futures::stream::iter(parts.into_iter().map(|p| Ok(p)))
@@ -845,8 +843,8 @@ mod tests {
                         args,
                         kwargs,
                     } => {
-                        assert_eq!(hash(&get_binary(function)), 14885086766577267268);
-                        assert_eq!(hash(&get_binary(args)), 518960099204433046);
+                        assert_eq!(hash(&get_binary(function.as_ref().unwrap())), 14885086766577267268);
+                        assert_eq!(hash(&get_binary(args.as_ref().unwrap())), 518960099204433046);
                         assert!(kwargs.is_none());
                     }
                     _ => panic!(),
