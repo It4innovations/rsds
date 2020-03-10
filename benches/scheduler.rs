@@ -53,8 +53,7 @@ fn finish_tasks(count: u64, worker_count: u64) -> Vec<ToSchedulerMessage> {
 }
 
 fn run_schedule<S: Scheduler>(scheduler: &mut S) {
-    let (mut tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    scheduler.schedule(&mut tx);
+    scheduler.schedule();
 }
 
 pub fn update(c: &mut Criterion) {
