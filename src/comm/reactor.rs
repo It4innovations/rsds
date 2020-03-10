@@ -1,9 +1,9 @@
-use crate::server::client::ClientId;
 use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
-use crate::server::core::CoreRef;
 use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
+use crate::server::client::ClientId;
+use crate::server::core::CoreRef;
 
 use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::protocol::{
@@ -20,9 +20,9 @@ use crate::scheduler::protocol::TaskId;
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
 
 use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
 use crate::util::OptionExt;
-use crate::server::worker::WorkerRef;
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use futures::{Sink, SinkExt, StreamExt};

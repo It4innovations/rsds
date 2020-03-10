@@ -1,18 +1,18 @@
 use std::rc::Rc;
 
-use crate::server::client::{Client, ClientId};
 use crate::comm::Notifications;
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCell};
 use crate::protocol::workermsg::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
+use crate::server::client::{Client, ClientId};
 
 use crate::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::server::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
+use crate::server::worker::WorkerRef;
 use crate::trace::{
     trace_task_assign, trace_task_finish, trace_task_place, trace_task_remove, trace_worker_new,
     trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing,
 };
-use crate::server::worker::WorkerRef;
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -530,15 +530,15 @@ fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::Core;
-    use crate::server::client::Client;
     use crate::comm::{notifications::ClientNotification, Notifications};
     use crate::common::Set;
-    use crate::server::core::get_task_duration;
     use crate::protocol::key::DaskKey;
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
+    use crate::server::client::Client;
+    use crate::server::core::get_task_duration;
     use crate::server::task::{ErrorInfo, TaskRuntimeState};
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,

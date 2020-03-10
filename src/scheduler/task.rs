@@ -50,7 +50,7 @@ impl Task {
     pub fn is_pinned(&self) -> bool {
         match self.state {
             SchedulerTaskState::AssignedPinned => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -58,15 +58,17 @@ impl Task {
     pub fn is_fresh(&self) -> bool {
         match self.state {
             SchedulerTaskState::AssignedFresh => true,
-            _ => false
+            _ => false,
         }
     }
 
     #[inline]
     pub fn is_assigned(&self) -> bool {
         match self.state {
-            SchedulerTaskState::AssignedFresh | SchedulerTaskState::Assigned | SchedulerTaskState::AssignedPinned => true,
-            _ => false
+            SchedulerTaskState::AssignedFresh
+            | SchedulerTaskState::Assigned
+            | SchedulerTaskState::AssignedPinned => true,
+            _ => false,
         }
     }
 
@@ -106,15 +108,13 @@ impl Task {
                 for c in &self.consumers {
                     assert!(c.get().is_waiting());
                 }
-            },
+            }
             SchedulerTaskState::Finished => {
                 for inp in &self.inputs {
                     assert!(inp.get().is_finished());
                 }
-            },
-            _ => {
-                /* TODO */
             }
+            _ => { /* TODO */ }
         };
     }
 }

@@ -1,8 +1,8 @@
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::comm::CommRef;
-use crate::server::core::CoreRef;
 use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
+use crate::server::core::CoreRef;
 use crate::DsError;
 use futures::future::Either;
 use futures::{future, StreamExt};
@@ -109,12 +109,8 @@ pub async fn drive_scheduler<S: Scheduler>(
     let mut last_schedule = Instant::now() - minimum_delay * 2;
 
     let run_schedule =
-        |scheduler: &mut S,
-         sender: &mut SchedulerSender,
-         last_schedule: &mut Instant| {
-            let assignments = trace_time!("scheduler", "schedule", {
-                scheduler.schedule()
-            });
+        |scheduler: &mut S, sender: &mut SchedulerSender, last_schedule: &mut Instant| {
+            let assignments = trace_time!("scheduler", "schedule", { scheduler.schedule() });
             *last_schedule = Instant::now();
             sender
                 .send(FromSchedulerMessage::TaskAssignments(assignments))
@@ -176,7 +172,10 @@ pub async fn drive_scheduler<S: Scheduler>(
 #[cfg(test)]
 mod tests {
     use crate::scheduler::protocol::SchedulerRegistration;
-    use crate::scheduler::{drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, ToSchedulerMessage, TaskAssignment};
+    use crate::scheduler::{
+        drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, TaskAssignment,
+        ToSchedulerMessage,
+    };
     use std::collections::vec_deque::VecDeque;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};

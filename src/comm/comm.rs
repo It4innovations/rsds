@@ -1,10 +1,10 @@
-use crate::server::client::{Client, ClientId};
 use crate::comm::notifications::{ClientNotification, WorkerNotification};
+use crate::server::client::{Client, ClientId};
 
 use crate::comm::Notifications;
 use crate::common::{Map, WrappedRcRefCell};
-use crate::server::core::Core;
 use crate::protocol::clientmsg::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
+use crate::server::core::Core;
 
 use crate::protocol::protocol::DaskPacket;
 use crate::protocol::protocol::MessageBuilder;
