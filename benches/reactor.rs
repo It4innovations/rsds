@@ -1,12 +1,12 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use rsds::client::{Client, ClientId};
 use rsds::comm::reactor::update_graph;
 use rsds::comm::CommRef;
-use rsds::core::CoreRef;
 use rsds::protocol::clientmsg::{ClientTaskSpec, UpdateGraphMsg};
 use rsds::protocol::key::DaskKey;
 use rsds::protocol::protocol::{DaskPacket, SerializedTransport};
 use rsds::scheduler::ToSchedulerMessage;
+use rsds::server::client::{Client, ClientId};
+use rsds::server::core::CoreRef;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 struct Context {
