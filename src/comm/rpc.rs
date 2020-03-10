@@ -164,7 +164,7 @@ pub async fn client_rpc_loop<
         'outer: while let Some(messages) = receiver.next().await {
             let messages = messages?;
             for message in messages {
-                log::debug!("Client recv message {:?}", message);
+                log::debug!("Client recv message");
                 match message {
                     FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
                     FromClientMessage::ClientReleasesKeys(msg) => {
