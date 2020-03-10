@@ -565,14 +565,16 @@ mod tests {
         let TASKS : usize = 99;
         let mut scheduler = WorkstealingScheduler::default();
         connect_workers(&mut scheduler, WORKERS, 1);
-        let mut ts = Set::new();
+        let mut workers: Set<WorkerId> = Set::new();
         for i in 0..TASKS {
             scheduler.handle_messages(vec![new_task((i + 1) as u64, vec![])]);
             let n = run_schedule(&mut scheduler);
-            ts.extend(n.iter().cloned());
+            assert_eq!(n.len(), 1);
+            let wr = n.iter().next().cloned().unwrap();
+            let worker_id = wr.get().id;
+            assert!(!workers.contains(&worker_id));
+            workers.insert(worker_id);
         }
-        assert_eq!(ts.len(), TASKS);
-        let workers: Set<_> = ts.iter().map(|tr| tr.get().assigned_worker.as_ref().unwrap().get().id).collect();
         assert_eq!(workers.len(), TASKS);
     }
 }
