@@ -16,7 +16,7 @@ impl Worker {
     pub fn sanity_check(&self, worker_ref: &WorkerRef) {
         for tr in &self.tasks {
             let task = tr.get();
-            assert!(task.is_waiting());
+            assert!(task.is_assigned());
             let wr = task.assigned_worker.as_ref().unwrap();
             assert!(wr.eq(worker_ref));
         }
@@ -26,6 +26,12 @@ impl Worker {
     pub fn is_underloaded(&self) -> bool {
         let len = self.tasks.len() as u32;
         len < self.ncpus
+    }
+
+    #[inline]
+    pub fn is_overloaded(&self) -> bool {
+        let len = self.tasks.len() as u32;
+        len > self.ncpus
     }
 }
 

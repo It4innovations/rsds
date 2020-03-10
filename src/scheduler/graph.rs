@@ -145,7 +145,7 @@ impl SchedulerGraph {
             if t.unfinished_deps <= 1 {
                 assert!(t.unfinished_deps > 0);
                 assert!(t.is_waiting());
-                t.unfinished_deps -= 1;
+                t.unfinished_deps = 0;
                 log::debug!("Task {} is ready", t.id);
                 self.ready_to_assign.push(tref.clone());
                 ready_consumer = true;

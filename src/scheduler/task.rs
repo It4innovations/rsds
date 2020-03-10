@@ -63,6 +63,14 @@ impl Task {
     }
 
     #[inline]
+    pub fn is_assigned(&self) -> bool {
+        match self.state {
+            SchedulerTaskState::AssignedFresh | SchedulerTaskState::Assigned | SchedulerTaskState::AssignedPinned => true,
+            _ => false
+        }
+    }
+
+    #[inline]
     pub fn is_ready(&self) -> bool {
         self.unfinished_deps == 0
     }
@@ -86,7 +94,7 @@ impl Task {
         let mut unfinished = 0;
         for inp in &self.inputs {
             let ti = inp.get();
-            if let SchedulerTaskState::Waiting = ti.state {
+            if !ti.is_finished() {
                 unfinished += 1;
             }
             assert!(ti.consumers.contains(task_ref));
