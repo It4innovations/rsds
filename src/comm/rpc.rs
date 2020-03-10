@@ -1,11 +1,9 @@
-use crate::server::client::Client;
 use crate::comm::notifications::Notifications;
 use crate::comm::reactor::{
     gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
     who_has,
 };
 use crate::comm::CommRef;
-use crate::server::core::CoreRef;
 use crate::protocol::clientmsg::FromClientMessage;
 use crate::protocol::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
@@ -18,6 +16,8 @@ use crate::protocol::protocol::{
 use crate::protocol::workermsg::FromWorkerMessage;
 use crate::protocol::workermsg::RegisterWorkerResponseMsg;
 use crate::protocol::workermsg::Status;
+use crate::server::client::Client;
+use crate::server::core::CoreRef;
 
 use crate::server::task::ErrorInfo;
 use crate::server::worker::create_worker;

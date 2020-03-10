@@ -1,10 +1,10 @@
-use crate::server::client::ClientId;
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
 use crate::scheduler::protocol::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
 use crate::scheduler::ToSchedulerMessage;
+use crate::server::client::ClientId;
 use crate::server::task::{Task, TaskRef};
 use crate::server::worker::{Worker, WorkerRef};
 

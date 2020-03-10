@@ -1,17 +1,17 @@
 #![cfg(test)]
 
-use crate::server::client::{Client, ClientId};
 use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
-use crate::server::core::{Core, CoreRef};
 use crate::protocol::clientmsg::ClientTaskSpec;
 use crate::protocol::key::to_dask_key;
 use crate::protocol::protocol::{
-    deserialize_packet, serialize_single_packet, Batch, DaskCodec, DaskPacket, Frame,
-    FromDaskTransport, SerializedMemory, ToDaskTransport,
+    deserialize_packet, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
+    DaskPacket, Frame, FromDaskTransport, SerializedMemory, ToDaskTransport,
 };
 use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
+use crate::server::client::{Client, ClientId};
+use crate::server::core::{Core, CoreRef};
 use crate::server::task::TaskRef;
 use crate::server::worker::{create_worker, WorkerRef};
 use bytes::BytesMut;
@@ -147,14 +147,23 @@ pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {
     let mut data = BytesMut::new();
     let mut codec = DaskCodec::default();
     for packet in packets {
-        codec.encode(packet, &mut data)?;
+        let parts = split_packet_into_parts(packet, 1024);
+        for part in parts {
+            codec.encode(part, &mut data)?;
+        }
     }
     Ok(data.to_vec())
 }
 pub fn msg_to_bytes<T: ToDaskTransport>(item: T) -> crate::Result<Vec<u8>> {
     let packet = serialize_single_packet(item)?;
     let mut data = BytesMut::new();
-    DaskCodec::default().encode(packet, &mut data)?;
+
+    let parts = split_packet_into_parts(packet, 1024);
+    let mut codec = DaskCodec::default();
+    for part in parts {
+        codec.encode(part, &mut data)?;
+    }
+
     Ok(data.to_vec())
 }
 pub fn bytes_to_msg<T: FromDaskTransport>(data: &[u8]) -> crate::Result<Batch<T>> {
