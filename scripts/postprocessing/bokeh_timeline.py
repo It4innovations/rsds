@@ -199,7 +199,7 @@ def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
 
     packets = pd.DataFrame(packets)
     packets["y"] = -1
-    packets["color"] = packets["event"].apply(lambda e: "red" if event == "packet-receive" else "blue")
+    packets["color"] = packets["event"].apply(lambda e: "red" if e == "packet-receive" else "blue")
     packets["size_format"] = packets["size"].apply(lambda s: format_bytes(s))
 
     packets = ColumnDataSource(data=packets)
