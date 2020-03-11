@@ -1,4 +1,4 @@
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use futures::SinkExt;
 
@@ -8,8 +8,8 @@ use std::time::Duration;
 use tokio::fs::File;
 use tokio::runtime;
 
-fn create_bytes(size: usize) -> Bytes {
-    BytesMut::from(vec![0u8; size].as_slice()).freeze()
+fn create_bytes(size: usize) -> BytesMut {
+    BytesMut::from(vec![0u8; size].as_slice())
 }
 
 fn encode(c: &mut Criterion) {

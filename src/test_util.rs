@@ -175,7 +175,7 @@ pub fn packet_to_msg<T: FromDaskTransport>(packet: DaskPacket) -> crate::Result<
     deserialize_packet(packet)
 }
 pub fn frame(data: &[u8]) -> Frame {
-    BytesMut::from(data).freeze()
+    BytesMut::from(data)
 }
 
 pub fn load_bin_test_data(path: &str) -> Vec<u8> {

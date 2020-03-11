@@ -13,13 +13,13 @@ use futures::stream::Map;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::Write;
-use std::rc::Rc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
+use bytes::buf::BufMutExt;
 
 /// Commonly used types
-pub type Frame = Bytes;
+pub type Frame = BytesMut;
 pub type Frames = Vec<Frame>;
 pub type Batch<T> = SmallVec<[T; 2]>;
 
@@ -44,8 +44,10 @@ impl DaskPacket {
         message: MessageWrapper<T>,
         additional_frames: Frames,
     ) -> crate::Result<Self> {
+        let mut main_frame = BytesMut::default().writer();
+        rmp_serde::encode::write_named(&mut main_frame, &message)?;
         Ok(DaskPacket {
-            main_frame: rmp_serde::to_vec_named(&message)?.into(),
+            main_frame: main_frame.into_inner(),
             additional_frames,
         })
     }
@@ -84,18 +86,25 @@ impl DaskPacket {
 }
 
 const WRITE_BUFFER_SIZE: usize = 32 * 1024;
+const READ_BUFFER_SIZE: usize = 64 * 1024;
+
+#[derive(Default)]
+struct CodecDecoder {
+    frame_index: usize,
+    main_message: Frame,
+    other_messages: Frames,
+}
 
 /// Encoder/decoder
 #[derive(Default)]
 pub struct DaskCodec {
     sizes: Option<(u64, Vec<u64>)>,
-    main_message: Option<Bytes>,
-    other_messages: Frames,
+    decoder: CodecDecoder
 }
 
 pub enum DaskPacketPart {
     HeaderPart {
-        packet: Rc<DaskPacket>,
+        frame_sizes: Vec<usize>,
         views: Vec<Bytes>,
         max_part_size: usize,
     },
@@ -125,10 +134,23 @@ impl Decoder for DaskCodec {
             let first_size = cursor.read_u64::<Endianness>().ensure();
             assert_eq!(first_size, 0);
             let main_size = cursor.read_u64::<Endianness>().ensure();
+            let mut total_size: u64 = main_size;
             let mut sizes = Vec::new();
             for _ in 2..count {
-                sizes.push(cursor.read_u64::<Endianness>().ensure());
+                let size = cursor.read_u64::<Endianness>().ensure();
+                total_size += size;
+                sizes.push(size);
             }
+            trace_packet_receive(total_size as usize);
+
+            // preallocate space
+            std::mem::replace(&mut self.decoder.main_message, BytesMut::with_capacity(main_size as usize));
+            self.decoder.other_messages.clear();
+            for size in &sizes {
+                self.decoder.other_messages.push(BytesMut::with_capacity(*size as usize));
+            }
+            self.decoder.frame_index = 0;
+
             self.sizes = Some((main_size, sizes));
             let src = cursor.into_inner();
             src.advance(header_size as usize);
@@ -136,35 +158,34 @@ impl Decoder for DaskCodec {
         } else {
             src
         };
+        let max_part_size = READ_BUFFER_SIZE;
 
-        let (main_size, sizes) = self.sizes.as_ref().ensure();
-        if self.main_message.is_none() {
-            let size = src.len() as u64;
-            if *main_size > size {
+        loop {
+            let remaining = src.len();
+            if remaining == 0 {
+                src.reserve(max_part_size);
                 return Ok(None);
             }
-            self.main_message = Some(src.split_to(*main_size as usize).freeze());
-        }
-
-        for &frame_size in &sizes[self.other_messages.len()..] {
-            let size = src.len() as u64;
-            if frame_size > size {
-                return Ok(None);
+            let buffer = match self.decoder.frame_index {
+                0 => &mut self.decoder.main_message,
+                index => &mut self.decoder.other_messages[index - 1]
+            };
+            let buf_remaining = buffer.capacity() - buffer.len();
+            let to_copy = std::cmp::min(remaining, buf_remaining);
+            buffer.put_slice(&src.bytes()[..to_copy]);
+            src.advance(to_copy);
+            if buffer.len() == buffer.capacity() {
+                if self.decoder.frame_index == self.decoder.other_messages.len() {
+                    self.sizes = None;
+                    return Ok(Some(DaskPacket {
+                        main_frame: std::mem::take(&mut self.decoder.main_message),
+                        additional_frames: std::mem::take(&mut self.decoder.other_messages)
+                    }))
+                } else {
+                    self.decoder.frame_index += 1;
+                }
             }
-            self.other_messages
-                .push(src.split_to(frame_size as usize).freeze());
         }
-        self.sizes = None;
-
-        let main_frame = self.main_message.take().ensure();
-        let total_size =
-            main_frame.len() + self.other_messages.iter().map(|i| i.len()).sum::<usize>();
-        trace_packet_receive(total_size);
-
-        Ok(Some(DaskPacket {
-            main_frame,
-            additional_frames: std::mem::take(&mut self.other_messages),
-        }))
     }
 }
 impl Encoder for DaskCodec {
@@ -174,21 +195,20 @@ impl Encoder for DaskCodec {
     fn encode(&mut self, data: Self::Item, dst: &mut BytesMut) -> crate::Result<()> {
         let views = match data {
             DaskPacketPart::HeaderPart {
-                packet,
+                frame_sizes,
                 views,
                 max_part_size,
             } => {
-                let frames = packet.frame_count();
-                let byte_count = packet.total_bytes();
+                let frames = frame_sizes.len();
+                let payload_size = frame_sizes.iter().sum::<usize>();
+                let byte_count = (frames + 1) * 8 + payload_size;
 
                 trace_packet_send(byte_count);
 
                 dst.reserve(max_part_size);
                 dst.put_u64_le(frames as u64);
-                dst.put_u64_le(0);
-                dst.put_u64_le(packet.main_frame.len() as u64);
-                for frame in &packet.additional_frames {
-                    dst.put_u64_le(frame.len() as u64);
+                for size in frame_sizes {
+                    dst.put_u64_le(size as u64);
                 }
 
                 views
@@ -417,21 +437,28 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
     let part_count = ((size as f64) / (max_part_size as f64)).ceil() as usize;
     let mut parts = Vec::with_capacity(part_count);
 
-    let packet = Rc::new(packet);
-    let mut current_view = packet.main_frame.clone();
+    let mut frame_sizes = Vec::with_capacity(packet.frame_count());
+    frame_sizes.push(0);
+    frame_sizes.push(packet.main_frame.len());
+    frame_sizes.extend(packet.additional_frames.iter().map(|f| f.len()));
+
+    let header_bytes = packet.header_bytes();
+    let DaskPacket { main_frame, mut additional_frames } = packet;
+
+    let mut current_view = main_frame.freeze();
     let mut frame_index = 0;
 
     for i in 0..part_count {
         let mut views = vec![];
-        let mut limit = if i == 0 { packet.header_bytes() } else { 0 };
+        let mut limit = if i == 0 { header_bytes } else { 0 };
         assert!(limit <= max_part_size);
 
         while limit < max_part_size {
             if current_view.is_empty() {
-                if frame_index >= packet.additional_frames.len() {
+                if frame_index >= additional_frames.len() {
                     break;
                 }
-                current_view = packet.additional_frames[frame_index].clone();
+                current_view = std::mem::take(&mut additional_frames[frame_index]).freeze();
                 frame_index += 1;
             }
 
@@ -442,7 +469,7 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
 
         if i == 0 {
             parts.push(HeaderPart {
-                packet: packet.clone(),
+                frame_sizes: std::mem::take(&mut frame_sizes),
                 views,
                 max_part_size,
             });
@@ -545,7 +572,7 @@ mod tests {
     };
     use crate::protocol::protocol::{
         asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
-        DaskPacket, DaskPacketPart, SerializedMemory,
+        DaskPacket, DaskPacketPart, SerializedMemory, Frame
     };
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
@@ -876,10 +903,10 @@ mod tests {
 
     fn create_packet(main_frame: &Vec<u8>, additional_frames: &Vec<Vec<u8>>) -> DaskPacket {
         DaskPacket::new(
-            bytes::Bytes::from(main_frame.clone()),
+            Frame::from(main_frame.as_slice()),
             additional_frames
                 .iter()
-                .map(|f| bytes::Bytes::from(f.clone()))
+                .map(|f| Frame::from(f.as_slice()))
                 .collect(),
         )
     }
