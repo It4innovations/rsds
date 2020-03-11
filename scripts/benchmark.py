@@ -138,7 +138,7 @@ class DaskCluster:
         start = time.time()
         self.client.close()
 
-        scheduler_sigint = self._profile_flamegraph()
+        scheduler_sigint = self._profile_flamegraph() or self._trace_scheduler()
         fn = functools.partial(kill_fn, scheduler_sigint)
         self.cluster.kill(fn)
         logging.info(f"Cluster killed in {time.time() - start} seconds")
