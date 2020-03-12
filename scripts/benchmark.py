@@ -29,7 +29,7 @@ from git import Repo
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
 from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
-    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag
+    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag, bench_merge_variable
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
@@ -47,6 +47,7 @@ USECASES = {
     "numpy": bench_numpy,
     "merge": bench_merge,
     "merge_slow": bench_merge_slow,
+    "merge_variable": bench_merge_variable,
     "pandas_groupby": bench_pandas_groupby,
     "pandas_join": bench_pandas_join,
     "wordbatch_vectorizer": bench_wordbatch_vectorizer,

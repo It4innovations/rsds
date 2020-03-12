@@ -2,6 +2,7 @@ import datetime
 import os
 import re
 import time
+from random import Random
 
 import dask
 import dask.array as da
@@ -74,7 +75,7 @@ def bench_pandas_groupby(days=1, freq="1s", partition_freq="1H"):
     df = dask.datasets.timeseries(start=start, end=end, seed=0,
                                   freq=freq, partition_freq=partition_freq)
     m = df.groupby("name")["x"].mean().sum()
-    s = df[(df["x"] > 0) & (df["y"] < 0)]["x"].resample("2S").mean().sum()
+    s = df[(df["x"] > 0) | (df["y"] < 0)]["x"].resample("2s").mean().sum()
     return m + s
 
 
@@ -88,20 +89,18 @@ def bench_pandas_join(days=1, freq="1s", partition_freq="2H"):
                                   dtypes={"value": float, "name": str, "id": int},
                                   id_lam=100)
     merged = df.merge(df, on="id", how="inner")
-    return merged["value_x"].sum()
+    return (merged["value_x"] + merged["value_y"]).sum()
 
 
-def bench_bag(count):
+def bench_bag(partitions, count):
     """
     https://examples.dask.org/bag.html
     """
-    b = dask.datasets.make_people(seed=0, npartitions=10, records_per_partition=count)
-    res = b.filter(lambda record: record["age"] > 30) \
-        .map(lambda record: record["occupation"]) \
-        .frequencies(sort=True) \
-        .topk(10, key=1) \
-        .pluck(1) \
-        .sum()
+    b = dask.datasets.make_people(seed=0, npartitions=partitions, records_per_partition=count // partitions)
+    p1 = b.filter(lambda record: record["age"] > 30)
+    p2 = p1.product(p1)
+    p3 = p2.filter(lambda x: x[0]["age"] > x[1]["age"]).pluck(1).map(lambda r: len(r["name"]))
+    res = p3.sum()
     return res
 
 
@@ -133,12 +132,20 @@ def bench_merge_slow(count=1000, delay=0.5):
     return result
 
 
-def bench_numpy(size=25000):
+def bench_merge_variable(count=1000, min_delay=0.1, max_delay=0.5):
+    random = Random(x=0)
+    diff = max_delay * min_delay
+    xs = [sleep(random.random() * diff + min_delay) for _ in range(count)]
+    result = merge(*xs)
+    return result
+
+
+def bench_numpy(size=25000, chunks=10):
     """
     https://examples.dask.org/array.html
     """
     da.random.seed(0)
-    x = da.random.random((size, size), chunks=(1000, 1000))
+    x = da.random.random((size, size), chunks=(size // chunks, size // chunks))
     y = x + x.T
     return np.sum(y[::2, size / 2:].mean(axis=1))
 
@@ -170,7 +177,7 @@ def bench_xarray(chunk_size=5):
     ds = xr.tutorial.open_dataset("air_temperature",
                                   chunks={"lat": chunk_size, "lon": chunk_size, "time": -1})
     da = ds["air"]
-    da2 = da.groupby("time.month").mean("time")
+    da2 = da.groupby("time.week").mean("time")
     da3 = da - da2
     return da3.sum()
 
