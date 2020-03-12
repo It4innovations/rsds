@@ -135,10 +135,8 @@ impl OwningTaskRef {
         let mut unfinished_deps = 0;
         for inp in &inputs {
             let t = inp.get();
-            if t.is_waiting() {
+            if !t.is_finished() {
                 unfinished_deps += 1;
-            } else {
-                assert!(t.is_finished());
             }
         }
         let task_ref = Self::wrap(Task {
