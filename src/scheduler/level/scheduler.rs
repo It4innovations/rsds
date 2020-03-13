@@ -1,17 +1,19 @@
 use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, SchedulerGraph};
 
+use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::protocol::SchedulerRegistration;
 use crate::scheduler::task::{Task, TaskRef};
-use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
+use crate::scheduler::utils::task_transfer_cost;
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage};
 
 #[derive(Default, Debug)]
-pub struct BlevelScheduler {
+pub struct LevelScheduler<Metric> {
     graph: SchedulerGraph,
+    _phantom: std::marker::PhantomData<Metric>,
 }
 
-impl Scheduler for BlevelScheduler {
+impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
     fn identify(&self) -> SchedulerRegistration {
         SchedulerRegistration {
             protocol_version: 0,
@@ -31,7 +33,7 @@ impl Scheduler for BlevelScheduler {
         let mut assignments = vec![];
 
         if !self.graph.new_tasks.is_empty() {
-            compute_b_level(&self.graph.tasks);
+            Metric::assign_metric(&self.graph.tasks);
             self.graph.new_tasks.clear();
         }
 
@@ -43,10 +45,9 @@ impl Scheduler for BlevelScheduler {
                 .filter(|w| w.get().is_underloaded())
                 .collect();
             if !underloaded_workers.is_empty() {
-                // Larger B-level goes first
                 self.graph
                     .ready_to_assign
-                    .sort_unstable_by_key(|t| -t.get().b_level);
+                    .sort_unstable_by_key(|t| Metric::SORT_MULTIPLIER * t.get().computed_metric);
 
                 // TODO: handle multi-CPU workers
                 let end =

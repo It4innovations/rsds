@@ -4,7 +4,10 @@ use crate::scheduler::protocol::{
     SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
 
-use crate::scheduler::task::{Task, TaskRef, SchedulerTaskState};
+use crate::scheduler::metrics::BLevelMetric;
+use crate::scheduler::metrics::NodeMetrics;
+use crate::scheduler::task::{SchedulerTaskState, Task, TaskRef};
+use crate::scheduler::utils::task_transfer_cost;
 use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
@@ -43,7 +46,7 @@ impl WorkstealingScheduler {
         if !self.graph.new_tasks.is_empty() {
             // TODO: utilize information and do not recompute all b-levels
             trace_time!("scheduler", "blevel", {
-                compute_b_level(&self.graph.tasks);
+                BLevelMetric::assign_metric(&self.graph.tasks);
             });
 
             self.graph.new_tasks.clear();
@@ -411,23 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn test_b_level() {
-        let mut scheduler = WorkstealingScheduler::default();
-        submit_graph_simple(&mut scheduler);
-        assert_eq!(scheduler.graph.ready_to_assign.len(), 1);
-        assert_eq!(scheduler.graph.ready_to_assign[0].get().id, 1);
-        connect_workers(&mut scheduler, 1, 1);
-        run_schedule_get_task_ids(&mut scheduler);
-        assert_eq!(scheduler.graph.get_task(7).get().b_level, 1);
-        assert_eq!(scheduler.graph.get_task(6).get().b_level, 2);
-        assert_eq!(scheduler.graph.get_task(5).get().b_level, 1);
-        assert_eq!(scheduler.graph.get_task(4).get().b_level, 2);
-        assert_eq!(scheduler.graph.get_task(3).get().b_level, 3);
-        assert_eq!(scheduler.graph.get_task(2).get().b_level, 3);
-        assert_eq!(scheduler.graph.get_task(1).get().b_level, 4);
-    }
-
-    #[test]
     fn test_simple_w1_1() {
         let mut scheduler = WorkstealingScheduler::default();
         submit_graph_simple(&mut scheduler);
@@ -561,8 +547,8 @@ mod tests {
     #[test]
     fn test_many_submits() {
         init();
-        let WORKERS : u32 = 42;
-        let TASKS : usize = 40;
+        const WORKERS: u32 = 42;
+        const TASKS: usize = 40;
         let mut scheduler = WorkstealingScheduler::default();
         connect_workers(&mut scheduler, WORKERS, 1);
         let mut workers: Set<WorkerId> = Set::new();
