@@ -82,5 +82,5 @@ fn assign(
     assignments: &mut Vec<TaskAssignment>,
 ) {
     assign_task_to_worker(task, task_ref.clone(), worker, worker_ref);
-    assignments.push(create_task_assignment(&task_ref));
+    assignments.push(create_task_assignment(task, worker.id));
 }

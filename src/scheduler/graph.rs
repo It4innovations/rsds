@@ -197,14 +197,14 @@ impl SchedulerGraph {
     }
 }
 
-pub fn create_task_assignment(task: &TaskRef) -> TaskAssignment {
-    let mut task = task.get_mut();
-    if task.is_fresh() { /* Mainly because to not changed AssignedPinned to Assigned */
+pub fn create_task_assignment(task: &mut Task, worker_id: WorkerId) -> TaskAssignment {
+    if task.is_fresh() {
+        /* Mainly because to not changed AssignedPinned to Assigned */
         task.state = SchedulerTaskState::Assigned;
     }
     TaskAssignment {
         task: task.id,
-        worker: task.assigned_worker.clone().unwrap().get().id,
+        worker: worker_id,
         priority: -task.computed_metric,
     }
 }

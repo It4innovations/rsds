@@ -267,7 +267,11 @@ impl Scheduler for WorkstealingScheduler {
         }
         self.dirty_tasks
             .drain()
-            .map(|t| create_task_assignment(&t))
+            .map(|t| {
+                let mut task = t.get_mut();
+                let worker_id = task.assigned_worker.as_ref().unwrap().get().id;
+                create_task_assignment(&mut task, worker_id)
+            })
             .collect()
     }
 }
