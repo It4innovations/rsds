@@ -5,20 +5,22 @@ use tokio::sync::mpsc::UnboundedSender;
 
 mod comm;
 mod graph;
+mod metrics;
 pub mod protocol;
 mod task;
 mod utils;
 mod worker;
 
-mod blevel;
+mod level;
 mod random;
 mod workstealing;
 
-pub use blevel::BlevelScheduler;
+pub use level::LevelScheduler;
 pub use comm::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 pub use protocol::{TaskAssignment, TaskId, WorkerId};
 pub use random::RandomScheduler;
 pub use workstealing::WorkstealingScheduler;
+pub use metrics::{BLevelMetric, TLevelMetric};
 
 pub type SchedulerSender = UnboundedSender<FromSchedulerMessage>;
 

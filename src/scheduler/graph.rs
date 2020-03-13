@@ -205,7 +205,7 @@ pub fn create_task_assignment(task: &TaskRef) -> TaskAssignment {
     TaskAssignment {
         task: task.id,
         worker: task.assigned_worker.clone().unwrap().get().id,
-        priority: -task.b_level
+        priority: -task.computed_metric,
     }
 }
 pub fn assign_task_to_worker(

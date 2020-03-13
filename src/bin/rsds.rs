@@ -7,8 +7,11 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::comm::CommRef;
+use rsds::scheduler::{
+    drive_scheduler, observe_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm,
+    TLevelMetric,
+};
 use rsds::server::core::CoreRef;
-use rsds::scheduler::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 use serde::export::fmt::Arguments;
 use std::fs::File;
 use std::future::Future;
@@ -38,7 +41,12 @@ fn create_scheduler(
             msd,
         )),
         SchedulerType::Blevel => Box::pin(drive_scheduler(
-            rsds::scheduler::BlevelScheduler::default(),
+            rsds::scheduler::LevelScheduler::<BLevelMetric>::default(),
+            comm,
+            msd,
+        )),
+        SchedulerType::Tlevel => Box::pin(drive_scheduler(
+            rsds::scheduler::LevelScheduler::<TLevelMetric>::default(),
             comm,
             msd,
         )),
@@ -50,6 +58,7 @@ enum SchedulerType {
     Workstealing,
     Random,
     Blevel,
+    Tlevel,
 }
 
 impl FromStr for SchedulerType {
@@ -59,6 +68,7 @@ impl FromStr for SchedulerType {
             "workstealing" => Ok(SchedulerType::Workstealing),
             "random" => Ok(SchedulerType::Random),
             "blevel" => Ok(SchedulerType::Blevel),
+            "tlevel" => Ok(SchedulerType::Tlevel),
             _ => Err(format!("Scheduler '{}' does not exist", scheduler)),
         }
     }
