@@ -451,7 +451,6 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
     for i in 0..part_count {
         let mut views = vec![];
         let mut limit = if i == 0 { header_bytes } else { 0 };
-        assert!(limit <= max_part_size);
 
         while limit < max_part_size {
             if current_view.is_empty() {
@@ -471,12 +470,12 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
             parts.push(HeaderPart {
                 frame_sizes: std::mem::take(&mut frame_sizes),
                 views,
-                max_part_size,
+                max_part_size: limit,
             });
         } else {
             parts.push(PayloadPart {
                 views,
-                max_part_size,
+                max_part_size: limit,
             });
         }
     }
@@ -724,8 +723,36 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn write_message_large_header() -> Result<()> {
+        let bytes: Vec<u8> = vec![8; 2];
+        let frames: Vec<Vec<u8>> = vec![];
+        let message = create_packet(&bytes, &frames);
+        let mut res = BytesMut::new();
+
+        let mut codec = DaskCodec::default();
+        let parts = split_packet_into_parts(message, 2);
+        for part in parts {
+            codec.encode(part, &mut res)?;
+        }
+
+        let mut expected = BytesMut::new();
+        expected.put_u64_le((2 + frames.len()) as u64);
+        expected.put_u64_le(0);
+        expected.put_u64_le(bytes.len() as u64);
+        for frame in &frames {
+            expected.put_u64_le(frame.len() as u64);
+        }
+        expected.extend_from_slice(&bytes);
+        for frame in frames {
+            expected.extend_from_slice(&frame);
+        }
+        assert_eq!(res, expected.to_vec());
+
+        Ok(())
+    }
+
     #[test]
-    #[should_panic]
     fn split_packet_header_too_large() {
         let packet = create_packet(&vec![1, 2, 3], &Default::default());
         split_packet_into_parts(packet, 1);

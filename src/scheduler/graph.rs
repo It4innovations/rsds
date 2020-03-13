@@ -5,6 +5,7 @@ use crate::scheduler::protocol::{
 use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
 use crate::scheduler::{TaskAssignment, TaskId, ToSchedulerMessage, WorkerId};
+use crate::scheduler::metrics::NodeMetrics;
 
 #[derive(Debug)]
 pub struct SchedulerGraph {
@@ -197,16 +198,15 @@ impl SchedulerGraph {
     }
 }
 
-pub fn create_task_assignment(task: &TaskRef) -> TaskAssignment {
-    let mut task = task.get_mut();
+pub fn create_task_assignment<M: NodeMetrics>(task: &mut Task, worker: WorkerId) -> TaskAssignment {
     if task.is_fresh() {
         /* Mainly because to not changed AssignedPinned to Assigned */
         task.state = SchedulerTaskState::Assigned;
     }
     TaskAssignment {
         task: task.id,
-        worker: task.assigned_worker.clone().unwrap().get().id,
-        priority: -task.b_level,
+        worker,
+        priority: M::SORT_MULTIPLIER * task.computed_metric,
     }
 }
 pub fn assign_task_to_worker(
