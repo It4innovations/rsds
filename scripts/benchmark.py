@@ -13,7 +13,8 @@ import subprocess
 import threading
 import time
 import traceback
-from multiprocessing import Pool
+from multiprocessing import Pool, TimeoutError
+from multiprocessing.pool import ThreadPool
 from random import Random
 
 import click
@@ -55,6 +56,7 @@ USECASES = {
 }
 HASHES = {}
 GIT_REPOSITORY = Repo(BUILD_DIR)
+SINGLE_RUN_TIMEOUT = 180
 
 
 def start_process_pool(args):
@@ -269,13 +271,14 @@ class Benchmark:
         configurations = skip_completed(list(repeat_configs()), bootstrap)
 
         def run():
+            pool = ThreadPool(1)
             for configuration in tqdm.tqdm(configurations):
                 repeat_index = configuration["index"]
                 logging.info(
                     f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
 
                 try:
-                    configuration, result, duration = self.benchmark_configuration(configuration, repeat_index)
+                    configuration, result, duration = self.benchmark_configuration(configuration, repeat_index, pool)
 
                     results["cluster"].append(format_cluster_info(configuration["cluster"]))
                     results["function"].append(configuration["name"])
@@ -305,9 +308,9 @@ class Benchmark:
 
         return pd.DataFrame(results), timeouted
 
-    def benchmark_configuration(self, configuration, index):
-        workdir = os.path.join(self.workdir,
-                               f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}")
+    def benchmark_configuration(self, configuration, index, pool):
+        identifier = f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}"
+        workdir = os.path.join(self.workdir, identifier)
         os.makedirs(workdir, exist_ok=True)
 
         with DaskCluster(configuration["cluster"], workdir, profile=self.profile) as cluster:
@@ -317,8 +320,16 @@ class Benchmark:
                 graph = configuration["function"]()
                 start = time.time()
                 # the real computation happens here
-                result = dask.compute(graph)
-                duration = time.time() - start
+                fut = pool.apply_async(lambda: dask.compute(graph))
+
+                result = None
+                try:
+                    result = fut.get(timeout=SINGLE_RUN_TIMEOUT)
+                    duration = time.time() - start
+                except TimeoutError:
+                    logging.warning(f"Job {identifier} timeouted in {SINGLE_RUN_TIMEOUT} s")
+                    duration = SINGLE_RUN_TIMEOUT
+
             return (configuration, flatten_result(result), duration)
 
     def _gen_configurations(self, configurations):
@@ -466,7 +477,7 @@ def check_results(frame, reference, timeouted):
 
     # self consistency
     for (cluster, function) in itertools.product(clusters, functions):
-        results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])
+        results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"].dropna())
         if len(set(results)) > 1:
             raise Exception(f"Inconsistent result for {cluster}/{function}: {results}")
 
@@ -474,14 +485,15 @@ def check_results(frame, reference, timeouted):
     if reference and not timeouted:
         assert any(reference in cl for cl in clusters)
         for (cluster, function) in itertools.product(clusters, functions):
-            results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"])
+            results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"].dropna())
             if len(results) == 0:
                 continue
 
             result = results[0]
             for cl in clusters:
                 if reference in cl:
-                    ref_results = list(frame[(frame["cluster"] == cl) & (frame["function"] == function)]["result"])
+                    ref_results = list(
+                        frame[(frame["cluster"] == cl) & (frame["function"] == function)]["result"].dropna())
                     if len(ref_results) == 0:
                         continue
                     if ref_results[0] != result:
