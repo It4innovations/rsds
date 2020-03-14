@@ -57,6 +57,18 @@ USECASES = {
 HASHES = {}
 GIT_REPOSITORY = Repo(BUILD_DIR)
 SINGLE_RUN_TIMEOUT = 180
+CLIENT_TIMEOUT = 60
+TIMEOUT_POOL = None
+
+
+def with_timeout(fn, timeout):
+    global TIMEOUT_POOL
+
+    if TIMEOUT_POOL is None:
+        TIMEOUT_POOL = ThreadPool(1)
+
+    fut = TIMEOUT_POOL.apply_async(fn)
+    return fut.get(timeout=timeout)
 
 
 def start_process_pool(args):
@@ -109,10 +121,13 @@ class DaskCluster:
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
             self.cluster.serialize(f)
 
-        self.client = Client(f"{self.scheduler_address}", timeout=30)
+        self.client = Client(f"{self.scheduler_address}", timeout=CLIENT_TIMEOUT)
 
         required_workers = worker_count(self.workers)
-        self.client.wait_for_workers(required_workers)
+        try:
+            with_timeout(lambda: self.client.wait_for_workers(required_workers), CLIENT_TIMEOUT)
+        except TimeoutError:
+            raise Exception(f"Cluster {cluster_info} did not start in {CLIENT_TIMEOUT}s: {traceback.format_exc()}")
         assert len(self.client.scheduler_info()["workers"]) == required_workers
 
         logging.info(
@@ -602,8 +617,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 #PBS -e {stderr}
 {pbs_project}
 
-source ~/.bashrc || exit 1
-ml {' '.join(MODULES)} || exit 1
+source {ENV_INIT_SCRIPT} || exit 1
 workon {workon} || exit 1
 
 python {script_path} benchmark {target_input} {directory} {" ".join(args)}
