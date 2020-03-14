@@ -66,22 +66,25 @@
     "name": "dask-blevel",
     "binary": "dask-scheduler",
     "args": ["--no-dashboard"],
-    "venv": "dasklevel"
+    "env": {
+      "DASK_SCHEDULER": "blevel"
+    }
   },
   "dask-tlevel": {
     "name": "dask-tlevel",
     "binary": "dask-scheduler",
     "args": ["--no-dashboard"],
     "env": {
-      "DASK_BLEVEL": "0"
-    },
-    "venv": "dasklevel"
+      "DASK_SCHEDULER": "tlevel"
+    }
   },
   "dask-random": {
     "name": "dask-random",
     "binary": "dask-scheduler",
     "args": ["--no-dashboard"],
-    "venv": "daskrandom"
+    "env": {
+      "DASK_SCHEDULER": "random"
+    }
   },
   "dask-ucx": {
     "name": "dask-ucx",
