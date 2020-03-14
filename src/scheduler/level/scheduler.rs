@@ -1,5 +1,4 @@
 use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, SchedulerGraph};
-
 use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::protocol::SchedulerRegistration;
 use crate::scheduler::task::{Task, TaskRef};
@@ -23,10 +22,17 @@ impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
     }
 
     fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
+        let mut schedule = false;
         for message in messages {
+            match &message {
+                ToSchedulerMessage::NewFinishedTask(..)
+                | ToSchedulerMessage::NewTask(..)
+                | ToSchedulerMessage::NewWorker(..) => schedule = true,
+                _ => {}
+            }
             self.graph.handle_message(message);
         }
-        !self.graph.ready_to_assign.is_empty()
+        schedule
     }
 
     fn schedule(&mut self) -> Vec<TaskAssignment> {
@@ -59,7 +65,7 @@ impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
                         .enumerate()
                         .min_by_key(|(_, w)| task_transfer_cost(&task, &w))
                         .unwrap();
-                    assign(
+                    assign::<Metric>(
                         &mut task,
                         tref.clone(),
                         &mut worker.get_mut(),
@@ -74,7 +80,7 @@ impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
     }
 }
 
-fn assign(
+fn assign<M: NodeMetrics>(
     task: &mut Task,
     task_ref: TaskRef,
     worker: &mut Worker,
@@ -82,5 +88,86 @@ fn assign(
     assignments: &mut Vec<TaskAssignment>,
 ) {
     assign_task_to_worker(task, task_ref.clone(), worker, worker_ref);
-    assignments.push(create_task_assignment(task, worker.id));
+    assignments.push(create_task_assignment::<M>(task, worker.id));
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::scheduler::test_util::{connect_workers, finish_task, new_task};
+    use crate::scheduler::{
+        BLevelMetric, LevelScheduler, Scheduler, TLevelMetric, TaskAssignment, TaskId,
+    };
+    use hashbrown::HashMap;
+
+    #[test]
+    fn schedule_b_level() {
+        let mut scheduler: LevelScheduler<BLevelMetric> = LevelScheduler::default();
+        let workers = connect_workers(&mut scheduler, 1, 1);
+        submit_graph_simple(&mut scheduler);
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&1].priority, -4);
+        finish_task(&mut scheduler, 1, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&2].priority, -3);
+        finish_task(&mut scheduler, 2, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&3].priority, -3);
+        finish_task(&mut scheduler, 3, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&4].priority, -2);
+    }
+
+    #[test]
+    fn schedule_t_level() {
+        let mut scheduler: LevelScheduler<TLevelMetric> = LevelScheduler::default();
+        let workers = connect_workers(&mut scheduler, 1, 1);
+        submit_graph_simple(&mut scheduler);
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&1].priority, 1);
+        finish_task(&mut scheduler, 1, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&2].priority, 2);
+        finish_task(&mut scheduler, 2, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&3].priority, 2);
+        finish_task(&mut scheduler, 3, workers[0], 0);
+
+        let assignments = schedule(&mut scheduler);
+        assert_eq!(assignments[&4].priority, 3);
+    }
+
+    fn schedule<S: Scheduler>(scheduler: &mut S) -> HashMap<TaskId, TaskAssignment> {
+        scheduler
+            .schedule()
+            .into_iter()
+            .map(|t| (t.task, t))
+            .collect()
+    }
+
+    /* Graph simple
+         T1
+        /  \
+       T2   T3
+       |  / |\
+       T4   | T6
+        \      \
+         \ /   T7
+          T5
+    */
+    fn submit_graph_simple<S: Scheduler>(scheduler: &mut S) {
+        scheduler.handle_messages(vec![
+            new_task(1, vec![]),
+            new_task(2, vec![1]),
+            new_task(3, vec![1]),
+            new_task(4, vec![2, 3]),
+            new_task(5, vec![4]),
+            new_task(6, vec![3]),
+            new_task(7, vec![6]),
+        ]);
+    }
 }

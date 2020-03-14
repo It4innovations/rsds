@@ -4,7 +4,8 @@ use crate::scheduler::protocol::{
 };
 use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
-use crate::scheduler::{TaskId, WorkerId, ToSchedulerMessage, TaskAssignment};
+use crate::scheduler::{TaskAssignment, TaskId, ToSchedulerMessage, WorkerId};
+use crate::scheduler::metrics::NodeMetrics;
 
 #[derive(Debug)]
 pub struct SchedulerGraph {
@@ -197,7 +198,7 @@ impl SchedulerGraph {
     }
 }
 
-pub fn create_task_assignment(task: &mut Task, worker_id: WorkerId) -> TaskAssignment {
+pub fn create_task_assignment<M: NodeMetrics>(task: &mut Task, worker_id: WorkerId) -> TaskAssignment {
     if task.is_fresh() {
         /* Mainly because to not changed AssignedPinned to Assigned */
         task.state = SchedulerTaskState::Assigned;
@@ -205,14 +206,14 @@ pub fn create_task_assignment(task: &mut Task, worker_id: WorkerId) -> TaskAssig
     TaskAssignment {
         task: task.id,
         worker: worker_id,
-        priority: -task.computed_metric,
+        priority: M::SORT_MULTIPLIER * task.computed_metric,
     }
 }
 pub fn assign_task_to_worker(
     task: &mut Task,
     task_ref: TaskRef,
     worker: &mut Worker,
-    worker_ref: WorkerRef
+    worker_ref: WorkerRef,
 ) {
     let assigned_worker = &task.assigned_worker;
     if let Some(wr) = assigned_worker {
