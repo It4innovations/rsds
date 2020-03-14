@@ -8,7 +8,6 @@ use crate::scheduler::metrics::BLevelMetric;
 use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::utils::task_transfer_cost;
-use crate::scheduler::utils::{compute_b_level, task_transfer_cost};
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
 use rand::prelude::SmallRng;
