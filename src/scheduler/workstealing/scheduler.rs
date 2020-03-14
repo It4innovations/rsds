@@ -270,7 +270,7 @@ impl Scheduler for WorkstealingScheduler {
             .map(|t| {
                 let mut task = t.get_mut();
                 let worker_id = task.assigned_worker.as_ref().unwrap().get().id;
-                create_task_assignment(&mut task, worker_id)
+                create_task_assignment::<BLevelMetric>(&mut task, worker_id)
             })
             .collect()
     }
@@ -304,17 +304,13 @@ fn choose_worker_for_task(
 mod tests {
     use super::*;
     use crate::common::{Map, Set};
-    use crate::scheduler::protocol::{TaskInfo, WorkerInfo};
     use crate::scheduler::{TaskId, WorkerId};
+    use crate::scheduler::test_util::{assigned_worker, finish_task, connect_workers, new_task};
 
     fn init() {
         let _ = env_logger::try_init().map_err(|_| {
             println!("Logging initialized failed");
         });
-    }
-
-    fn new_task(id: TaskId, inputs: Vec<TaskId>) -> ToSchedulerMessage {
-        ToSchedulerMessage::NewTask(TaskInfo { id, inputs })
     }
 
     /* Graph simple
@@ -369,30 +365,6 @@ mod tests {
         scheduler.handle_messages(tasks);
     }
 
-    fn connect_workers(scheduler: &mut WorkstealingScheduler, count: u32, n_cpus: u32) {
-        for i in 0..count {
-            scheduler.handle_messages(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
-                id: 100 + i as WorkerId,
-                n_cpus,
-                hostname: "worker".into(),
-            })]);
-        }
-    }
-
-    fn finish_task(
-        scheduler: &mut WorkstealingScheduler,
-        task_id: TaskId,
-        worker_id: WorkerId,
-        size: u64,
-    ) {
-        scheduler.handle_messages(vec![ToSchedulerMessage::TaskUpdate(TaskUpdate {
-            state: TaskUpdateType::Finished,
-            id: task_id,
-            worker: worker_id,
-            size: Some(size),
-        })]);
-    }
-
     fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Vec<TaskAssignment> {
         scheduler.schedule()
     }
@@ -401,20 +373,6 @@ mod tests {
         run_schedule(scheduler).iter()
         .map(|a| a.task)
         .collect()
-    }
-
-    fn assigned_worker(scheduler: &mut WorkstealingScheduler, task_id: TaskId) -> WorkerId {
-        scheduler
-            .graph
-            .tasks
-            .get(&task_id)
-            .expect("Unknown task")
-            .get()
-            .assigned_worker
-            .as_ref()
-            .expect("Worker not assigned")
-            .get()
-            .id
     }
 
     #[test]
@@ -429,7 +387,7 @@ mod tests {
         assert!(n.contains(&1));
         scheduler.sanity_check();
 
-        let w = assigned_worker(&mut scheduler, 1);
+        let w = assigned_worker(&scheduler.graph, 1);
         finish_task(&mut scheduler, 1, w, 1);
         let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 2);
@@ -437,8 +395,8 @@ mod tests {
         assert!(n.contains(&3));
         let _t2 = scheduler.graph.tasks.get(&2).unwrap();
         let _t3 = scheduler.graph.tasks.get(&3).unwrap();
-        assert_eq!(assigned_worker(&mut scheduler, 2), 100);
-        assert_eq!(assigned_worker(&mut scheduler, 3), 100);
+        assert_eq!(assigned_worker(&scheduler.graph, 2), 100);
+        assert_eq!(assigned_worker(&scheduler.graph, 3), 100);
         scheduler.sanity_check();
     }
 
@@ -455,7 +413,7 @@ mod tests {
         assert!(n.contains(&1));
         scheduler.sanity_check();
 
-        let w = assigned_worker(&mut scheduler, 1);
+        let w = assigned_worker(&scheduler.graph, 1);
         finish_task(&mut scheduler, 1, w, 1);
         let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 2);
@@ -464,8 +422,8 @@ mod tests {
         let _t2 = scheduler.graph.tasks.get(&2).unwrap();
         let _t3 = scheduler.graph.tasks.get(&3).unwrap();
         assert_ne!(
-            assigned_worker(&mut scheduler, 2),
-            assigned_worker(&mut scheduler, 3)
+            assigned_worker(&scheduler.graph, 2),
+            assigned_worker(&scheduler.graph, 3)
         );
         scheduler.sanity_check();
     }
@@ -485,7 +443,7 @@ mod tests {
         let mut wcount = Map::default();
         for t in 0..5000 {
             assert!(n.contains(&t));
-            let wid = assigned_worker(&mut scheduler, t);
+            let wid = assigned_worker(&scheduler.graph, t);
             let c = wcount.entry(wid).or_insert(0);
             *c += 1;
         }
@@ -506,7 +464,7 @@ mod tests {
         scheduler.sanity_check();
 
         let _n = run_schedule_get_task_ids(&mut scheduler);
-        let w = assigned_worker(&mut scheduler, 0);
+        let w = assigned_worker(&scheduler.graph, 0);
         finish_task(&mut scheduler, 0, w, 100_000_000);
         scheduler.sanity_check();
 
@@ -517,7 +475,7 @@ mod tests {
         let mut wcount = Map::default();
         for t in 1..=5000 {
             assert!(n.contains(&t));
-            let wid = assigned_worker(&mut scheduler, t);
+            let wid = assigned_worker(&scheduler.graph, t);
             let c = wcount.entry(wid).or_insert(0);
             *c += 1;
         }

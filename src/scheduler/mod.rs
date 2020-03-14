@@ -15,6 +15,9 @@ mod level;
 mod random;
 mod workstealing;
 
+#[cfg(test)]
+mod test_util;
+
 pub use level::LevelScheduler;
 pub use comm::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
 pub use protocol::{TaskAssignment, TaskId, WorkerId};
