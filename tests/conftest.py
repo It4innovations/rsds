@@ -9,7 +9,7 @@ import pytest
 
 PYTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(PYTEST_DIR)
-RSDS_BIN = os.path.join(ROOT, "target", "debug", "rsds")
+RSDS_BIN = os.path.join(ROOT, "target", "debug", "rsds-scheduler")
 
 
 def check_free_port(port):

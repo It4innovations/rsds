@@ -103,8 +103,8 @@ def start_process(commands, host=None, workdir=None, modules=(), name=None, env=
     stdout_file = f"{output}.out"
     stderr_file = f"{output}.err"
     command = f"""
-cd {workdir}
-{' && '.join(init_cmd)}
+cd {workdir} || exit 1
+{' && '.join(f"{{ {cmd} || exit 1; }}" for cmd in init_cmd)}
 ulimit -c unlimited
 {' '.join(args)} > {stdout_file} 2> {stderr_file} &
 ps -ho pgid $!

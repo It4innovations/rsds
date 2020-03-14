@@ -34,8 +34,8 @@ from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
-MODULES = ("hwloc/2.0.3-GCC-6.3.0-2.27", "numactl/2.0.12-GCC-6.3.0-2.27")
 USECASES_SCRIPT = os.path.join(CURRENT_DIR, "usecases.py")
+ENV_INIT_SCRIPT = "~/.pythonenv"
 
 TIMEOUT_EXIT_CODE = 16
 RESULT_FILE = "result.json"
@@ -86,11 +86,12 @@ class DaskCluster:
         self.workdir = workdir
         self.port = port
         self.profile = profile
-        self.init_cmd = (
-            "source ~/.bashrc",
-            f"ml {' '.join(MODULES)}",
-            f"workon {venv}"
-        )
+        self.init_cmd = [f"source {ENV_INIT_SCRIPT}"]
+
+        modules = self.scheduler.get("modules", ())
+        if modules:
+            self.init_cmd += [f"ml {' '.join(modules)}"]
+        self.init_cmd += [f"workon {venv}"]
 
         write_metadata(self.scheduler, self.workdir)
 
@@ -149,17 +150,24 @@ class DaskCluster:
     def _start_scheduler(self, scheduler):
         binary = normalize_binary(scheduler["binary"])
 
+        env = {
+            "RUST_BACKTRACE": "full"
+        }
+
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
         is_rsds = "rsds" in scheduler["name"]
-        if self._trace_scheduler() and is_rsds:
-            args += ["--trace-file", os.path.join(self.workdir, "scheduler.trace")]
+        if self._trace_scheduler():
+            trace_file = os.path.join(self.workdir, "scheduler.trace")
+            if is_rsds:
+                args += ["--trace-file", trace_file]
+            else:
+                env["DASK_TRACE_FILE"] = trace_file
 
         if self._profile_flamegraph() and is_rsds:
             args = ["flamegraph", "-o", os.path.join(self.workdir, "scheduler.svg"), "--"] + args
 
-        self.start(args, name="scheduler", env={
-            "RUST_BACKTRACE": "full"
-        })
+        env.update(scheduler.get("env", {}))
+        self.start(args, name="scheduler", env=env)
 
     def _start_workers(self, workers, scheduler_address):
         node_count = workers["nodes"]
