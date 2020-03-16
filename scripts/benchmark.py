@@ -166,7 +166,8 @@ class DaskCluster:
         binary = normalize_binary(scheduler["binary"])
 
         env = {
-            "RUST_BACKTRACE": "full"
+            "RUST_BACKTRACE": "full",
+            "PYTHONDONTWRITEBYTECODE": "1"
         }
 
         args = [binary, "--port", str(self.port)] + list(scheduler.get("args", ()))
@@ -198,7 +199,7 @@ class DaskCluster:
                     "--preload", USECASES_SCRIPT,
                     "--no-dashboard"] + worker_args
 
-        env = {"OMP_NUM_THREADS": "1"}  # TODO
+        env = {"OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}  # TODO
 
         if node_count == "local":
             self.start(get_args(), env=env, name="worker-0", workdir=self.workdir)
