@@ -6,9 +6,17 @@ import dask.array as da
 import pytest
 from distributed import Client
 
+with_all_schedulers = pytest.mark.parametrize("scheduler", [
+    "workstealing",
+    "blevel",
+    "tlevel",
+    "random"
+])
 
-def test_dataframe(rsds_env):
-    url = rsds_env.start([2])
+
+@with_all_schedulers
+def test_dataframe(rsds_env, scheduler):
+    url = rsds_env.start([2], scheduler=scheduler)
     _ = Client(url)
 
     start = datetime.datetime(year=2020, month=1, day=1)
@@ -20,8 +28,9 @@ def test_dataframe(rsds_env):
     assert (m, s) == (-0.04156885670869045, 9373.1532695118)
 
 
-def test_bag(rsds_env):
-    url = rsds_env.start([2])
+@with_all_schedulers
+def test_bag(rsds_env, scheduler):
+    url = rsds_env.start([2], scheduler=scheduler)
     _ = Client(url)
 
     _ = pytest.importorskip("mimesis")
@@ -35,8 +44,9 @@ def test_bag(rsds_env):
     assert sum(v[1] for v in res) == 12
 
 
-def test_numpy(rsds_env):
-    url = rsds_env.start([2])
+@with_all_schedulers
+def test_numpy(rsds_env, scheduler):
+    url = rsds_env.start([2], scheduler=scheduler)
     _ = Client(url)
 
     np = pytest.importorskip("numpy")
@@ -48,8 +58,9 @@ def test_numpy(rsds_env):
     assert np.sum(y[::2, size / 2:].mean(axis=1).compute()) == 249.93142625694077
 
 
-def test_tree(rsds_env):
-    url = rsds_env.start([2])
+@with_all_schedulers
+def test_tree(rsds_env, scheduler):
+    url = rsds_env.start([2], scheduler=scheduler)
     _ = Client(url)
 
     exp = 5
@@ -64,8 +75,9 @@ def test_tree(rsds_env):
     assert dask.compute(L)[0][0] == 496
 
 
-def test_xarray(rsds_env):
-    url = rsds_env.start([2])
+@with_all_schedulers
+def test_xarray(rsds_env, scheduler):
+    url = rsds_env.start([2], scheduler=scheduler)
     _ = Client(url)
 
     xr = pytest.importorskip("xarray")
