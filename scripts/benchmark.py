@@ -269,12 +269,13 @@ class Benchmark:
         results["submit-id"] = get_submit_id()
         results = pd.concat((bootstrap, results), ignore_index=True, sort=False)
 
-        try:
-            check_results(results, self.reference, timeouted)
-            logging.info("Result check succeeded")
-        except:
-            logging.error("Result check failed")
-            traceback.print_exc()
+        if not timeouted:
+            try:
+                check_results(results, self.reference, timeouted)
+                logging.info("Result check succeeded")
+            except:
+                logging.error("Result check failed")
+                traceback.print_exc()
         return results, timeouted
 
     def benchmark_configurations(self, timeout, bootstrap):
@@ -624,6 +625,7 @@ workon {workon} || exit 1
 python {script_path} benchmark {target_input} {directory} {" ".join(args)}
 if [ $? -eq {TIMEOUT_EXIT_CODE} ]
 then
+    echo "Resubmitting"
     cd ${{PBS_O_WORKDIR}}
     python {script_path} submit \
 {f"--name {name}" if name else ""} \
@@ -677,7 +679,7 @@ def cli():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.INFO)
 
     cli.add_command(benchmark)
     cli.add_command(submit_cmd)
