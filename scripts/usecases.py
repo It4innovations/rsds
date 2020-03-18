@@ -37,7 +37,7 @@ def normalize_text(text):
 
 def bench_wordbatch_vectorizer(input, data_size, client):
     texts = pd.read_csv(input, nrows=data_size, squeeze=True)
-    batcher = Batcher(procs=1, minibatch_size=5000, backend="dask", backend_handle=client)
+    batcher = Batcher(procs=1, minibatch_size=500, backend="dask", backend_handle=client)
     hv = HashingVectorizer(decode_error='ignore', n_features=2 ** 25, preprocessor=normalize_text,
                            ngram_range=(1, 2), norm='l2')
 
@@ -51,7 +51,7 @@ def bench_wordbatch_wordbag(input, data_size, client):
     texts = pd.read_csv(input, nrows=data_size, squeeze=True)
 
     stemmer = PorterStemmer()
-    batcher = Batcher(procs=1, minibatch_size=5000, backend="dask", backend_handle=client)
+    batcher = Batcher(procs=1, minibatch_size=500, backend="dask", backend_handle=client)
     wb = WordBatch(normalize_text=normalize_text,
                    dictionary=Dictionary(min_df=10, max_words=1000000, verbose=0),
                    tokenizer=Tokenizer(spellcor_count=2, spellcor_dist=2, stemmer=stemmer),
