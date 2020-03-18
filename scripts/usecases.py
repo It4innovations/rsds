@@ -92,7 +92,7 @@ def bench_pandas_join(days=1, freq="1s", partition_freq="2H"):
     return (merged["value_x"] + merged["value_y"]).sum()
 
 
-def bench_bag(partitions, count):
+def bench_bag(count, partitions):
     """
     https://examples.dask.org/bag.html
     """
