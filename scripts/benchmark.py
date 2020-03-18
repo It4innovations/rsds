@@ -503,8 +503,11 @@ def check_results(frame, reference, timeouted):
     # self consistency
     for (cluster, function) in itertools.product(clusters, functions):
         results = list(frame[(frame["cluster"] == cluster) & (frame["function"] == function)]["result"].dropna())
-        if len(set(results)) > 1:
-            raise Exception(f"Inconsistent result for {cluster}/{function}: {results}")
+        if results:
+            result = results[0]
+            for res in results[1:]:
+                if not np.allclose([result], [res]):
+                    raise Exception(f"Inconsistent result for {cluster}/{function}: {results}")
 
     # reference equality
     if reference and not timeouted:
@@ -521,7 +524,7 @@ def check_results(frame, reference, timeouted):
                         frame[(frame["cluster"] == cl) & (frame["function"] == function)]["result"].dropna())
                     if len(ref_results) == 0:
                         continue
-                    if ref_results[0] != result:
+                    if not np.allclose([ref_results[0]], [result]):
                         raise Exception(
                             f"Wrong result for {cluster}/{function} (expected {ref_results[0]}, got {result})")
 
