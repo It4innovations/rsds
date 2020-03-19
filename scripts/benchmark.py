@@ -339,21 +339,24 @@ class Benchmark:
         os.makedirs(workdir, exist_ok=True)
 
         with DaskCluster(configuration["cluster"], workdir, profile=self.profile) as cluster:
-            if configuration["needs_client"]:
-                result, duration = configuration["function"](cluster.client)
-            else:
+            def compute_client():
+                return configuration["function"](cluster.client)
+
+            def compute():
                 graph = configuration["function"]()
                 start = time.time()
-                # the real computation happens here
-                fut = pool.apply_async(lambda: dask.compute(graph))
+                result = dask.compute(graph)
+                duration = time.time() - start
+                return result, duration
 
-                result = None
-                try:
-                    result = fut.get(timeout=SINGLE_RUN_TIMEOUT)
-                    duration = time.time() - start
-                except TimeoutError:
-                    logging.warning(f"Job {identifier} timeouted in {SINGLE_RUN_TIMEOUT} s")
-                    duration = SINGLE_RUN_TIMEOUT
+            fut = pool.apply_async(compute_client if configuration["needs_client"] else compute)
+
+            result = None
+            try:
+                result, duration = fut.get(timeout=SINGLE_RUN_TIMEOUT)
+            except TimeoutError:
+                logging.warning(f"Job {identifier} timeouted in {SINGLE_RUN_TIMEOUT} s")
+                duration = SINGLE_RUN_TIMEOUT
 
             return (configuration, flatten_result(result), duration)
 
