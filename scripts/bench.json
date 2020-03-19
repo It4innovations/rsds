@@ -1,6 +1,6 @@
 {
   "repeat": 5,
-  "reference": "dask",
+  "reference": "dask-ws",
   "configurations": {
     "$product": {
       "cluster": {"$ref": "clusters"},
@@ -10,7 +10,7 @@
   "clusters": {
     "$product": {
       "scheduler": [
-        {"$ref": "dask"},
+        {"$ref": "dask-ws"},
         {"$ref": "dask-random"},
         {"$ref": "dask-blevel"},
         {"$ref": "dask-tlevel"},
@@ -57,8 +57,8 @@
     "binary": "$BUILD/target/release/rsds-scheduler",
     "args": ["--scheduler", "tlevel"]
   },
-  "dask": {
-    "name": "dask",
+  "dask-ws": {
+    "name": "dask-ws",
     "binary": "dask-scheduler",
     "args": ["--no-dashboard"]
   },
