@@ -157,8 +157,8 @@
     "$product": {
       "function": ["wordbatch_vectorizer"],
       "args": [
-        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 100000],
-        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", null]
+        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 500000, 20],
+        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 500000, 200]
       ],
       "needs_client": [true]
     }
@@ -167,7 +167,8 @@
     "$product": {
       "function": ["wordbatch_wordbag"],
       "args": [
-        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 100000]
+        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 500000, 20],
+        ["/scratch/work/project/dd-19-39/wordbatch/wordbatch.csv", 500000, 200]
       ],
       "needs_client": [true]
     }
