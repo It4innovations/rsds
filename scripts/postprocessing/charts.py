@@ -16,8 +16,8 @@ def create_plot(frame, plot_fn):
                 pass
         return tuple(sortkey)
 
-    clusters = sorted(set(frame["cluster"]))
-    functions = sorted(set(frame["function"]), key=extract)
+    clusters = sorted(frame["cluster"].unique())
+    functions = sorted(frame["function"].unique(), key=extract)
 
     def plot(data, **kwargs):
         plot_fn(data, clusters, **kwargs)
