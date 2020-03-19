@@ -257,7 +257,7 @@ class Benchmark:
         self.workdir = workdir
         self.profile = profile
 
-    def run(self, timeout, bootstrap):
+    def run(self, timeout, bootstrap, start):
         os.makedirs(self.workdir, exist_ok=True)
 
         if bootstrap is not None:
@@ -265,7 +265,7 @@ class Benchmark:
         else:
             bootstrap = pd.DataFrame()
 
-        results, timeouted = self.benchmark_configurations(timeout, bootstrap)
+        results, timeouted = self.benchmark_configurations(timeout, bootstrap, start)
         results["submit-id"] = get_submit_id()
         results = pd.concat((bootstrap, results), ignore_index=True, sort=False)
 
@@ -278,7 +278,7 @@ class Benchmark:
                 traceback.print_exc()
         return results, timeouted
 
-    def benchmark_configurations(self, timeout, bootstrap):
+    def benchmark_configurations(self, timeout, bootstrap, start):
         def repeat_configs():
             for config in self.configurations:
                 for i in range(self.repeat):
@@ -326,9 +326,14 @@ class Benchmark:
         else:
             t = threading.Thread(target=run, daemon=True)
             t.start()
-            t.join(timeout)
+
+            init_elapsed = time.time() - start
+            logging.info(f"Initialization before benchmark took {init_elapsed}")
+            assert init_elapsed < timeout
+            left_time = timeout - init_elapsed
+            t.join(left_time)
             if t.is_alive():
-                logging.warning(f"Benchmark did not finish in {timeout} seconds")
+                logging.warning(f"Benchmark did not finish in {left_time} seconds")
                 timeouted = True
 
         return pd.DataFrame(results), timeouted
@@ -543,8 +548,9 @@ def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
         bootstrap = os.path.abspath(bootstrap)
         assert os.path.isfile(bootstrap)
 
+    start = time.time()
     benchmark = Benchmark(load_config(input), output_dir, profile)
-    frame, timeouted = benchmark.run(timeout, bootstrap)
+    frame, timeouted = benchmark.run(timeout, bootstrap, start)
     save_results(frame, output_dir)
     return timeouted
 
