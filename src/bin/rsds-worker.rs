@@ -67,11 +67,7 @@ async fn main() -> rsds::Result<()> {
                 break;
             }
             Err(e) => {
-                log::error!(
-                    "Couldn't connect to {}, error: {}",
-                    address_str,
-                    e
-                );
+                log::error!("Couldn't connect to {}, error: {}", address_str, e);
                 delay_for(Duration::from_secs(5)).await;
             }
         }

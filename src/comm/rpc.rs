@@ -22,13 +22,13 @@ use crate::server::core::CoreRef;
 use crate::server::task::ErrorInfo;
 use crate::server::worker::create_worker;
 
+use crate::util::forward_queue_to_sink;
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use smallvec::smallvec;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
-use crate::util::forward_queue_to_sink;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -236,7 +236,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     let hb = RegisterWorkerResponseMsg {
                         status: to_dask_key("OK"),
                         time: SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
-                        heartbeat_interval: 1.0,
+                        heartbeat_interval: 1.0.into(),
                         worker_plugins: Vec::new(),
                     };
                     writer.send(serialize_single_packet(hb)?).await?;
@@ -344,7 +344,7 @@ mod tests {
     use crate::comm::notifications::Notifications;
     use crate::comm::rpc::generic_rpc_loop;
     use crate::protocol::clientmsg::{
-        ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, DirectTaskSpec
+        ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };
     use crate::protocol::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,

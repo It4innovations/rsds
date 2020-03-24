@@ -6,6 +6,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::trace::{trace_packet_receive, trace_packet_send};
 use byteorder::{LittleEndian, ReadBytesExt};
+use bytes::buf::BufMutExt;
 use futures::sink::WithFlatMap;
 use futures::stream::Map;
 use std::fs::File;
@@ -14,7 +15,6 @@ use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use bytes::buf::BufMutExt;
 
 /// Commonly used types
 pub type Frame = BytesMut;
@@ -97,7 +97,7 @@ struct CodecDecoder {
 #[derive(Default)]
 pub struct DaskCodec {
     sizes: Option<(u64, Vec<u64>)>,
-    decoder: CodecDecoder
+    decoder: CodecDecoder,
 }
 
 pub enum DaskPacketPart {
@@ -142,10 +142,15 @@ impl Decoder for DaskCodec {
             trace_packet_receive(total_size as usize);
 
             // preallocate space
-            std::mem::replace(&mut self.decoder.main_message, BytesMut::with_capacity(main_size as usize));
+            std::mem::replace(
+                &mut self.decoder.main_message,
+                BytesMut::with_capacity(main_size as usize),
+            );
             self.decoder.other_messages.clear();
             for size in &sizes {
-                self.decoder.other_messages.push(BytesMut::with_capacity(*size as usize));
+                self.decoder
+                    .other_messages
+                    .push(BytesMut::with_capacity(*size as usize));
             }
             self.decoder.frame_index = 0;
 
@@ -166,7 +171,7 @@ impl Decoder for DaskCodec {
             }
             let buffer = match self.decoder.frame_index {
                 0 => &mut self.decoder.main_message,
-                index => &mut self.decoder.other_messages[index - 1]
+                index => &mut self.decoder.other_messages[index - 1],
             };
             let buf_remaining = buffer.capacity() - buffer.len();
             let to_copy = std::cmp::min(remaining, buf_remaining);
@@ -177,8 +182,8 @@ impl Decoder for DaskCodec {
                     self.sizes = None;
                     return Ok(Some(DaskPacket {
                         main_frame: std::mem::take(&mut self.decoder.main_message),
-                        additional_frames: std::mem::take(&mut self.decoder.other_messages)
-                    }))
+                        additional_frames: std::mem::take(&mut self.decoder.other_messages),
+                    }));
                 } else {
                     self.decoder.frame_index += 1;
                 }
@@ -441,7 +446,10 @@ pub fn split_packet_into_parts(packet: DaskPacket, max_part_size: usize) -> Vec<
     frame_sizes.extend(packet.additional_frames.iter().map(|f| f.len()));
 
     let header_bytes = packet.header_bytes();
-    let DaskPacket { main_frame, mut additional_frames } = packet;
+    let DaskPacket {
+        main_frame,
+        mut additional_frames,
+    } = packet;
 
     let mut current_view = main_frame.freeze();
     let mut frame_index = 0;
@@ -563,10 +571,13 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::{task_spec_to_memory, ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, UpdateGraphMsg, DirectTaskSpec};
+    use crate::protocol::clientmsg::{
+        task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
+        ToClientMessage, UpdateGraphMsg,
+    };
     use crate::protocol::protocol::{
         asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
-        DaskPacket, DaskPacketPart, SerializedMemory, Frame
+        DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory,
     };
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
@@ -576,6 +587,7 @@ mod tests {
     use crate::common::Map;
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::IntoInner;
+    use crate::protocol::workermsg::RegisterWorkerResponseMsg;
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
@@ -840,8 +852,14 @@ mod tests {
                         args,
                         kwargs,
                     }) => {
-                        assert_eq!(hash(&get_binary(function.as_ref().unwrap())), 14885086766577267268);
-                        assert_eq!(hash(&get_binary(args.as_ref().unwrap())), 518960099204433046);
+                        assert_eq!(
+                            hash(&get_binary(function.as_ref().unwrap())),
+                            14885086766577267268
+                        );
+                        assert_eq!(
+                            hash(&get_binary(args.as_ref().unwrap())),
+                            518960099204433046
+                        );
                         assert!(kwargs.is_none());
                     }
                     _ => panic!(),
@@ -850,6 +868,21 @@ mod tests {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
+            }
+            _ => panic!(),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parse_heartbeat_int() -> Result<()> {
+        let main = load_bin_test_data("data/register-heartbeat-int.bin");
+        let msg: MessageWrapper<RegisterWorkerResponseMsg> =
+            rmp_serde::from_slice(main.as_slice())?;
+        match msg {
+            MessageWrapper::Message(v) => {
+                assert_eq!(v.heartbeat_interval, 1.0.into());
             }
             _ => panic!(),
         }

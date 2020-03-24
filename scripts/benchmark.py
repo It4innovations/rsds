@@ -203,7 +203,11 @@ class DaskCluster:
                     "--preload", USECASES_SCRIPT,
                     "--no-dashboard"] + worker_args
 
-        env = {"OMP_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}  # TODO
+        env = {
+            "OMP_NUM_THREADS": "1",  # TODO
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "RUST_BACKTRACE": "full",
+        }
 
         if node_count == "local":
             for i in range(processes_per_node):

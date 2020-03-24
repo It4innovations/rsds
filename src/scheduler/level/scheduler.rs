@@ -28,7 +28,7 @@ impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
                 ToSchedulerMessage::NewFinishedTask(..)
                 | ToSchedulerMessage::NewTask(..)
                 | ToSchedulerMessage::NewWorker(..)
-                | ToSchedulerMessage::TaskUpdate(..)=> schedule = true,
+                | ToSchedulerMessage::TaskUpdate(..) => schedule = true,
                 _ => {}
             }
             self.graph.handle_message(message);

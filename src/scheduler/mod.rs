@@ -18,12 +18,12 @@ mod workstealing;
 #[cfg(test)]
 mod test_util;
 
-pub use level::LevelScheduler;
 pub use comm::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
+pub use level::LevelScheduler;
+pub use metrics::{BLevelMetric, TLevelMetric};
 pub use protocol::{TaskAssignment, TaskId, WorkerId};
 pub use random::RandomScheduler;
 pub use workstealing::WorkstealingScheduler;
-pub use metrics::{BLevelMetric, TLevelMetric};
 
 pub type SchedulerSender = UnboundedSender<FromSchedulerMessage>;
 
