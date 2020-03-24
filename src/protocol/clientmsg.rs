@@ -1,20 +1,35 @@
-use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
+use serde::{Deserialize, Serialize, Deserializer};
 
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
+use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 use crate::protocol::Priority;
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+
+#[cfg_attr(test, derive(Serialize))]
+#[derive(Deserialize, Debug)]
+pub struct DirectTaskSpec<T = SerializedMemory> {
+    pub function: Option<T>,
+    pub args: Option<T>,
+    pub kwargs: Option<T>,
+}
+
+fn deserialize_task_spec<'de, D, T: Deserialize<'de>>(deserializer: D) -> Result<DirectTaskSpec<T>, D::Error> where D: Deserializer<'de> {
+    let spec = DirectTaskSpec::<T>::deserialize(deserializer)?;
+    if spec.function.is_none() && spec.args.is_none() && spec.kwargs.is_none() {
+        Err(D::Error::custom("all fields are missing"))
+    } else {
+        Ok(spec)
+    }
+}
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum ClientTaskSpec<T = SerializedMemory> {
-    Direct {
-        function: Option<T>,
-        args: Option<T>,
-        kwargs: Option<T>,
-    },
-    Serialized(T),
+    #[serde(deserialize_with = "deserialize_task_spec")]
+    Direct(DirectTaskSpec<T>),
+    Serialized(T)
 }
 
 pub fn task_spec_to_memory(
@@ -25,15 +40,15 @@ pub fn task_spec_to_memory(
         ClientTaskSpec::Serialized(v) => {
             ClientTaskSpec::<SerializedMemory>::Serialized(v.to_memory(frames))
         }
-        ClientTaskSpec::Direct {
+        ClientTaskSpec::Direct(DirectTaskSpec{
             function,
             args,
             kwargs,
-        } => ClientTaskSpec::<SerializedMemory>::Direct {
+        }) => ClientTaskSpec::<SerializedMemory>::Direct(DirectTaskSpec {
             function: function.map(|v| v.to_memory(frames)),
             args: args.map(|v| v.to_memory(frames)),
             kwargs: kwargs.map(|v| v.to_memory(frames)),
-        },
+        }),
     }
 }
 

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
-use crate::protocol::clientmsg::ClientTaskSpec;
+use crate::protocol::clientmsg::{ClientTaskSpec, DirectTaskSpec};
 use crate::protocol::protocol::{MessageBuilder, SerializedMemory};
 use crate::protocol::Priority;
 use crate::server::client::ClientId;
@@ -200,11 +200,11 @@ impl Task {
         let mut msg_task = None;
 
         match &self.spec {
-            Some(ClientTaskSpec::Direct {
+            Some(ClientTaskSpec::Direct(DirectTaskSpec {
                 function,
                 args,
                 kwargs,
-            }) => {
+            })) => {
                 msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
                 msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
                 msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));

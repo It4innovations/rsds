@@ -563,10 +563,7 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::{
-        task_spec_to_memory, ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
-        UpdateGraphMsg,
-    };
+    use crate::protocol::clientmsg::{task_spec_to_memory, ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, UpdateGraphMsg, DirectTaskSpec};
     use crate::protocol::protocol::{
         asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
         DaskPacket, DaskPacketPart, SerializedMemory, Frame
@@ -838,11 +835,11 @@ mod tests {
                 );
                 let tasks = parse_tasks(&mut msg);
                 match &tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
-                    ClientTaskSpec::Direct {
+                    ClientTaskSpec::Direct(DirectTaskSpec {
                         function,
                         args,
                         kwargs,
-                    } => {
+                    }) => {
                         assert_eq!(hash(&get_binary(function.as_ref().unwrap())), 14885086766577267268);
                         assert_eq!(hash(&get_binary(args.as_ref().unwrap())), 518960099204433046);
                         assert!(kwargs.is_none());
