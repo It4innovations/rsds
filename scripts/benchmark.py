@@ -548,7 +548,8 @@ def execute_benchmark(input, output_dir, profile, timeout, bootstrap) -> bool:
         bootstrap = os.path.abspath(bootstrap)
         assert os.path.isfile(bootstrap)
 
-    start = time.time()
+    start = os.environ.get('PBS_START_TIME') or time.time()
+    start = int(start)
     benchmark = Benchmark(load_config(input), output_dir, profile)
     frame, timeouted = benchmark.run(timeout, bootstrap, start)
     save_results(frame, output_dir)
@@ -630,6 +631,8 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 #PBS -o {stdout}
 #PBS -e {stderr}
 {pbs_project}
+
+export PBS_START_TIME=`date +%s`
 
 source {ENV_INIT_SCRIPT} || exit 1
 workon {workon} || exit 1
