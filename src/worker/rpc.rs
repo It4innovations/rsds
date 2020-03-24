@@ -166,12 +166,14 @@ async fn register_worker<
     reader: &mut S,
     writer: &mut W,
 ) -> crate::Result<()> {
+    let address = state.get().listen_address.clone();
     writer
         .send(serialize_single_packet(GenericMessage::<
             SerializedTransport,
         >::RegisterWorker(
             RegisterWorkerMsg {
-                address: state.get().listen_address.clone().into(),
+                name: address.clone(),
+                address: address.into(),
                 nthreads: state.get().ncpus,
             },
         ))?)
