@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
@@ -14,7 +14,12 @@ pub struct DirectTaskSpec<T = SerializedMemory> {
     pub kwargs: Option<T>,
 }
 
-fn deserialize_task_spec<'de, D, T: Deserialize<'de>>(deserializer: D) -> Result<DirectTaskSpec<T>, D::Error> where D: Deserializer<'de> {
+fn deserialize_task_spec<'de, D, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<DirectTaskSpec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+{
     let spec = DirectTaskSpec::<T>::deserialize(deserializer)?;
     if spec.function.is_none() && spec.args.is_none() && spec.kwargs.is_none() {
         Err(D::Error::custom("all fields are missing"))
@@ -29,7 +34,7 @@ fn deserialize_task_spec<'de, D, T: Deserialize<'de>>(deserializer: D) -> Result
 pub enum ClientTaskSpec<T = SerializedMemory> {
     #[serde(deserialize_with = "deserialize_task_spec")]
     Direct(DirectTaskSpec<T>),
-    Serialized(T)
+    Serialized(T),
 }
 
 pub fn task_spec_to_memory(
@@ -40,7 +45,7 @@ pub fn task_spec_to_memory(
         ClientTaskSpec::Serialized(v) => {
             ClientTaskSpec::<SerializedMemory>::Serialized(v.to_memory(frames))
         }
-        ClientTaskSpec::Direct(DirectTaskSpec{
+        ClientTaskSpec::Direct(DirectTaskSpec {
             function,
             args,
             kwargs,

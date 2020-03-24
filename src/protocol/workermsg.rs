@@ -1,21 +1,22 @@
 use crate::common::Map;
 use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport};
-use crate::protocol::Priority;
+use crate::protocol::protocol::{
+    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
+    SerializedMemory, SerializedTransport, ToDaskTransport,
+};
+use crate::protocol::{Float, Priority};
 use serde::{Deserialize, Serialize, Serializer};
 
 fn binary_is_empty(transport: &Option<SerializedTransport>) -> bool {
     match transport {
-        Some(transport) => {
-            match transport {
-                SerializedTransport::Indexed { .. } => false,
-                SerializedTransport::Inline(v) => match v {
-                    rmpv::Value::Binary(v) => v.is_empty(),
-                    _ => false,
-                }
-            }
-        }
-        None => false
+        Some(transport) => match transport {
+            SerializedTransport::Indexed { .. } => false,
+            SerializedTransport::Inline(v) => match v {
+                rmpv::Value::Binary(v) => v.is_empty(),
+                _ => false,
+            },
+        },
+        None => false,
     }
 }
 
@@ -127,7 +128,7 @@ from_dask_transport!(ToWorkerGenericMessage);
 pub struct RegisterWorkerResponseMsg {
     pub status: DaskKey,
     pub time: f64,
-    pub heartbeat_interval: f64,
+    pub heartbeat_interval: Float,
     pub worker_plugins: Vec<()>, // type of plugins??
 }
 from_dask_transport!(RegisterWorkerResponseMsg);

@@ -1,3 +1,3 @@
+mod reactor;
 pub mod rpc;
 mod state;
-mod reactor;

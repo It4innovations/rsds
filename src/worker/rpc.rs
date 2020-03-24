@@ -1,19 +1,24 @@
+use crate::common::Map;
 use crate::protocol::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::protocol::protocol::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_single_packet, Batch, DaskPacket, SerializedTransport, deserialize_packet};
-use crate::protocol::workermsg::{RegisterWorkerResponseMsg, ToWorkerGenericMessage, ToWorkerStreamMessage, GetDataResponse};
+use crate::protocol::key::DaskKey;
+use crate::protocol::protocol::SerializedMemory::Indexed;
+use crate::protocol::protocol::{
+    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
+    serialize_single_packet, Batch, DaskPacket, SerializedTransport,
+};
+use crate::protocol::workermsg::{
+    GetDataResponse, RegisterWorkerResponseMsg, ToWorkerGenericMessage, ToWorkerStreamMessage,
+};
 use crate::util::forward_queue_to_sink;
 use crate::worker::reactor::compute_task;
 use crate::worker::state::WorkerStateRef;
+use bytes::BytesMut;
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::LocalSet;
-use crate::common::Map;
-use crate::protocol::protocol::SerializedMemory::Indexed;
-use bytes::BytesMut;
-use crate::protocol::key::DaskKey;
 
 pub async fn run_worker<R: AsyncRead + AsyncWrite>(server_stream: R) -> crate::Result<()> {
     let taskset = LocalSet::default();
@@ -81,28 +86,45 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
         for message in messages? {
             match message {
                 ToWorkerGenericMessage::GetData(request) => {
-                    let data : Map<_, _> = request.keys.into_iter().map(|key| {
-                        (key, Indexed {
-                            frames: vec![BytesMut::from(&b"\x80\x03K*."[..])],
-                            header: rmpv::Value::Map(vec![
-                                (rmpv::Value::String("serializer".into()), rmpv::Value::String("pickle".into())),
-                                (rmpv::Value::String("lengths".into()), rmpv::Value::Array(vec![5.into()])),
-                                (rmpv::Value::String("count".into()), 1.into()),
-                                (rmpv::Value::String("deserialize".into()), false.into()),
-                            ]) })
-                    }).collect();
+                    let data: Map<_, _> = request
+                        .keys
+                        .into_iter()
+                        .map(|key| {
+                            (
+                                key,
+                                Indexed {
+                                    frames: vec![BytesMut::from(&b"\x80\x03K*."[..])],
+                                    header: rmpv::Value::Map(vec![
+                                        (
+                                            rmpv::Value::String("serializer".into()),
+                                            rmpv::Value::String("pickle".into()),
+                                        ),
+                                        (
+                                            rmpv::Value::String("lengths".into()),
+                                            rmpv::Value::Array(vec![5.into()]),
+                                        ),
+                                        (rmpv::Value::String("count".into()), 1.into()),
+                                        (rmpv::Value::String("deserialize".into()), false.into()),
+                                    ]),
+                                },
+                            )
+                        })
+                        .collect();
                     let response = GetDataResponse {
-                        status:     "OK".into(),
-                        data
+                        status: "OK".into(),
+                        data,
                     };
-                    writer.send(serialize_single_packet(response).unwrap()).await.unwrap();
+                    writer
+                        .send(serialize_single_packet(response).unwrap())
+                        .await
+                        .unwrap();
                     let mut inner = reader.into_inner();
                     let packet = inner.next().await.unwrap()?;
                     let response: Batch<DaskKey> = deserialize_packet(packet)?;
                     assert_eq!(response.len(), 1);
                     assert_eq!(response[0], "OK".into());
                     reader = dask_parse_stream::<ToWorkerGenericMessage, _>(inner);
-                },
+                }
                 _ => {
                     log::warn!("Unhandled message: {:?}", message);
                 }
@@ -192,7 +214,10 @@ mod tests {
     use crate::protocol::protocol::{
         serialize_single_packet, Batch, DaskPacket, SerializedTransport,
     };
-    use crate::protocol::workermsg::{ComputeTaskMsg, RegisterWorkerResponseMsg, ToWorkerStreamMessage, FromWorkerMessage, TaskFinishedMsg};
+    use crate::protocol::workermsg::{
+        ComputeTaskMsg, FromWorkerMessage, RegisterWorkerResponseMsg, TaskFinishedMsg,
+        ToWorkerStreamMessage,
+    };
     use crate::test_util::{bytes_to_msg, packets_to_bytes, MemoryStream};
     use crate::worker::rpc::main_rpc_loop;
     use crate::worker::state::WorkerStateRef;
@@ -250,11 +275,11 @@ mod tests {
             key: Default::default(),
             nbytes: 0,
             r#type: vec![],
-            startstops: vec![]
+            startstops: vec![],
         };
         let msg = FromWorkerMessage::<SerializedTransport>::TaskFinished(msg);
         let v = rmp_serde::to_vec_named(&msg).unwrap();
-        let r: FromWorkerMessage::<SerializedTransport> = rmp_serde::from_slice(&v).unwrap();
+        let r: FromWorkerMessage<SerializedTransport> = rmp_serde::from_slice(&v).unwrap();
     }
 
     fn create_ctx(ncpus: u32, address: &str) -> (WorkerStateRef, UnboundedReceiver<DaskPacket>) {

@@ -88,7 +88,13 @@ impl WorkstealingScheduler {
                 for tr in &worker.tasks {
                     tr.get_mut().take_flag = false;
                 }
-                balanced_tasks.extend(worker.tasks.iter().filter(|tr| !tr.get().is_pinned()).cloned());
+                balanced_tasks.extend(
+                    worker
+                        .tasks
+                        .iter()
+                        .filter(|tr| !tr.get().is_pinned())
+                        .cloned(),
+                );
             }
         }
 
@@ -106,7 +112,12 @@ impl WorkstealingScheduler {
                         cost += cost / 8;
                         cost += 10_000_000;
                     }
-                    log::debug!("Transfer cost task={} -> worker={} is {}", task.id, worker.id, cost);
+                    log::debug!(
+                        "Transfer cost task={} -> worker={} is {}",
+                        task.id,
+                        worker.id,
+                        cost
+                    );
                     std::u64::MAX - cost
                 });
                 underload_workers.push((wr.clone(), ts));
@@ -303,8 +314,8 @@ fn choose_worker_for_task(
 mod tests {
     use super::*;
     use crate::common::{Map, Set};
+    use crate::scheduler::test_util::{assigned_worker, connect_workers, finish_task, new_task};
     use crate::scheduler::{TaskId, WorkerId};
-    use crate::scheduler::test_util::{assigned_worker, finish_task, connect_workers, new_task};
 
     fn init() {
         let _ = env_logger::try_init().map_err(|_| {
@@ -369,9 +380,7 @@ mod tests {
     }
 
     fn run_schedule_get_task_ids(scheduler: &mut WorkstealingScheduler) -> Set<TaskId> {
-        run_schedule(scheduler).iter()
-        .map(|a| a.task)
-        .collect()
+        run_schedule(scheduler).iter().map(|a| a.task).collect()
     }
 
     #[test]

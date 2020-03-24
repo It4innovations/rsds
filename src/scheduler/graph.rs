@@ -1,11 +1,11 @@
 use crate::common::{Map, Set};
+use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::protocol::{
     NewFinishedTaskInfo, TaskInfo, TaskUpdate, TaskUpdateType, WorkerInfo,
 };
 use crate::scheduler::task::{OwningTaskRef, SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::worker::{HostnameId, Worker, WorkerRef};
 use crate::scheduler::{TaskAssignment, TaskId, ToSchedulerMessage, WorkerId};
-use crate::scheduler::metrics::NodeMetrics;
 
 #[derive(Debug)]
 pub struct SchedulerGraph {
