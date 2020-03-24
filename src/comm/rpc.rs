@@ -344,7 +344,7 @@ mod tests {
     use crate::comm::notifications::Notifications;
     use crate::comm::rpc::generic_rpc_loop;
     use crate::protocol::clientmsg::{
-        ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
+        ClientTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage, DirectTaskSpec
     };
     use crate::protocol::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
@@ -398,6 +398,7 @@ mod tests {
         let packets = vec![
             serialize_single_packet(GenericMessage::<SerializedTransport>::RegisterWorker(
                 RegisterWorkerMsg {
+                    name: "".to_string(),
                     address: to_dask_key("127.0.0.1"),
                     nthreads: 1,
                 },
@@ -452,11 +453,11 @@ mod tests {
         let (worker, mut rx) = worker(&mut core.get_mut(), "worker");
 
         let t = task_add(&mut core.get_mut(), 0);
-        t.get_mut().spec = Some(ClientTaskSpec::Direct {
+        t.get_mut().spec = Some(ClientTaskSpec::Direct(DirectTaskSpec {
             function: Some(dummy_serialized()),
             args: Some(dummy_serialized()),
             kwargs: Some(dummy_serialized()),
-        });
+        }));
         let mut notifications = Notifications::default();
         notifications.compute_task_on_worker(worker.clone(), t.clone());
         comm.get_mut().notify(&mut core.get_mut(), notifications)?;
