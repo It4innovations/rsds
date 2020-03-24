@@ -65,6 +65,7 @@ pub struct RegisterClientMsg {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
+    pub name: String,
     pub address: DaskKey,
     pub nthreads: u32,
     /*pub memorylimit: u64,
