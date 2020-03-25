@@ -313,7 +313,7 @@ def parse_trace(trace_path, handle_event, normalize_time=None) -> Tuple[Dict[int
             return time_us_to_s(time)
 
     with open(trace_path) as f:
-        for line in tqdm.tqdm(f):
+        for line in f:
             record = json.loads(line)
 
             fields = record["fields"]

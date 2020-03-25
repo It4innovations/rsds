@@ -1,4 +1,5 @@
 import os
+import re
 
 import networkx
 from postprocessing.trace import parse_trace
@@ -68,18 +69,11 @@ def task_graph_table():
         "xarray-5": "X",
         "xarray-25": "X",
         "wordbatch_vectorizer-wordbatch.csv-100000": "F",
-        "wordbatch_vectorizer-wordbatch.csv-default": "F",
         "wordbatch_wordbag-wordbatch.csv-100000": "F"
     }
     renames = {
-        "pandas_groupby-360-1s-1H": "groupby-360-1s-1H",
-        "pandas_groupby-360-1s-8H": "groupby-360-1s-8H",
-        "pandas_join-1-1s-1T": "join-1-1s-1T",
-        "pandas_join-1-1s-1H": "join-1-1s-1H",
-        "pandas_join-1-2s-1H": "join-1-2s-1H",
-        "wordbatch_vectorizer-wordbatch.csv-100000": "vectorizer-100000",
-        "wordbatch_vectorizer-wordbatch.csv-default": "vectorizer-1621956",
-        "wordbatch_wordbag-wordbatch.csv-100000": "wordbag-100000"
+        re.compile(r"^pandas.*"): lambda s: s[7:],
+        re.compile(r"^wordbatch_.*"): lambda s: s[10:].replace("wordbatch.csv-", "")
     }
 
     table = r"""\begin{table}
@@ -103,8 +97,12 @@ def task_graph_table():
             continue
         print(name, trace_path)
 
-        if name in renames:
-            name = renames[name]
+        for (regex, transformer) in renames.items():
+            if regex.match(name):
+                orig_name = name
+                name = transformer(name)
+                print(f"Renamed {orig_name} to {name}")
+                break
 
         g = trace_to_networkx(trace_path)
         node_count = len(g.nodes)
