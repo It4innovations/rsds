@@ -42,6 +42,7 @@ class Task:
         self.cpus = 1
         self.key = key
         self.events = []
+        self.finished_time = None
         self.add_event("create", timestamp)
 
     def add_event(self, event, timestamp, args=None):
@@ -343,11 +344,17 @@ def parse_trace(trace_path, handle_event, normalize_time=None) -> Tuple[Dict[int
                     else:
                         worker = None
                     task = tasks[task_id]
+
+                    if event == "assign" and task.inputs:
+                        ready_time = max(tasks[inp].finished_time for inp in task.inputs)
+                        task.add_event("ready", ready_time)
+
                     task.add_event(event, timestamp, {"worker": worker} if worker else {})
 
                     if event == "assign":
                         worker.start_task(task_id, timestamp)
                     elif event == "finish":
+                        task.finished_time = timestamp
                         start = normalize_time(fields, fields["start"])
                         end = normalize_time(fields, fields["stop"])
 
