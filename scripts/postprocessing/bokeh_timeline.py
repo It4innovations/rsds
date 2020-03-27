@@ -153,6 +153,7 @@ def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
 
     events_colors = {
         "create": "green",
+        "ready": "orange",
         "assign": "purple",
         "send": "yellow",
         "place": "brown",
