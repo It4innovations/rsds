@@ -6,7 +6,7 @@ from monitor.report import generate, serve
 from monitor.src.cluster import CLUSTER_FILENAME
 from postprocessing.charts import generate_charts
 from postprocessing.summary import generate_summary
-from postprocessing.trace import generate_chrome_trace, generate_trace_summary, generate_timeline, generate_graph
+from postprocessing.trace import generate_chrome_trace, generate_trace_summary, generate_timeline, generate_graph, generate_trace_charts
 
 
 @click.command()
@@ -23,6 +23,12 @@ def trace_chrome(trace_path, output, pretty):
 def trace_summary(trace_path, output):
     generate_trace_summary(trace_path, output)
 
+
+@click.command()
+@click.argument("trace-path")
+@click.argument("output")
+def trace_charts(trace_path, output):
+    generate_trace_charts(trace_path, output)
 
 @click.command()
 @click.argument("trace-path")
@@ -113,6 +119,7 @@ def cli():
 
 if __name__ == "__main__":
     cli.add_command(trace_summary)
+    cli.add_command(trace_charts)
     cli.add_command(trace_chrome)
     cli.add_command(trace_timeline)
     cli.add_command(trace_graph)

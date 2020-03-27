@@ -198,6 +198,36 @@ def generate_timeline(trace_path, output, task_filter=None):
     build_plot(plot_fn, output)
 
 
+def generate_trace_charts(trace_path, output):
+    def handle_event(*args):
+        pass
+
+    def find_event(task, name):
+        for e in task.events:
+            if e[0] == name:
+                return e[1]
+        if name == "ready":
+            return find_event(task, "create")
+        raise Exception("Not found " + name)
+
+    tasks, workers = parse_trace(trace_path, handle_event)
+
+    base_time = min(find_event(t, "create") for t in tasks.values())
+
+    #events = ["send", "ready", "assign", "compute-start", "compute-end", "finish", "remove"]
+    events = ["compute-end", "finish"]
+    for ename in events:
+        times = sorted(find_event(t, ename) - base_time for t in tasks.values())
+        counts = list(range(len(times)))
+        sns.lineplot(x=times, y=counts)
+    plt.legend(labels=events)
+    plt.show()
+
+
+
+
+
+
 def generate_graph(trace_path, output):
     import pygraphviz as pgv
 
