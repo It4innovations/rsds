@@ -63,6 +63,7 @@ async fn main() -> rsds::Result<()> {
         match TcpStream::connect(address).await {
             Ok(stream) => {
                 log::info!("Connected to {}", address_str);
+                stream.set_nodelay(true)?;
                 run_worker(stream).await?;
                 break;
             }
