@@ -25,14 +25,16 @@
             "nodes": [1, 7],
             "threads": [1],
             "processes": [24],
-            "args": [["--memory-limit", "10GB"]]
+            "args": [["--memory-limit", "10GB"]],
+            "name": ["sw"]
           }},
           {"$product": {
               "nodes": [1, 7],
               "threads": [1],
               "processes": [24],
               "binary": ["$BUILD/target/release/rsds-worker"],
-              "spawn-all": [true]
+              "spawn-all": [true],
+              "name": ["zw"]
           }}]
       }
     }

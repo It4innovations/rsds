@@ -81,7 +81,8 @@ def kill_fn(scheduler_sigint, node, process):
     if (process["key"].startswith("scheduler") and scheduler_sigint) or "monitor" in process["key"]:
         signal = "INT"
 
-    assert kill_process(node, process["pid"], signal=signal)
+    if not kill_process(node, process["pid"], signal=signal):
+        logging.warning(f"Error when attempting to kill {process} on {node}")
 
 
 class DaskCluster:
@@ -338,7 +339,7 @@ class Benchmark:
             t.start()
 
             init_elapsed = time.time() - start
-            logging.info(f"Initialization before benchmark took {init_elapsed}")
+            logging.info(f"Initialization before benchmark took {init_elapsed} s")
             assert init_elapsed < timeout
             left_time = timeout - init_elapsed
             t.join(left_time)
@@ -509,8 +510,8 @@ def get_submit_id():
 
 def format_cluster_info(cluster_info):
     workers = cluster_info['workers']
-    worker_binary = os.path.basename(workers.get("binary", "dask"))
-    workers = f"{worker_binary}-{workers['nodes']}n-{workers['processes']}p-{workers.get('threads', 1)}t"
+    worker_name = workers["name"]
+    workers = f"{worker_name}-{workers['nodes']}n-{workers['processes']}p-{workers.get('threads', 1)}t"
     scheduler = cluster_info['scheduler']['name']
     return f"{scheduler}-{workers}"
 
