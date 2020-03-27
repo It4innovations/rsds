@@ -509,5 +509,7 @@ pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 async fn connect_to_worker(address: DaskKey) -> crate::Result<tokio::net::TcpStream> {
     let address = address.to_string();
     let address = address.trim_start_matches("tcp://");
-    Ok(TcpStream::connect(address).await?)
+    let stream = TcpStream::connect(address).await?;
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
