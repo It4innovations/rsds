@@ -34,17 +34,17 @@ jobs:
         with:
           command: test
 
-      - name: Lint
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+      #- name: Lint
+      #  uses: actions-rs/cargo@v1
+      #  with:
+      #    command: clippy
+      #    args: -- -D warnings
 
       - name: Formatting
         uses: actions-rs/cargo@v1
         with:
           command: fmt
-            args: --all -- --check
+          args: --all -- --check
 
       - name: Setup Python
         uses: actions/setup-python@v1
