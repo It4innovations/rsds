@@ -108,29 +108,14 @@ async fn main() -> rsds::Result<()> {
     log::info!("Listening on port {}", address);
     let listener = TcpListener::bind(address).await?;
 
-    let (comm, sender, receiver) = prepare_scheduler_comm();
-
-    let msd = Duration::from_millis(opt.msd);
-    let scheduler_thread = thread::spawn(move || {
-        let mut runtime = tokio::runtime::Builder::new()
-            .basic_scheduler()
-            .enable_time()
-            .build()
-            .expect("Runtime creation failed");
-        runtime
-            .block_on(create_scheduler(opt.scheduler, msd, comm))
-            .expect("Scheduler failed");
-    });
+    let scheduler = rsds::scheduler::WorkstealingScheduler::default();
 
     {
         let task_set = tokio::task::LocalSet::default();
-        let comm_ref = CommRef::new(sender);
+        let comm_ref = CommRef::new(Box::new(scheduler));
         let core_ref = CoreRef::default();
-        let core_ref2 = core_ref.clone();
-        let comm_ref2 = comm_ref.clone();
         task_set
             .run_until(async move {
-                let scheduler = observe_scheduler(core_ref2, comm_ref2, receiver);
                 let connection = rsds::comm::connection_initiator(listener, core_ref, comm_ref);
                 let end_flag = async move {
                     end_rx.next().await;
@@ -138,7 +123,6 @@ async fn main() -> rsds::Result<()> {
                 };
 
                 let futures = vec![
-                    scheduler.boxed_local(),
                     connection.boxed_local(),
                     end_flag.boxed_local(),
                 ];
@@ -150,7 +134,6 @@ async fn main() -> rsds::Result<()> {
     }
 
     log::debug!("Waiting for scheduler to shut down...");
-    scheduler_thread.join().expect("Scheduler thread failed");
     log::info!("rsds ends");
 
     Ok(())

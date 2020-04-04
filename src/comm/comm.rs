@@ -10,7 +10,7 @@ use crate::protocol::protocol::DaskPacket;
 use crate::protocol::protocol::MessageBuilder;
 use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 
-use crate::scheduler::ToSchedulerMessage;
+use crate::scheduler::{ToSchedulerMessage, Scheduler};
 use crate::server::task::TaskRuntimeState;
 
 use crate::server::worker::WorkerRef;
@@ -21,13 +21,19 @@ use tokio::sync::mpsc::UnboundedSender;
 pub type CommRef = WrappedRcRefCell<Comm>;
 
 pub struct Comm {
-    sender: UnboundedSender<Vec<ToSchedulerMessage>>,
+    scheduler: Box<dyn Scheduler>
 }
 
 impl Comm {
     pub fn notify(&mut self, core: &mut Core, notifications: Notifications) -> crate::Result<()> {
         if !notifications.scheduler_messages.is_empty() {
-            self.sender.send(notifications.scheduler_messages).unwrap();
+            if self.scheduler.handle_messages(notifications.scheduler_messages) {
+                let assignments = self.scheduler.schedule();
+                let mut notifications = Default::default();
+
+                core.process_assignments(assignments, &mut notifications);
+                self.notify(core, notifications)?;
+            }
         }
         self.notify_workers(&core, notifications.workers)?;
         self.notify_clients(core, notifications.clients)?;
@@ -129,7 +135,7 @@ impl Comm {
 }
 
 impl CommRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        Self::wrap(Comm { sender })
+    pub fn new(scheduler: Box<dyn Scheduler>) -> Self {
+        Self::wrap(Comm { scheduler })
     }
 }
