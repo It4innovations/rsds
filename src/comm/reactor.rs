@@ -261,8 +261,7 @@ pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     _comm_ref: &CommRef,
     writer: &mut W,
 ) -> crate::Result<()> {
-    let core = core_ref.get();
-    let cores = core.get_worker_cores();
+    let cores = core_ref.get().get_worker_cores();
     writer.send(serialize_single_packet(cores)?).await?;
     Ok(())
 }
@@ -460,21 +459,23 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     sink: &mut W,
     keys: Option<Vec<DaskKey>>,
 ) -> crate::Result<()> {
-    let core = core_ref.get();
-    let keys = keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
-    let response: WhoHasMsgResponse = keys
-        .into_iter()
-        .map(|key| {
-            let workers = match core.get_task_by_key(&key) {
-                Some(task) => match task.get().get_workers() {
-                    Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
+    let response: WhoHasMsgResponse = {
+        let core = core_ref.get();
+        let keys = keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
+        keys
+            .into_iter()
+            .map(|key| {
+                let workers = match core.get_task_by_key(&key) {
+                    Some(task) => match task.get().get_workers() {
+                        Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
+                        None => vec![],
+                    },
                     None => vec![],
-                },
-                None => vec![],
-            };
-            (key, workers)
-        })
-        .collect();
+                };
+                (key, workers)
+            })
+            .collect()
+    };
 
     sink.send(serialize_single_packet(response)?).await
 }
