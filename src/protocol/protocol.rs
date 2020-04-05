@@ -575,10 +575,7 @@ mod tests {
         task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
         ToClientMessage, UpdateGraphMsg,
     };
-    use crate::protocol::protocol::{
-        asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
-        DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory,
-    };
+    use crate::protocol::protocol::{asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec, DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport};
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
     use futures::SinkExt;
@@ -587,7 +584,7 @@ mod tests {
     use crate::common::Map;
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::IntoInner;
-    use crate::protocol::workermsg::RegisterWorkerResponseMsg;
+    use crate::protocol::workermsg::{RegisterWorkerResponseMsg, FromWorkerMessage};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
@@ -883,6 +880,27 @@ mod tests {
         match msg {
             MessageWrapper::Message(v) => {
                 assert_eq!(v.heartbeat_interval, 1.0.into());
+            }
+            _ => panic!(),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parse_steal_response_state_none() -> Result<()> {
+        let main = load_bin_test_data("data/steal-response-state-none.bin");
+        let msg: MessageWrapper<FromWorkerMessage<SerializedTransport>> =
+            rmp_serde::from_slice(main.as_slice())?;
+        match msg {
+            MessageWrapper::MessageList(v) => {
+                assert_eq!(v.len(), 1);
+                match &v[0] {
+                    FromWorkerMessage::StealResponse(msg) => {
+                        assert!(msg.state.is_none());
+                    }
+                    _ => panic!()
+                }
             }
             _ => panic!(),
         }

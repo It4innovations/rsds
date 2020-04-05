@@ -345,7 +345,7 @@ impl Core {
                     };
 
                     // This needs to correspond with behavior in worker!
-                    let success = match msg.state {
+                    let success = match msg.state.unwrap_or(WorkerState::Error) {
                         WorkerState::Waiting | WorkerState::Ready => true,
                         _ => false,
                     };

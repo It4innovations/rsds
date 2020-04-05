@@ -188,13 +188,13 @@ pub enum WorkerState {
     Error,
     Rescheduled,
     Constrained,
-    LongRunning,
+    LongRunning
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StealResponseMsg {
     pub key: DaskKey,
-    pub state: WorkerState,
+    pub state: Option<WorkerState>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
