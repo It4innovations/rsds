@@ -1,11 +1,11 @@
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, error::TryRecvError};
 
 use crate::comm::CommRef;
 use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use crate::server::core::CoreRef;
 use crate::Error;
 use futures::future::Either;
-use futures::{future, StreamExt};
+use futures::{future, StreamExt, Stream, TryStreamExt};
 use std::time::{Duration, Instant};
 use tokio::time::delay_for;
 
@@ -88,7 +88,7 @@ pub async fn observe_scheduler(
     Ok(())
 }
 
-pub async fn drive_scheduler<S: Scheduler>(
+pub async fn drive_scheduler_msd<S: Scheduler>(
     mut scheduler: S,
     comm: SchedulerComm,
     minimum_delay: Duration,
@@ -163,6 +163,76 @@ pub async fn drive_scheduler<S: Scheduler>(
 
     if needs_schedule {
         run_schedule(&mut scheduler, &mut sender, &mut last_schedule);
+    }
+
+    log::debug!("Scheduler {} closed", name);
+    Ok(())
+}
+
+const SCHEDULER_BATCH_COUNT: usize = 16;
+
+pub async fn drive_scheduler<S: Scheduler>(
+    mut scheduler: S,
+    comm: SchedulerComm,
+    minimum_delay: Duration,
+) -> crate::Result<()> {
+    let identity = scheduler.identify();
+    let name = identity.scheduler_name.clone();
+
+    log::debug!("Scheduler {} initialized", name);
+
+    let SchedulerComm {
+        send: mut sender,
+        recv: mut receiver,
+    } = comm;
+    sender
+        .send(FromSchedulerMessage::Register(identity))
+        .unwrap();
+
+    let run_schedule =
+        |buffer: &mut Vec<ToSchedulerMessage>, scheduler: &mut S, sender: &mut SchedulerSender| {
+            if buffer.is_empty() {
+                return;
+            }
+            let needs_schedule = trace_time!("scheduler", "handle_messages", {
+                scheduler.handle_messages(std::mem::replace(buffer, Vec::with_capacity(SCHEDULER_BATCH_COUNT)))
+            });
+            if needs_schedule {
+                let assignments = trace_time!("scheduler", "schedule", { scheduler.schedule() });
+                sender
+                    .send(FromSchedulerMessage::TaskAssignments(assignments))
+                    .expect("Couldn't send scheduler assignments");
+            }
+        };
+
+    let mut message_buffer: Vec<ToSchedulerMessage> = Vec::with_capacity(SCHEDULER_BATCH_COUNT);
+    loop {
+        match receiver.try_recv() {
+            Ok(data) => {
+                message_buffer.extend(data);
+                if message_buffer.len() >= SCHEDULER_BATCH_COUNT {
+                    run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
+                }
+            }
+            Err(TryRecvError::Closed) => break,
+            Err(TryRecvError::Empty) => {
+                // tokio::task::yield_now().await; is this enough?
+                run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
+                match receiver.next().await {
+                    Some(data) => {
+                        message_buffer.extend(data);
+                        if message_buffer.len() >= SCHEDULER_BATCH_COUNT {
+                            run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
+                        }
+                    }
+                    None => break
+                }
+            }
+        }
+    };
+
+    if !message_buffer.is_empty() {
+        run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
     }
 
     log::debug!("Scheduler {} closed", name);
