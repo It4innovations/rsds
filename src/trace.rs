@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::FmtSubscriber;
+use std::io::BufWriter;
 
 pub struct ScopedTimer<'a> {
     process: &'a str,
@@ -157,7 +158,7 @@ pub fn trace_packet_receive(size: usize) {
     tracing::info!(action = "packet-receive", size = size);
 }
 
-struct FileGuard(Arc<Mutex<std::fs::File>>);
+struct FileGuard(Arc<Mutex<BufWriter<std::fs::File>>>);
 impl std::io::Write for FileGuard {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -192,7 +193,7 @@ impl FormatTime for Timestamp {
 }
 
 pub fn setup_file_trace(path: String) {
-    let file = File::create(&path).expect("Unable to create trace file");
+    let file = BufWriter::new(File::create(&path).expect("Unable to create trace file"));
     let file = Arc::new(Mutex::new(file));
 
     log::info!(
