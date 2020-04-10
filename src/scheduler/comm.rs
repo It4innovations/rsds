@@ -169,7 +169,7 @@ pub async fn drive_scheduler_msd<S: Scheduler>(
     Ok(())
 }
 
-const SCHEDULER_BATCH_COUNT: usize = 16;
+const MAX_PROCESSED_MESSAGES: usize = 500;
 
 pub async fn drive_scheduler<S: Scheduler>(
     mut scheduler: S,
@@ -189,51 +189,36 @@ pub async fn drive_scheduler<S: Scheduler>(
         .send(FromSchedulerMessage::Register(identity))
         .unwrap();
 
-    let run_schedule =
-        |buffer: &mut Vec<ToSchedulerMessage>, scheduler: &mut S, sender: &mut SchedulerSender| {
-            if buffer.is_empty() {
-                return;
+    let mut need_schedule = false;
+    loop {
+        for _ in 0..MAX_PROCESSED_MESSAGES {
+            match receiver.try_recv() {
+                Ok(data) => {
+                    need_schedule |= trace_time!("scheduler", "handle_messages", {
+                        scheduler.handle_messages(data)
+                    });
+                }
+                Err(_) => break
             }
-            let needs_schedule = trace_time!("scheduler", "handle_messages", {
-                scheduler.handle_messages(std::mem::replace(buffer, Vec::with_capacity(SCHEDULER_BATCH_COUNT)))
-            });
-            if needs_schedule {
-                let assignments = trace_time!("scheduler", "schedule", { scheduler.schedule() });
+        }
+        if need_schedule {
+            need_schedule = false;
+            let assignments = trace_time!("scheduler", "schedule", { scheduler.schedule() });
+            if !assignments.is_empty() {
                 sender
                     .send(FromSchedulerMessage::TaskAssignments(assignments))
                     .expect("Couldn't send scheduler assignments");
             }
-        };
-
-    let mut message_buffer: Vec<ToSchedulerMessage> = Vec::with_capacity(SCHEDULER_BATCH_COUNT);
-    loop {
-        match receiver.try_recv() {
-            Ok(data) => {
-                message_buffer.extend(data);
-                if message_buffer.len() >= SCHEDULER_BATCH_COUNT {
-                    run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
-                }
+        }
+        match receiver.next().await {
+            Some(data) => {
+                need_schedule = trace_time!("scheduler", "handle_messages", {
+                    scheduler.handle_messages(data)
+                });
             }
-            Err(TryRecvError::Closed) => break,
-            Err(TryRecvError::Empty) => {
-                // tokio::task::yield_now().await; is this enough?
-                run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
-                match receiver.next().await {
-                    Some(data) => {
-                        message_buffer.extend(data);
-                        if message_buffer.len() >= SCHEDULER_BATCH_COUNT {
-                            run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
-                        }
-                    }
-                    None => break
-                }
-            }
+            None => break
         }
     };
-
-    if !message_buffer.is_empty() {
-        run_schedule(&mut message_buffer, &mut scheduler, &mut sender);
-    }
 
     log::debug!("Scheduler {} closed", name);
     Ok(())
