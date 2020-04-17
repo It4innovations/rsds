@@ -46,10 +46,13 @@ def median(values):
 
 DIR = "/mnt/salomon/projects/rsds/experiments/runs/graph-info"
 KiB = 1024
-RENAMES = {
-    re.compile(r"^pandas.*"): lambda s: s[7:],
-    re.compile(r"^wordbatch_.*"): lambda s: s[10:].replace("wordbatch.csv-", "")
-}
+RENAMES = [
+    lambda s: re.sub(r"^(pandas_)(.*)", r"\2", s),
+    lambda s: re.sub(r"^(wordbatch_)(.*)", r"\2", s),
+    lambda s: re.sub(r"(.*)(wordbatch.csv-)(.*)", r"\1\3", s),
+    lambda s: re.sub(r"(.*)(000000)(-|$)(.*)", r"\1M\3\4", s),
+    lambda s: re.sub(r"(.*)(000)(-|$)(.*)", r"\1K\3\4", s)
+]
 APIS = {
     "pandas": "D",
     "bag": "B",
@@ -81,24 +84,22 @@ def worker_parse_trace(args):
             break
     assert api
 
-    for (regex, transformer) in RENAMES.items():
-        if regex.match(name):
-            orig_name = name
-            name = transformer(name)
+    for regex in RENAMES:
+        orig_name = name
+        name = regex(name)
+        if name != orig_name:
             print(f"Renamed {orig_name} to {name}")
-            break
 
     name = name.replace("_", r"\_")
-
     g = trace_to_networkx(trace_path)
     node_count = len(g.nodes)
     edge_count = len(g.edges)
 
     sizes = networkx.get_node_attributes(g, "size").values()
-    avg_size = f"{avg(sizes) / KiB:.3f}"
+    avg_size = f"{avg(sizes) / KiB:.2f}"
 
     durations = networkx.get_node_attributes(g, "duration").values()
-    avg_duration = f"{avg(durations) / 1000:.3f}"
+    avg_duration = f"{avg(durations) / 1000:.2f}"
 
     longest_path = networkx.dag_longest_path_length(g)
 
@@ -144,7 +145,7 @@ def task_graph_table():
     \label{tab:graph_properties}
 \begin{tabular}{l|rrrrrc}
     \toprule
-    Graph & \#T & \#I & S & D & LP & API \\
+    \textbf{Graph} & \textbf{\#T} & \textbf{\#I} & \textbf{S} & \textbf{AD} & \textbf{LP} & \textbf{API} \\
     \midrule
 """
     with Pool() as pool:
@@ -155,7 +156,7 @@ def task_graph_table():
     \end{tabular}\\
     \vspace{1mm}
     \#T = Number of tasks; \#I = Number of dependencies; \\
-    S = Average task output size [KiB]; D = Average task duration [ms]; \\
+    S = Average task output size [KiB]; AD = Average task duration [ms]; \\
     LP = longest oriented path in the graph; \\
     D = DataFrame; B = Bag; A = Arrays; F = Futures; X = XArray
 \end{table}"""
