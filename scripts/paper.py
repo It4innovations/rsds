@@ -51,7 +51,8 @@ RENAMES = [
     lambda s: re.sub(r"^(wordbatch_)(.*)", r"\2", s),
     lambda s: re.sub(r"(.*)(wordbatch.csv-)(.*)", r"\1\3", s),
     lambda s: re.sub(r"(.*)(000000)(-|$)(.*)", r"\1M\3\4", s),
-    lambda s: re.sub(r"(.*)(000)(-|$)(.*)", r"\1K\3\4", s)
+    lambda s: re.sub(r"(.*)(000)(-|$)(.*)", r"\1K\3\4", s),
+    lambda s: re.sub(r"(.*)1s(.*)", r"\g<1>1S\2", s)
 ]
 APIS = {
     "pandas": "D",
@@ -64,6 +65,14 @@ APIS = {
 }
 
 
+def round(value):
+    if value >= 100:
+        return str(int(value))
+    if value < 0.1:
+        return f"{value:.3f}"
+    return f"{value:.1f}"
+
+
 def worker_parse_trace(args):
     name = args
 
@@ -74,8 +83,7 @@ def worker_parse_trace(args):
             trace_path = potential_trace
             break
     if trace_path is None:
-        print(f"Warning: {name} not found, skipping")
-        return None
+        raise Exception(f"{name} not found")
     print(name, trace_path)
     api = None
     for prefix, apiname in APIS.items():
@@ -96,10 +104,10 @@ def worker_parse_trace(args):
     edge_count = len(g.edges)
 
     sizes = networkx.get_node_attributes(g, "size").values()
-    avg_size = f"{avg(sizes) / KiB:.2f}"
+    avg_size = round(avg(sizes) / KiB)
 
     durations = networkx.get_node_attributes(g, "duration").values()
-    avg_duration = f"{avg(durations) / 1000:.2f}"
+    avg_duration = round(avg(durations) / 1000)
 
     longest_path = networkx.dag_longest_path_length(g)
 
@@ -119,11 +127,15 @@ def task_graph_table():
         "merge-25000",
         "merge-30000",
         "merge-50000",
+        "merge-100000",
         "merge_slow-5000-0.1",
+        "merge_slow-20000-0.1",
         "numpy-50000-10",
         "numpy-50000-100",
         "numpy-50000-200",
         "numpy-50000-50",
+        "pandas_groupby-2880-1s-16H",
+        "pandas_groupby-2880-1s-8H",
         "pandas_groupby-1440-1s-1H",
         "pandas_groupby-1440-1s-8H",
         "pandas_groupby-360-1s-1H",
@@ -145,11 +157,11 @@ def task_graph_table():
     \label{tab:graph_properties}
 \begin{tabular}{l|rrrrrc}
     \toprule
-    \textbf{Graph} & \textbf{\#T} & \textbf{\#I} & \textbf{S} & \textbf{AD} & \textbf{LP} & \textbf{API} \\
+    \textbf{Task graph} & \textbf{\#T} & \textbf{\#I} & \textbf{S} & \textbf{AD} & \textbf{LP} & \textbf{API} \\
     \midrule
 """
     with Pool() as pool:
-        for line in tqdm(pool.imap(worker_parse_trace, usecases)):
+        for line in tqdm(pool.map(worker_parse_trace, usecases)):
             if line:
                 table += line
     table += r"""\bottomrule
