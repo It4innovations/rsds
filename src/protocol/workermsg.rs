@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize, Serializer};
 pub enum TaskArgument {
     Int(i64),
     TaskKey(String),
-    Object(SerializedTransport),
+    Serialized(SerializedTransport),
     List(Vec<TaskArgument>),
 }
 
