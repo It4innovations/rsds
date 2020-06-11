@@ -110,7 +110,7 @@ pub async fn drive_scheduler<S: Scheduler>(
 
     let run_schedule =
         |scheduler: &mut S, sender: &mut SchedulerSender, last_schedule: &mut Instant| {
-            let assignments = trace_time!("scheduler", "schedule", { scheduler.schedule() });
+            let assignments = trace_time!("scheduler", "schedule", scheduler.schedule());
             *last_schedule = Instant::now();
             sender
                 .send(FromSchedulerMessage::TaskAssignments(assignments))

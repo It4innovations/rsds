@@ -11,7 +11,7 @@ use crate::server::client::ClientId;
 use crate::server::core::Core;
 
 use crate::protocol::key::{DaskKey, DaskKeyRef};
-use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
+use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage, TaskArgument};
 use crate::scheduler::protocol::TaskId;
 use crate::server::worker::WorkerRef;
 
@@ -224,7 +224,7 @@ impl Task {
             task: msg_task,
             function: msg_function,
             kwargs: msg_kwargs,
-            args: msg_args,
+            args: msg_args.map(TaskArgument::Object),
             priority: [
                 self.user_priority,
                 self.scheduler_priority,

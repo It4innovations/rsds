@@ -7,6 +7,15 @@ use crate::protocol::protocol::{
 use crate::protocol::{Float, Priority};
 use serde::{Deserialize, Serialize, Serializer};
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum TaskArgument {
+    Int(i64),
+    TaskKey(String),
+    Object(SerializedTransport),
+    List(Vec<TaskArgument>),
+}
+
 fn binary_is_empty(transport: &Option<SerializedTransport>) -> bool {
     match transport {
         Some(transport) => match transport {
@@ -46,8 +55,8 @@ pub struct ComputeTaskMsg {
     #[serde(skip_serializing_if = "binary_is_empty")]
     pub function: Option<SerializedTransport>,
 
-    #[serde(skip_serializing_if = "binary_is_empty")]
-    pub args: Option<SerializedTransport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<TaskArgument>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kwargs: Option<SerializedTransport>,

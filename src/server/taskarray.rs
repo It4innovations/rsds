@@ -1,5 +1,4 @@
 use crate::scheduler::TaskId;
-use serde_json::error::ErrorCode::EofWhileParsingValue;
 
 type Int = i32;
 
@@ -44,14 +43,14 @@ pub struct CompactGraph {
 impl CompactGraph {
 
     pub fn materialize(&self, mut id_counter: TaskId) {
-        for array in self.arrays {
+        for array in &self.array {
             self.materialize_array(array, id_counter);
-            id_counter += array.size;
+            id_counter += array.size as u64;
         }
     }
 
     pub fn materialize_array(&self, array: &TaskArray, mut id_counter: TaskId) {
-        let index = 0;
+        /*let index = 0;
         for part in &array.parts {
             for i in &part.size {
                 let context = EvalContext::new(index);
@@ -59,7 +58,7 @@ impl CompactGraph {
                 id_counter += 1;
                 index += 1;
             }
-        }
+        }*/
     }
 }
 
@@ -90,7 +89,8 @@ impl EvalContext {
     }
 
     pub fn eval_arg(&self, expr: &ArgumentExpr) -> Argument {
-        match expr {
+        todo!()
+        /*match expr {
             ArgumentExpr::Int(e) => Argument::Int(self.eval_int(e)),
             ArgumentExpr::Object(data) => Argument::Serialized(data.clone()),
             ArgumentExpr::Task(key) => Argument::TaskKey(key.clone()),
@@ -101,7 +101,6 @@ impl EvalContext {
             ArgumentExpr::TaskArray(key, _) => {
                 todo!()
             }
-        }
+        }*/
     }
-
 }
