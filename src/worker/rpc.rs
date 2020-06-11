@@ -1,6 +1,6 @@
 use crate::common::Map;
 use crate::protocol::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::protocol::key::DaskKey;
+use crate::protocol::key::{DaskKey, dask_key_ref_to_str};
 use crate::protocol::protocol::SerializedMemory::Indexed;
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
@@ -122,15 +122,13 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
                     let packet = inner.next().await.unwrap()?;
                     let response: Batch<DaskKey> = deserialize_packet(packet)?;
                     assert_eq!(response.len(), 1);
-                    assert_eq!(response[0], "OK".into());
+                    assert_eq!(dask_key_ref_to_str(&response[0]), "OK");
                     reader = dask_parse_stream::<ToWorkerGenericMessage, _>(inner);
                 }
                 _ => {
                     log::warn!("Unhandled message: {:?}", message);
                 }
             };
-            //Indexed { frames: [b"\x80\x04\x95\x03\0\0\0\0\0\0\0K\0."], header: Map([
-            // (String(Utf8String { s: Ok("serializer") }), String(Utf8String { s: Ok("pickle") })), (String(Utf8String { s: Ok("lengths") }), Array([Integer(PosInt(14))])), (String(Utf8String { s: Ok("compression") }), Array([Nil])), (String(Utf8String { s: Ok("count") }), Integer(PosInt(1))), (String(Utf8String { s: Ok("deserialize") }), Boolean(false))]) }}
         }
     }
 

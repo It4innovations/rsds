@@ -245,7 +245,7 @@ pub enum MessageWrapper<T> {
 /// Binary data serialized either inline or in a frame.
 /// This is the in-flight variant of serialized data.
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SerializedTransport {
     Indexed {

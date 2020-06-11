@@ -1,33 +1,33 @@
+use std::iter::FromIterator;
+
+use futures::{Sink, SinkExt, StreamExt};
+use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use rand::seq::SliceRandom;
+use tokio::net::TcpStream;
+
 use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
-use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
-use crate::server::client::ClientId;
-use crate::server::core::CoreRef;
-
+use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg, ClientTaskSpec};
 use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::protocol::key::{dask_key_ref_to_str, DaskKey, to_dask_key};
 use crate::protocol::protocol::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
+    asyncread_to_stream, asyncwrite_to_sink, Batch, dask_parse_stream,
+    DaskPacket, deserialize_packet, map_to_transport, MessageBuilder, MessageWrapper, serialize_single_packet,
     SerializedMemory,
 };
-
-use crate::protocol::workermsg::{
-    GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
-};
+use crate::protocol::workermsg::{GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse, TaskArgument};
 use crate::scheduler::protocol::TaskId;
-
-use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
-
-use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::client::ClientId;
+use crate::server::core::CoreRef;
+use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState, ClientTaskHolder};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
-use futures::future::join_all;
-use futures::stream::FuturesUnordered;
-use futures::{Sink, SinkExt, StreamExt};
-use rand::seq::SliceRandom;
-use std::iter::FromIterator;
-use tokio::net::TcpStream;
+
+// def fn(x):
+//     return x * 10
+static FUNCTION_BYTES: [u8; 513] = [128, 4, 149, 246, 1, 0, 0, 0, 0, 0, 0, 140, 23, 99, 108, 111, 117, 100, 112, 105, 99, 107, 108, 101, 46, 99, 108, 111, 117, 100, 112, 105, 99, 107, 108, 101, 148, 140, 14, 95, 102, 105, 108, 108, 95, 102, 117, 110, 99, 116, 105, 111, 110, 148, 147, 148, 40, 104, 0, 140, 15, 95, 109, 97, 107, 101, 95, 115, 107, 101, 108, 95, 102, 117, 110, 99, 148, 147, 148, 104, 0, 140, 13, 95, 98, 117, 105, 108, 116, 105, 110, 95, 116, 121, 112, 101, 148, 147, 148, 140, 8, 67, 111, 100, 101, 84, 121, 112, 101, 148, 133, 148, 82, 148, 40, 75, 1, 75, 0, 75, 1, 75, 2, 75, 67, 67, 8, 124, 0, 100, 1, 20, 0, 83, 0, 148, 78, 75, 10, 134, 148, 41, 140, 1, 120, 148, 133, 148, 140, 57, 47, 112, 114, 111, 106, 101, 99, 116, 115, 47, 112, 101, 114, 115, 111, 110, 97, 108, 47, 100, 105, 115, 116, 114, 105, 98, 117, 116, 101, 100, 47, 98, 101, 110, 99, 104, 109, 97, 114, 107, 115, 47, 109, 101, 114, 103, 101, 95, 115, 105, 109, 112, 108, 101, 46, 112, 121, 148, 140, 12, 101, 120, 112, 101, 114, 105, 109, 101, 110, 116, 97, 108, 148, 75, 13, 67, 2, 0, 2, 148, 41, 41, 116, 148, 82, 148, 74, 255, 255, 255, 255, 125, 148, 40, 140, 11, 95, 95, 112, 97, 99, 107, 97, 103, 101, 95, 95, 148, 78, 140, 8, 95, 95, 110, 97, 109, 101, 95, 95, 148, 140, 8, 95, 95, 109, 97, 105, 110, 95, 95, 148, 140, 8, 95, 95, 102, 105, 108, 101, 95, 95, 148, 140, 57, 47, 112, 114, 111, 106, 101, 99, 116, 115, 47, 112, 101, 114, 115, 111, 110, 97, 108, 47, 100, 105, 115, 116, 114, 105, 98, 117, 116, 101, 100, 47, 98, 101, 110, 99, 104, 109, 97, 114, 107, 115, 47, 109, 101, 114, 103, 101, 95, 115, 105, 109, 112, 108, 101, 46, 112, 121, 148, 117, 135, 148, 82, 148, 125, 148, 40, 140, 7, 103, 108, 111, 98, 97, 108, 115, 148, 125, 148, 140, 8, 100, 101, 102, 97, 117, 108, 116, 115, 148, 78, 140, 4, 100, 105, 99, 116, 148, 125, 148, 140, 14, 99, 108, 111, 115, 117, 114, 101, 95, 118, 97, 108, 117, 101, 115, 148, 78, 140, 6, 109, 111, 100, 117, 108, 101, 148, 104, 22, 140, 4, 110, 97, 109, 101, 148, 104, 15, 140, 3, 100, 111, 99, 148, 78, 140, 23, 95, 99, 108, 111, 117, 100, 112, 105, 99, 107, 108, 101, 95, 115, 117, 98, 109, 111, 100, 117, 108, 101, 115, 148, 93, 148, 140, 11, 97, 110, 110, 111, 116, 97, 116, 105, 111, 110, 115, 148, 125, 148, 140, 8, 113, 117, 97, 108, 110, 97, 109, 101, 148, 104, 15, 140, 10, 107, 119, 100, 101, 102, 97, 117, 108, 116, 115, 148, 78, 117, 116, 82, 46];
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -52,6 +52,40 @@ pub fn update_graph(
         update.tasks.len(),
         client_id
     );
+
+    // create fake tasks
+    let experimental_count = 50000;
+    assert_eq!(update.tasks.len(), 1);
+    let merge_task_key = update.tasks[0].0.clone();
+    let mut dep_keys = vec!();
+
+    for i in 0..experimental_count {
+        let task_key = format!("input-{}", i);
+        new_task_ids.insert(task_key.clone(), core.new_task_id());
+        let task_id = *new_task_ids.get(&task_key).unwrap();
+        let inputs = Vec::new();
+        let unfinished_deps = 0;
+
+        let task_spec = Some(ClientTaskHolder::Custom {
+            function: SerializedMemory::Inline(rmpv::Value::Binary(FUNCTION_BYTES.to_vec())),
+            args: TaskArgument::List(vec!(TaskArgument::Int(i as i64))) // arguments has to be a list
+        });
+
+        dep_keys.push(TaskArgument::TaskKey(task_key.clone()));
+        update.dependencies.get_mut(&merge_task_key).unwrap().push(task_key.clone());
+        let task_ref = TaskRef::new(
+            task_id,
+            task_key,
+            task_spec,
+            inputs,
+            unfinished_deps,
+            0,
+            0,
+        );
+
+        core.add_task(task_ref.clone());
+        new_tasks.push(task_ref);
+    }
 
     /* client send a user_priority in inverse meaning, so we use negative value
     to make same meaning in the rsds */
@@ -90,11 +124,24 @@ pub fn update_graph(
         log::debug!("New task id={}, key={}", task_id, task_key);
         trace_task_new(task_id, dask_key_ref_to_str(&task_key), &inputs);
         let task_spec = task_spec_to_memory(task_spec, &mut update.frames);
+        // let task_spec = Some(TaskArgument)
+        let function = match task_spec {
+            ClientTaskSpec::Direct(spec) => {
+                spec.function.unwrap()
+            }
+            ClientTaskSpec::Serialized(_) => { panic!() } // TODO: problematic
+        };
+
+        let task_spec = Some(ClientTaskHolder::Custom {
+            function,
+            args: TaskArgument::List(std::mem::take(&mut dep_keys))
+        });
+
         let client_priority = update.priority.get(&task_key).copied().unwrap_or_default();
         let task_ref = TaskRef::new(
             task_id,
             task_key,
-            Some(task_spec),
+            task_spec,
             inputs,
             unfinished_deps,
             user_priority,
@@ -201,7 +248,7 @@ pub fn subscribe_keys(
     comm_ref.get_mut().notify(&mut core, notifications)
 }
 
-pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn gather<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     address: std::net::SocketAddr,
@@ -256,7 +303,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     Ok(())
 }
 
-pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn get_ncores<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     writer: &mut W,
@@ -309,7 +356,7 @@ fn scatter_tasks(
     result
 }
 
-pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn scatter<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     writer: &mut W,
@@ -453,7 +500,7 @@ pub async fn update_data_on_worker(
     Ok(response.pop().unwrap().nbytes)
 }
 
-pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn who_has<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,
@@ -480,7 +527,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     sink.send(serialize_single_packet(response)?).await
 }
 
-pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn proxy_to_worker<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,

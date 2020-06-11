@@ -6,7 +6,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
 
-/*pub type DaskKey = String;
+pub type DaskKey = String;
 pub type DaskKeyRef = str;
 
 #[inline]
@@ -16,9 +16,14 @@ pub fn to_dask_key(string: &str) -> DaskKey {
 #[inline]
 pub fn dask_key_ref_to_string(key: &DaskKeyRef) -> String {
     key.to_owned()
-}*/
+}
+#[inline]
+pub fn dask_key_ref_to_str(key: &DaskKeyRef) -> &str {
+    key
+}
+from_dask_transport!(String);
 
-pub type DaskKeyRef = [u8];
+/*pub type DaskKeyRef = [u8];
 
 #[derive(Hash, PartialEq, Eq, Clone, Default)]
 pub struct DaskKey {
@@ -204,3 +209,4 @@ impl<'de> Deserialize<'de> for DaskKey {
         deserializer.deserialize_str(DaskKeyVisitor)
     }
 }
+*/

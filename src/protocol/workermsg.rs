@@ -7,7 +7,7 @@ use crate::protocol::protocol::{
 use crate::protocol::{Float, Priority};
 use serde::{Deserialize, Serialize, Serializer};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum TaskArgument {
     Int(i64),
