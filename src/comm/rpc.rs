@@ -1,7 +1,7 @@
 use crate::comm::notifications::Notifications;
 use crate::comm::reactor::{
     gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
-    who_has,
+    who_has, update_graph2,
 };
 use crate::comm::CommRef;
 use crate::protocol::clientmsg::FromClientMessage;
@@ -161,6 +161,11 @@ pub async fn client_rpc_loop<
                     FromClientMessage::UpdateGraph(update) => {
                         trace_time!("client", "update_graph", {
                             update_graph(&core_ref, &comm_ref, client_id, update)?;
+                        });
+                    },
+                    FromClientMessage::UpdateArrayGraph(update) => {
+                        trace_time!("client", "update_array_graph", {
+                            update_graph2(&core_ref, &comm_ref, client_id, update)?;
                         });
                     }
                     FromClientMessage::CloseClient => {

@@ -91,6 +91,62 @@ pub struct ClientDesiresKeysMsg {
     pub client: DaskKey,
 }
 
+/** TASK ARRAY SUPPORT */
+pub type Int = i32;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IntExpr {
+    Index,
+    Const(Int),
+    Add(Box<(IntExpr, IntExpr)>),
+    Mul(Box<(IntExpr, IntExpr)>),
+    Div(Box<(IntExpr, IntExpr)>),
+    Mod(Box<(IntExpr, IntExpr)>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RangeExpr {
+    GetItem(IntExpr),
+    // [x]
+    Slice(IntExpr, IntExpr, IntExpr),
+    // [start:end:step]
+    All, // [:]
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArgumentExpr {
+    Int(IntExpr),
+    #[serde(with = "serde_bytes")]
+    Serialized(Vec<u8>),
+    Task(DaskKey),
+    TaskArray(DaskKey, RangeExpr),
+    //ObjectList(Vec<Vec<u8>>, RangeExpr),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskArrayPart {
+    pub size: Int,
+    #[serde(with = "serde_bytes")]
+    pub function: Vec<u8>,
+    pub args: Vec<ArgumentExpr>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskArray {
+    pub key: DaskKey,
+    pub parts: Vec<TaskArrayPart>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateArrayGraphMsg {
+    pub arrays: Vec<TaskArray>,
+}
+
+/** END OF TASK ARRAY SUPPORT */
+
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
@@ -98,6 +154,7 @@ pub struct ClientDesiresKeysMsg {
 pub enum FromClientMessage {
     HeartbeatClient,
     UpdateGraph(UpdateGraphMsg),
+    UpdateArrayGraph(UpdateArrayGraphMsg),
     ClientReleasesKeys(ClientReleasesKeysMsg),
     ClientDesiresKeys(ClientDesiresKeysMsg),
     CloseClient,
@@ -119,6 +176,7 @@ impl FromDaskTransport for FromClientMessage {
                 user_priority: data.user_priority,
                 frames: std::mem::take(frames),
             }),
+            Self::Transport::UpdateArrayGraph(data) => Self::UpdateArrayGraph(data),
             Self::Transport::ClientReleasesKeys(data) => Self::ClientReleasesKeys(data),
             Self::Transport::ClientDesiresKeys(data) => Self::ClientDesiresKeys(data),
             Self::Transport::CloseClient => Self::CloseClient,

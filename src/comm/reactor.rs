@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
-use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
+use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg, UpdateArrayGraphMsg};
 use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
 use crate::protocol::key::{dask_key_ref_to_str, DaskKey, to_dask_key};
 use crate::protocol::protocol::{
@@ -24,6 +24,7 @@ use crate::server::core::CoreRef;
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState, ClientTaskHolder};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
+use crate::server::taskarray::materialize_task_arrays;
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -146,6 +147,42 @@ pub fn update_graph(
         task.actor = is_actor;
         task.subscribe_client(client_id);
     }
+    Ok(())
+}
+
+pub fn update_graph2(
+    core_ref: &CoreRef,
+    comm_ref: &CommRef,
+    client_id: ClientId,
+    mut update: UpdateArrayGraphMsg,
+) -> crate::Result<()> {
+    log::debug!("Updating graph from client {} (task arrays)", client_id);
+
+    let mut core = core_ref.get_mut();
+    //let count : usize = update.arrays.iter().map(|a| a.parts.iter().map(|p| p.size).count()).count();
+    let tasks = materialize_task_arrays(&mut core, &update.arrays);
+
+    let mut notifications = Notifications::with_scheduler_capacity(tasks.len());
+    for task_ref in &tasks {
+        notifications.new_task(&task_ref.get());
+        core.add_task(task_ref.clone());
+    }
+
+    for task_ref in &tasks {
+        let task = task_ref.get();
+        for task_id in &task.dependencies {
+            let tr = core.get_task_by_id_or_panic(*task_id);
+            tr.get_mut().add_consumer(task_ref.clone());
+        }
+    }
+
+    let count : usize = update.arrays.last().unwrap().parts.iter().map(|p| p.size as usize).sum();
+    for task_ref in &tasks[tasks.len() - count..tasks.len()] {
+        let mut task = task_ref.get_mut();
+        task.subscribe_client(client_id);
+    }
+
+    comm_ref.get_mut().notify(&mut core, notifications)?;
     Ok(())
 }
 
