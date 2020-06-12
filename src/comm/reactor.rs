@@ -1,33 +1,29 @@
+use std::iter::FromIterator;
+
+use futures::{Sink, SinkExt, StreamExt};
+use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use rand::seq::SliceRandom;
+use tokio::net::TcpStream;
+
 use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
 use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
-use crate::server::client::ClientId;
-use crate::server::core::CoreRef;
-
 use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::protocol::key::{dask_key_ref_to_str, DaskKey, to_dask_key};
 use crate::protocol::protocol::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
+    asyncread_to_stream, asyncwrite_to_sink, Batch, dask_parse_stream,
+    DaskPacket, deserialize_packet, map_to_transport, MessageBuilder, MessageWrapper, serialize_single_packet,
     SerializedMemory,
 };
-
-use crate::protocol::workermsg::{
-    GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
-};
+use crate::protocol::workermsg::{GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse};
 use crate::scheduler::protocol::TaskId;
-
-use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
-
-use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::client::ClientId;
+use crate::server::core::CoreRef;
+use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState, ClientTaskHolder};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
-use futures::future::join_all;
-use futures::stream::FuturesUnordered;
-use futures::{Sink, SinkExt, StreamExt};
-use rand::seq::SliceRandom;
-use std::iter::FromIterator;
-use tokio::net::TcpStream;
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -94,7 +90,7 @@ pub fn update_graph(
         let task_ref = TaskRef::new(
             task_id,
             task_key,
-            Some(task_spec),
+            Some(ClientTaskHolder::Dask(task_spec)),
             inputs,
             unfinished_deps,
             user_priority,
@@ -201,7 +197,7 @@ pub fn subscribe_keys(
     comm_ref.get_mut().notify(&mut core, notifications)
 }
 
-pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn gather<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     address: std::net::SocketAddr,
@@ -256,7 +252,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     Ok(())
 }
 
-pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn get_ncores<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     writer: &mut W,
@@ -309,7 +305,7 @@ fn scatter_tasks(
     result
 }
 
-pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn scatter<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     writer: &mut W,
@@ -453,7 +449,7 @@ pub async fn update_data_on_worker(
     Ok(response.pop().unwrap().nbytes)
 }
 
-pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn who_has<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,
@@ -480,7 +476,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     sink.send(serialize_single_packet(response)?).await
 }
 
-pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
+pub async fn proxy_to_worker<W: Sink<DaskPacket, Error=crate::Error> + Unpin>(
     core_ref: &CoreRef,
     _comm_ref: &CommRef,
     sink: &mut W,

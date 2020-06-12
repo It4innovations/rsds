@@ -5,21 +5,30 @@ use std::rc::Rc;
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
 use crate::protocol::clientmsg::{ClientTaskSpec, DirectTaskSpec};
-use crate::protocol::protocol::{MessageBuilder, SerializedMemory};
+use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::Priority;
+use crate::protocol::protocol::{MessageBuilder, SerializedMemory};
+use crate::protocol::workermsg::{ComputeTaskMsg, TaskArgument, ToWorkerMessage};
+use crate::scheduler::protocol::TaskId;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
-
-use crate::protocol::key::{DaskKey, DaskKeyRef};
-use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage, TaskArgument};
-use crate::scheduler::protocol::TaskId;
 use crate::server::worker::WorkerRef;
+
+#[derive(Debug)]
+pub enum ClientTaskHolder {
+    Custom {
+        function: SerializedMemory,
+        args: TaskArgument,
+    },
+    Dask(ClientTaskSpec<SerializedMemory>),
+}
 
 pub enum TaskRuntimeState {
     Waiting,
     Scheduled(WorkerRef),
     Assigned(WorkerRef),
-    Stealing(WorkerRef, WorkerRef), // (from, to)
+    Stealing(WorkerRef, WorkerRef),
+    // (from, to)
     Finished(DataInfo, Set<WorkerRef>),
     Released,
     Error(Rc<ErrorInfo>),
@@ -61,7 +70,7 @@ pub struct Task {
     key: DaskKey,
     pub dependencies: Vec<TaskId>,
 
-    pub spec: Option<ClientTaskSpec>,
+    pub spec: Option<ClientTaskHolder>,
 
     pub user_priority: i32,
     pub scheduler_priority: i32,
@@ -200,17 +209,23 @@ impl Task {
         let mut msg_task = None;
 
         match &self.spec {
-            Some(ClientTaskSpec::Direct(DirectTaskSpec {
-                function,
-                args,
-                kwargs,
-            })) => {
-                msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
+            Some(ClientTaskHolder::Custom { function, args }) => {
+                msg_function = Some(function.to_transport_clone(mbuilder));
+                msg_args = Some(args.clone());
             }
-            Some(ClientTaskSpec::Serialized(v)) => {
-                msg_task = Some(v.to_transport_clone(mbuilder));
+            Some(ClientTaskHolder::Dask(spec)) => match spec {
+                ClientTaskSpec::Direct(DirectTaskSpec {
+                                           function,
+                                           args,
+                                           kwargs,
+                                       }) => {
+                    msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                    msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder)).map(TaskArgument::Serialized);
+                    msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                }
+                ClientTaskSpec::Serialized(v) => {
+                    msg_task = Some(v.to_transport_clone(mbuilder));
+                }
             }
             None => panic!("Task has no specification"),
         };
@@ -224,7 +239,7 @@ impl Task {
             task: msg_task,
             function: msg_function,
             kwargs: msg_kwargs,
-            args: msg_args.map(TaskArgument::Object),
+            args: msg_args,
             priority: [
                 self.user_priority,
                 self.scheduler_priority,
@@ -305,7 +320,7 @@ impl TaskRef {
     pub fn new(
         id: TaskId,
         key: DaskKey,
-        spec: Option<ClientTaskSpec>,
+        spec: Option<ClientTaskHolder>,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
         user_priority: Priority,
@@ -330,8 +345,9 @@ impl TaskRef {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{task, task_deps};
     use std::default::Default;
+
+    use crate::test_util::{task, task_deps};
 
     #[test]
     fn task_consumers_empty() {

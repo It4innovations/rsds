@@ -245,7 +245,7 @@ pub enum MessageWrapper<T> {
 /// Binary data serialized either inline or in a frame.
 /// This is the in-flight variant of serialized data.
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SerializedTransport {
     Indexed {
@@ -801,7 +801,7 @@ mod tests {
             FromClientMessage::UpdateGraph(mut msg) => {
                 assert_eq!(
                     msg.keys,
-                    vec!("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".into())
+                    vec!(to_dask_key("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)"))
                 );
                 assert_eq!(
                     msg.dependencies,
@@ -811,12 +811,12 @@ mod tests {
                     }.into_iter().collect()
                 );
                 let tasks = parse_tasks(&mut msg);
-                match tasks[b"('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()] {
+                match tasks[&to_dask_key("('len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)")] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }
                 match tasks
-                    [b"('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)".as_ref()]
+                    [&to_dask_key("('getitem-len-chunk-make-timeseries-len-agg-14596c0437d9f1e7163f5c12fe93bee8', 0)")]
                 {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
@@ -843,7 +843,7 @@ mod tests {
                     ))
                 );
                 let tasks = parse_tasks(&mut msg);
-                match &tasks[b"('truediv-fb32c371476f0df11c512c4c98d6380d', 0)".as_ref()] {
+                match &tasks[&to_dask_key("('truediv-fb32c371476f0df11c512c4c98d6380d', 0)")] {
                     ClientTaskSpec::Direct(DirectTaskSpec {
                         function,
                         args,
@@ -861,7 +861,7 @@ mod tests {
                     }
                     _ => panic!(),
                 }
-                match tasks[b"('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)".as_ref()] {
+                match tasks[&to_dask_key("('series-groupby-sum-chunk-series-groupby-sum-agg-345ee905ca52a3462956b295ddd70113', 0)")] {
                     ClientTaskSpec::Serialized(SerializedMemory::Indexed { .. }) => {}
                     _ => panic!(),
                 }

@@ -1,11 +1,12 @@
-use crate::scheduler::TaskId;
-use crate::server::task::{Task, TaskRef, ClientTaskHolder};
-use crate::server::core::Core;
-use crate::protocol::key::DaskKey;
+
+
 use crate::common::Map;
-use std::rc::Rc;
-use crate::protocol::protocol::SerializedMemory;
+use crate::protocol::key::DaskKey;
+use crate::protocol::protocol::{SerializedMemory, SerializedTransport};
 use crate::protocol::workermsg::TaskArgument;
+use crate::scheduler::TaskId;
+use crate::server::core::Core;
+use crate::server::task::{ClientTaskHolder, TaskRef};
 
 type Int = i32;
 
@@ -17,8 +18,10 @@ pub enum IntExpr {
 }
 
 pub enum RangeExpr {
-    Get(IntExpr), // [x]
-    Slice(IntExpr, IntExpr, IntExpr), // [start:end:step]
+    Get(IntExpr),
+    // [x]
+    Slice(IntExpr, IntExpr, IntExpr),
+    // [start:end:step]
     All, // [:]
 }
 
@@ -33,7 +36,7 @@ pub enum ArgumentExpr {
 pub struct TaskArrayPart {
     size: Int,
     function: Vec<u8>,
-    args: Vec<ArgumentExpr>
+    args: Vec<ArgumentExpr>,
 }
 
 pub struct TaskArray {
@@ -49,7 +52,7 @@ pub enum MaterializedArgumentExpr<'a> {
     Int(&'a IntExpr),
     Serialized(&'a Vec<u8>),
     Task(TaskRef),
-    TaskArray(&'a MaterializedTaskArray, &'a RangeExpr)
+    TaskArray(&'a MaterializedTaskArray, &'a RangeExpr),
 }
 
 impl<'a> MaterializedArgumentExpr<'a> {
@@ -80,29 +83,29 @@ pub fn materialize_task_array(core: &mut Core, array: &TaskArray, m_arrays: &Map
     let tasks = Vec::new();
     let mut index = 0;
     for part in &array.parts {
-        let m_args : Vec<MaterializedArgumentExpr> = part.args.iter().map(|a| MaterializedArgumentExpr::from(a, core, m_arrays)).collect();
+        let m_args: Vec<MaterializedArgumentExpr> = part.args.iter().map(|a| MaterializedArgumentExpr::from(a, core, m_arrays)).collect();
         for _ in 0..part.size {
             let context = EvalContext::new(index);
-            let mut deps : Vec<TaskId> = Vec::new();
-            let args : Vec<_> = m_args.iter().map(|a| context.eval_arg(a, &mut deps)).collect();
+            let mut deps: Vec<TaskId> = Vec::new();
+            let args: Vec<_> = m_args.iter().map(|a| context.eval_arg(a, &mut deps)).collect();
             deps.sort();
             deps.dedup();
 
             let task_spec = Some(ClientTaskHolder::Custom {
-               function: SerializedMemory::Inline(rmpv::Value::Binary(part.function.clone())),
-               args: TaskArgument::List(args), // arguments has to be a list
+                function: SerializedMemory::Inline(rmpv::Value::Binary(part.function.clone())),
+                args: TaskArgument::List(args), // arguments has to be a list
             });
 
             let unfinished_deps = deps.len() as u32; // TODO: Compute real unfinished deps
 
             let task_ref = TaskRef::new(
-                 id_counter,
-                 format!("{}-{}", array.key, index).into(),
-                 task_spec,
-                 deps,
-                 unfinished_deps, // FIXME
-                 0, // FIXME
-                 0, // FIXME
+                id_counter,
+                format!("{}-{}", array.key, index).into(),
+                task_spec,
+                deps,
+                unfinished_deps, // FIXME
+                0, // FIXME
+                0, // FIXME
             );
 
             core.add_task(task_ref.clone());
@@ -114,7 +117,7 @@ pub fn materialize_task_array(core: &mut Core, array: &TaskArray, m_arrays: &Map
     }
     MaterializedTaskArray {
         key: array.key.clone(),
-        tasks
+        tasks,
     }
 }
 
@@ -153,7 +156,6 @@ pub struct EvalContext {
 }
 
 impl EvalContext {
-
     pub fn new(index: Int) -> Self {
         EvalContext { index }
     }
@@ -170,7 +172,7 @@ impl EvalContext {
     pub fn eval_arg(&self, expr: &MaterializedArgumentExpr, deps: &mut Vec<TaskId>) -> TaskArgument {
         match expr {
             MaterializedArgumentExpr::Int(e) => TaskArgument::Int(self.eval_int(e) as i64),
-            MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(data.clone()),
+            MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(SerializedTransport::Inline(rmpv::Value::Binary((*data).clone()))),
             MaterializedArgumentExpr::Task(task_ref) => {
                 let task = task_ref.get();
                 deps.push(task.id);
@@ -182,7 +184,7 @@ impl EvalContext {
                 deps.push(task.id);
                 TaskArgument::TaskKey(task.key().into())
             }
-            MaterializedArgumentExpr::TaskArray(key, _) => {
+            MaterializedArgumentExpr::TaskArray(_key, _) => {
                 todo!()
             }
         }

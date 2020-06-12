@@ -353,7 +353,7 @@ mod tests {
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::{serialize_single_packet, Batch, Frames, SerializedTransport};
     use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
-    use crate::server::task::{DataInfo, TaskRuntimeState};
+    use crate::server::task::{DataInfo, TaskRuntimeState, ClientTaskHolder};
     use crate::test_util::{
         bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,
         packet_to_msg, packets_to_bytes, task_add, worker, MemoryStream,
@@ -453,11 +453,11 @@ mod tests {
         let (worker, mut rx) = worker(&mut core.get_mut(), "worker");
 
         let t = task_add(&mut core.get_mut(), 0);
-        t.get_mut().spec = Some(ClientTaskSpec::Direct(DirectTaskSpec {
+        t.get_mut().spec = Some(ClientTaskHolder::Dask(ClientTaskSpec::Direct(DirectTaskSpec {
             function: Some(dummy_serialized()),
             args: Some(dummy_serialized()),
             kwargs: Some(dummy_serialized()),
-        }));
+        })));
         let mut notifications = Notifications::default();
         notifications.compute_task_on_worker(worker.clone(), t.clone());
         comm.get_mut().notify(&mut core.get_mut(), notifications)?;

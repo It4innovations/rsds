@@ -12,7 +12,7 @@ use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
 use crate::server::client::{Client, ClientId};
 use crate::server::core::{Core, CoreRef};
-use crate::server::task::TaskRef;
+use crate::server::task::{TaskRef, ClientTaskHolder};
 use crate::server::worker::{create_worker, WorkerRef};
 use bytes::BytesMut;
 use std::io::Cursor;
@@ -96,9 +96,9 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
     let task = TaskRef::new(
         id,
         format!("{}", id).into(),
-        Some(ClientTaskSpec::Serialized(SerializedMemory::Inline(
+        Some(ClientTaskHolder::Dask(ClientTaskSpec::Serialized(SerializedMemory::Inline(
             rmpv::Value::Nil,
-        ))),
+        )))),
         deps.iter().map(|t| t.get().id).collect(),
         deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
         Default::default(),

@@ -1,6 +1,6 @@
 use crate::common::Map;
 use crate::protocol::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::protocol::key::DaskKey;
+use crate::protocol::key::{DaskKey, dask_key_ref_to_str};
 use crate::protocol::protocol::SerializedMemory::Indexed;
 use crate::protocol::protocol::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
@@ -74,8 +74,8 @@ pub async fn connection_initiator(
 
 async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
     stream: R,
-    state_ref: WorkerStateRef,
-    address: SocketAddr,
+    _state_ref: WorkerStateRef,
+    _address: SocketAddr,
 ) -> crate::Result<()> {
     let (reader, writer) = tokio::io::split(stream);
     let reader = asyncread_to_stream(reader);
@@ -122,15 +122,13 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
                     let packet = inner.next().await.unwrap()?;
                     let response: Batch<DaskKey> = deserialize_packet(packet)?;
                     assert_eq!(response.len(), 1);
-                    assert_eq!(response[0], "OK".into());
+                    assert_eq!(dask_key_ref_to_str(&response[0]), "OK");
                     reader = dask_parse_stream::<ToWorkerGenericMessage, _>(inner);
                 }
                 _ => {
                     log::warn!("Unhandled message: {:?}", message);
                 }
             };
-            //Indexed { frames: [b"\x80\x04\x95\x03\0\0\0\0\0\0\0K\0."], header: Map([
-            // (String(Utf8String { s: Ok("serializer") }), String(Utf8String { s: Ok("pickle") })), (String(Utf8String { s: Ok("lengths") }), Array([Integer(PosInt(14))])), (String(Utf8String { s: Ok("compression") }), Array([Nil])), (String(Utf8String { s: Ok("count") }), Integer(PosInt(1))), (String(Utf8String { s: Ok("deserialize") }), Boolean(false))]) }}
         }
     }
 
@@ -222,6 +220,7 @@ mod tests {
     use crate::worker::rpc::main_rpc_loop;
     use crate::worker::state::WorkerStateRef;
     use tokio::sync::mpsc::UnboundedReceiver;
+    use crate::protocol::key::to_dask_key;
 
     #[tokio::test]
     async fn register_self() -> crate::Result<()> {
@@ -235,7 +234,7 @@ mod tests {
         assert_eq!(response.len(), 1);
         match response.pop().unwrap() {
             GenericMessage::RegisterWorker(msg) => {
-                assert_eq!(msg.address, "xxx:1234".into());
+                assert_eq!(msg.address, to_dask_key("xxx:1234"));
                 assert_eq!(msg.nthreads, 2);
             }
             _ => panic!("Wrong response"),
@@ -247,7 +246,7 @@ mod tests {
     #[tokio::test]
     async fn receive_compute_msg() -> crate::Result<()> {
         let (state, rx) = create_ctx(2, "xxx:1234");
-        let (stream, output) = MemoryStream::new(packets_to_bytes(vec![
+        let (stream, _output) = MemoryStream::new(packets_to_bytes(vec![
             serialize_single_packet(RegisterWorkerResponseMsg::default())?,
             serialize_single_packet(ToWorkerStreamMessage::ComputeTask(ComputeTaskMsg {
                 key: "test".into(),
@@ -279,7 +278,7 @@ mod tests {
         };
         let msg = FromWorkerMessage::<SerializedTransport>::TaskFinished(msg);
         let v = rmp_serde::to_vec_named(&msg).unwrap();
-        let r: FromWorkerMessage<SerializedTransport> = rmp_serde::from_slice(&v).unwrap();
+        let _r: FromWorkerMessage<SerializedTransport> = rmp_serde::from_slice(&v).unwrap();
     }
 
     fn create_ctx(ncpus: u32, address: &str) -> (WorkerStateRef, UnboundedReceiver<DaskPacket>) {
