@@ -123,7 +123,6 @@ pub enum ArgumentExpr {
     Serialized(Vec<u8>),
     Task(DaskKey),
     TaskArray(DaskKey, RangeExpr),
-    //ObjectList(Vec<Vec<u8>>, RangeExpr),
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +131,8 @@ pub struct TaskArrayPart {
     #[serde(with = "serde_bytes")]
     pub function: Vec<u8>,
     pub args: Vec<ArgumentExpr>,
+    #[serde(with = "serde_bytes")]
+    pub kwargs: Vec<u8>,
 }
 
 #[derive(Debug, Deserialize)]

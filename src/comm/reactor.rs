@@ -154,7 +154,7 @@ pub fn update_graph2(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
     client_id: ClientId,
-    mut update: UpdateArrayGraphMsg,
+    update: UpdateArrayGraphMsg,
 ) -> crate::Result<()> {
     log::debug!("Updating graph from client {} (task arrays)", client_id);
 

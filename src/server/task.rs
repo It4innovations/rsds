@@ -3,7 +3,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::comm::Notifications;
-use crate::common::{Set, WrappedRcRefCell};
+use crate::common::{Set, WrappedRcRefCell, Map};
 use crate::protocol::clientmsg::{ClientTaskSpec, DirectTaskSpec};
 use crate::protocol::key::{DaskKey, DaskKeyRef};
 use crate::protocol::Priority;
@@ -19,6 +19,7 @@ pub enum ClientTaskHolder {
     Custom {
         function: SerializedMemory,
         args: TaskArgument,
+        kwargs: SerializedMemory
     },
     Dask(ClientTaskSpec<SerializedMemory>),
 }
@@ -209,9 +210,10 @@ impl Task {
         let mut msg_task = None;
 
         match &self.spec {
-            Some(ClientTaskHolder::Custom { function, args }) => {
+            Some(ClientTaskHolder::Custom { function, args, kwargs }) => {
                 msg_function = Some(function.to_transport_clone(mbuilder));
                 msg_args = Some(args.clone());
+                msg_kwargs = Some(kwargs.to_transport_clone(mbuilder));
             }
             Some(ClientTaskHolder::Dask(spec)) => match spec {
                 ClientTaskSpec::Direct(DirectTaskSpec {
@@ -219,9 +221,16 @@ impl Task {
                                            args,
                                            kwargs,
                                        }) => {
-                    msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                    msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder)).map(TaskArgument::Serialized);
-                    msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                    msg_function = function
+                        .as_ref()
+                        .map(|v| v.to_transport_clone(mbuilder));
+                    msg_args = args
+                        .as_ref()
+                        .map(|v| v.to_transport_clone(mbuilder))
+                        .map(TaskArgument::Serialized);
+                    msg_kwargs = kwargs
+                        .as_ref()
+                        .map(|v| v.to_transport_clone(mbuilder));
                 }
                 ClientTaskSpec::Serialized(v) => {
                     msg_task = Some(v.to_transport_clone(mbuilder));

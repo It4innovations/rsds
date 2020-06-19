@@ -1,15 +1,13 @@
-
-
+use crate::comm::Notifications;
 use crate::common::Map;
+use crate::protocol::clientmsg::{ArgumentExpr, Int, IntExpr, RangeExpr, TaskArray};
 use crate::protocol::key::DaskKey;
 use crate::protocol::protocol::{SerializedMemory, SerializedTransport};
 use crate::protocol::workermsg::TaskArgument;
+use crate::scheduler::protocol::FromSchedulerMessage::TaskAssignments;
 use crate::scheduler::TaskId;
 use crate::server::core::Core;
 use crate::server::task::{ClientTaskHolder, TaskRef};
-use crate::protocol::clientmsg::{ArgumentExpr, IntExpr, RangeExpr, TaskArray, Int};
-use crate::comm::Notifications;
-use crate::scheduler::protocol::FromSchedulerMessage::TaskAssignments;
 
 #[derive(Debug)]
 pub enum MaterializedArgumentExpr<'a> {
@@ -54,16 +52,23 @@ pub fn materialize_task_array(core: &mut Core, array: &TaskArray, m_arrays: &Map
     let mut tasks = Vec::new();
     let mut index = 0;
     for part in &array.parts {
-        let m_args: Vec<MaterializedArgumentExpr> = part.args.iter().map(|a| MaterializedArgumentExpr::from(a, core, m_arrays)).collect();
+        let m_args: Vec<MaterializedArgumentExpr> = part.args
+            .iter()
+            .map(|a| MaterializedArgumentExpr::from(a, core, m_arrays))
+            .collect();
         for _ in 0..part.size {
             let context = EvalContext::new(index);
             let mut deps: Vec<TaskId> = Vec::new();
-            let args: Vec<_> = m_args.iter().map(|a| context.eval_arg(a, &mut deps)).collect();
+            let args: Vec<_> = m_args
+                .iter()
+                .map(|a| context.eval_arg(a, &mut deps))
+                .collect();
             deps.sort();
             deps.dedup();
             let task_spec = Some(ClientTaskHolder::Custom {
                 function: SerializedMemory::Inline(rmpv::Value::Binary(part.function.clone())),
                 args: TaskArgument::List(args), // arguments has to be a list
+                kwargs: SerializedMemory::Inline(rmpv::Value::Binary(part.kwargs.clone()))
             });
 
             let unfinished_deps = deps.len() as u32; // TODO: Compute real unfinished deps
@@ -86,36 +91,6 @@ pub fn materialize_task_array(core: &mut Core, array: &TaskArray, m_arrays: &Map
         tasks,
     }
 }
-
-/*
-impl CompactGraph {
-
-    pub fn materialize(&self, mut id_counter: TaskId) {
-        for array in &self.array {
-            self.materialize_array(array, id_counter);
-            id_counter += array.size as u64;
-        }
-    }
-
-    pub fn materialize_array(&self, array: &TaskArray, mut id_counter: TaskId) {
-        /*let index = 0;
-        for part in &array.parts {
-            for i in 0..part.size {
-                let context = EvalContext::new(index, self);
-                // context.eval_arg();
-                id_counter += 1;
-                index += 1;
-            }
-        }*/
-    }
-}*/
-
-/*pub enum Argument {
-    Int(i32),
-    TaskKey(String),
-    Serialized(Vec<u8>),
-    List(Vec<Argument>),
-}*/
 
 pub struct EvalContext {
     index: Int,
@@ -140,7 +115,9 @@ impl EvalContext {
     pub fn eval_arg(&self, expr: &MaterializedArgumentExpr, deps: &mut Vec<TaskId>) -> TaskArgument {
         match expr {
             MaterializedArgumentExpr::Int(e) => TaskArgument::Int(self.eval_int(e) as i64),
-            MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(SerializedTransport::Inline(rmpv::Value::Binary((*data).clone()))),
+            MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(
+                SerializedTransport::Inline(rmpv::Value::Binary((*data).clone()
+                ))),
             MaterializedArgumentExpr::Task(task_ref) => {
                 let task = task_ref.get();
                 deps.push(task.id);
@@ -151,7 +128,7 @@ impl EvalContext {
                 let task = mta.tasks[index as usize].get();
                 deps.push(task.id);
                 TaskArgument::TaskKey(task.key().into())
-            },
+            }
             MaterializedArgumentExpr::TaskArray(mta, RangeExpr::All) => {
                 let mut result = Vec::new();
                 for task_ref in &mta.tasks {
@@ -160,7 +137,7 @@ impl EvalContext {
                     result.push(TaskArgument::TaskKey(task.key().into()))
                 }
                 TaskArgument::List(result)
-            },
+            }
             MaterializedArgumentExpr::TaskArray(mta, RangeExpr::Slice(start, stop, step)) => {
                 let start = self.eval_int(&start);
                 let stop = self.eval_int(&stop);
