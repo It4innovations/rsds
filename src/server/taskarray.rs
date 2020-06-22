@@ -12,6 +12,7 @@ use crate::server::task::{ClientTaskHolder, TaskRef};
 #[derive(Debug)]
 pub enum MaterializedArgumentExpr<'a> {
     Int(&'a IntExpr),
+    Bool(bool),
     Serialized(&'a Vec<u8>),
     Task(TaskRef),
     TaskArray(&'a MaterializedTaskArray, &'a RangeExpr),
@@ -27,6 +28,7 @@ impl<'a> MaterializedArgumentExpr<'a> {
                 let array = arrays.get(key).unwrap();
                 MaterializedArgumentExpr::TaskArray(array, &range)
             }
+            ArgumentExpr::Bool(v) => MaterializedArgumentExpr::Bool(*v)
         }
     }
 }
@@ -68,7 +70,7 @@ pub fn materialize_task_array(core: &mut Core, array: &TaskArray, m_arrays: &Map
             let task_spec = Some(ClientTaskHolder::Custom {
                 function: SerializedMemory::Inline(rmpv::Value::Binary(part.function.clone())),
                 args: TaskArgument::List(args), // arguments has to be a list
-                kwargs: SerializedMemory::Inline(rmpv::Value::Binary(part.kwargs.clone()))
+                kwargs: part.kwargs.as_ref().map(|v| SerializedMemory::Inline(rmpv::Value::Binary(v.0.clone())))
             });
 
             let unfinished_deps = deps.len() as u32; // TODO: Compute real unfinished deps
@@ -115,6 +117,7 @@ impl EvalContext {
     pub fn eval_arg(&self, expr: &MaterializedArgumentExpr, deps: &mut Vec<TaskId>) -> TaskArgument {
         match expr {
             MaterializedArgumentExpr::Int(e) => TaskArgument::Int(self.eval_int(e) as i64),
+            MaterializedArgumentExpr::Bool(v) => TaskArgument::Bool(*v),
             MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(
                 SerializedTransport::Inline(rmpv::Value::Binary((*data).clone()
                 ))),

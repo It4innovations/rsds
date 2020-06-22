@@ -19,7 +19,7 @@ pub enum ClientTaskHolder {
     Custom {
         function: SerializedMemory,
         args: TaskArgument,
-        kwargs: SerializedMemory
+        kwargs: Option<SerializedMemory>
     },
     Dask(ClientTaskSpec<SerializedMemory>),
 }
@@ -213,7 +213,7 @@ impl Task {
             Some(ClientTaskHolder::Custom { function, args, kwargs }) => {
                 msg_function = Some(function.to_transport_clone(mbuilder));
                 msg_args = Some(args.clone());
-                msg_kwargs = Some(kwargs.to_transport_clone(mbuilder));
+                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
             }
             Some(ClientTaskHolder::Dask(spec)) => match spec {
                 ClientTaskSpec::Direct(DirectTaskSpec {

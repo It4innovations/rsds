@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize, Serializer};
 #[serde(untagged)]
 pub enum TaskArgument {
     Int(i64),
+    Bool(bool),
     TaskKey(String),
     Serialized(SerializedTransport),
     List(Vec<TaskArgument>),
