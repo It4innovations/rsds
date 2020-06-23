@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import functools
 import hashlib
@@ -10,65 +11,37 @@ import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 import traceback
-from multiprocessing import Pool, TimeoutError
-from multiprocessing.pool import ThreadPool
+from multiprocessing import Pool
 from random import Random
 
 import click
-import dask
 import json5
 import numpy as np
 import pandas as pd
 import psutil
 import tqdm
 import xarray
-from distributed import Client
 from git import Repo
 from monitor.src.cluster import start_process, HOSTNAME, kill_process, CLUSTER_FILENAME, Cluster
 from orco import cfggen
-from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
-    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag, bench_merge_variable
 
 CURRENT_DIR = pathlib.Path(os.path.abspath(__file__)).parent
 BUILD_DIR = CURRENT_DIR.parent
 USECASES_SCRIPT = os.path.join(CURRENT_DIR, "usecases.py")
+RUN_BENCHMARK_SCRIPT = os.path.join(CURRENT_DIR, "benchmark_run.py")
 ENV_INIT_SCRIPT = "~/.pythonenv"
 
 TIMEOUT_EXIT_CODE = 16
 RESULT_FILE = "result.json"
 DEFAULT_VENV = "dask"
 
-USECASES = {
-    "xarray": bench_xarray,
-    "tree": bench_tree,
-    "bag": bench_bag,
-    "numpy": bench_numpy,
-    "merge": bench_merge,
-    "merge_slow": bench_merge_slow,
-    "merge_variable": bench_merge_variable,
-    "pandas_groupby": bench_pandas_groupby,
-    "pandas_join": bench_pandas_join,
-    "wordbatch_vectorizer": bench_wordbatch_vectorizer,
-    "wordbatch_wordbag": bench_wordbatch_wordbag
-}
 HASHES = {}
 GIT_REPOSITORY = Repo(BUILD_DIR)
-SINGLE_RUN_TIMEOUT = 180
-CLIENT_TIMEOUT = 60
-TIMEOUT_POOL = None
-
-
-def with_timeout(fn, timeout):
-    global TIMEOUT_POOL
-
-    if TIMEOUT_POOL is None:
-        TIMEOUT_POOL = ThreadPool(1)
-
-    fut = TIMEOUT_POOL.apply_async(fn)
-    return fut.get(timeout=timeout)
+SINGLE_RUN_TIMEOUT = 240
 
 
 def start_process_pool(args):
@@ -92,6 +65,7 @@ class DaskCluster:
         if port is None:
             port = generate_port()
 
+        self.cluster_info = cluster_info
         self.scheduler = cluster_info["scheduler"]
         self.workers = cluster_info["workers"]
 
@@ -122,15 +96,6 @@ class DaskCluster:
         with open(os.path.join(self.workdir, CLUSTER_FILENAME), "w") as f:
             self.cluster.serialize(f)
 
-        self.client = Client(f"{self.scheduler_address}", timeout=CLIENT_TIMEOUT)
-
-        required_workers = worker_count(self.workers)
-        try:
-            with_timeout(lambda: self.client.wait_for_workers(required_workers), CLIENT_TIMEOUT)
-        except TimeoutError:
-            raise Exception(f"Cluster {cluster_info} did not start in {CLIENT_TIMEOUT}s: {traceback.format_exc()}")
-        assert len(self.client.scheduler_info()["workers"]) == required_workers
-
         logging.info(
             f"Starting {format_cluster_info(cluster_info)} at {self.scheduler_address} took {time.time() - start} s")
 
@@ -156,12 +121,60 @@ class DaskCluster:
 
     def kill(self):
         start = time.time()
-        self.client.close()
 
         scheduler_sigint = self._profile_flamegraph() or self._trace_scheduler()
         fn = functools.partial(kill_fn, scheduler_sigint)
         self.cluster.kill(fn)
         logging.info(f"Cluster killed in {time.time() - start} seconds")
+
+    def run_single_benchmark(self, configuration, identifier):
+        arguments = {
+            "scheduler_address": self.scheduler_address,
+            "required_workers": worker_count(self.workers),
+            "function_name": configuration["function"],
+            "args": configuration["args"],
+            "needs_client": configuration["needs_client"],
+            "cluster_info": format_cluster_info(self.cluster_info)
+        }
+        arguments = json.dumps(arguments)
+
+        with tempfile.NamedTemporaryFile(delete=False) as file:
+            try:
+                file.write(arguments.encode())
+                file.close()
+
+                result = None
+                command = f"""
+cd {self.workdir} || exit 1
+{' && '.join(f"{{ {cmd} || exit 1; }}" for cmd in self.init_cmd)}
+python {RUN_BENCHMARK_SCRIPT}
+                """.strip()
+                try:
+                    env = os.environ.copy()
+                    env.update({
+                        "ARGUMENTS_PATH": file.name
+                    })
+                    process = subprocess.run(["sh"], timeout=SINGLE_RUN_TIMEOUT,
+                                             input=command.encode(),
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             env=env)
+                    if process.returncode != 0:
+                        raise Exception(f"Client process exited with an error: {process.stderr.decode()}")
+                    stdout = process.stdout.decode()
+                    print(stdout)
+                    output = json.loads(stdout)
+                    if output.get("error"):
+                        raise Exception(output["error"])
+                    result = output["result"]
+                    duration = output["duration"]
+                except subprocess.TimeoutExpired:
+                    logging.warning(f"Job {identifier} timeouted in {SINGLE_RUN_TIMEOUT} s")
+                    duration = SINGLE_RUN_TIMEOUT
+                return result, duration
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(file.name)
 
     def _start_scheduler(self, scheduler):
         binary = normalize_binary(scheduler["binary"])
@@ -297,7 +310,7 @@ class Benchmark:
                     c["index"] = i
                     yield c
 
-        results = results = {
+        results = {
             "cluster": [],
             "function": [],
             "result": [],
@@ -307,14 +320,13 @@ class Benchmark:
         configurations = skip_completed(list(repeat_configs()), bootstrap)
 
         def run():
-            pool = ThreadPool(1)
             for configuration in tqdm.tqdm(configurations):
                 repeat_index = configuration["index"]
                 logging.info(
                     f"Benchmarking {configuration['name']} on {format_cluster_info(configuration['cluster'])} ({repeat_index})")
 
                 try:
-                    configuration, result, duration = self.benchmark_configuration(configuration, repeat_index, pool)
+                    configuration, result, duration = self.benchmark_configuration(configuration, repeat_index)
 
                     results["cluster"].append(format_cluster_info(configuration["cluster"]))
                     results["function"].append(configuration["name"])
@@ -349,31 +361,13 @@ class Benchmark:
 
         return pd.DataFrame(results), timeouted
 
-    def benchmark_configuration(self, configuration, index, pool):
+    def benchmark_configuration(self, configuration, index):
         identifier = f"{format_cluster_info(configuration['cluster'])}-{configuration['name']}-{index}"
         workdir = os.path.join(self.workdir, identifier)
         os.makedirs(workdir, exist_ok=True)
 
         with DaskCluster(configuration["cluster"], workdir, profile=self.profile) as cluster:
-            def compute_client():
-                return configuration["function"](cluster.client)
-
-            def compute():
-                graph = configuration["function"]()
-                start = time.time()
-                result = dask.compute(graph)
-                duration = time.time() - start
-                return result, duration
-
-            fut = pool.apply_async(compute_client if configuration["needs_client"] else compute)
-
-            result = None
-            try:
-                result, duration = fut.get(timeout=SINGLE_RUN_TIMEOUT)
-            except TimeoutError:
-                logging.warning(f"Job {identifier} timeouted in {SINGLE_RUN_TIMEOUT} s")
-                duration = SINGLE_RUN_TIMEOUT
-
+            result, duration = cluster.run_single_benchmark(configuration, identifier)
             return (configuration, flatten_result(result), duration)
 
     def _gen_configurations(self, configurations):
@@ -394,7 +388,8 @@ class Benchmark:
             name = f"{function}-{'-'.join(format_arg(arg) for arg in args)}"
             yield {
                 "name": name,
-                "function": functools.partial(USECASES[function], *args),
+                "function": function,
+                "args": args,
                 "needs_client": usecase.get("needs_client", False),
                 "cluster": configuration["cluster"]
             }
