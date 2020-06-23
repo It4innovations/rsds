@@ -119,6 +119,7 @@ pub enum RangeExpr {
 #[serde(rename_all = "kebab-case")]
 pub enum ArgumentExpr {
     Int(IntExpr),
+    CtxRef(IntExpr),
     Bool(bool),
     #[serde(with = "serde_bytes")]
     Serialized(Vec<u8>),
@@ -136,6 +137,8 @@ pub struct TaskArrayPart {
     pub function: Vec<u8>,
     pub args: Vec<ArgumentExpr>,
     pub kwargs: Option<PickledData>,
+    #[serde(default)]
+    pub context: Vec<PickledData>
 }
 
 #[derive(Debug, Deserialize)]
