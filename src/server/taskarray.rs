@@ -16,6 +16,7 @@ pub enum MaterializedArgumentExpr<'a> {
     ContextRef(&'a IntExpr),
     Bool(bool),
     Serialized(&'a Vec<u8>),
+    List(Vec<MaterializedArgumentExpr<'a>>),
     Task(TaskRef),
     TaskArray(&'a MaterializedTaskArray, &'a RangeExpr),
 }
@@ -27,6 +28,11 @@ impl<'a> MaterializedArgumentExpr<'a> {
             ArgumentExpr::Bool(v) => MaterializedArgumentExpr::Bool(*v),
             ArgumentExpr::CtxRef(v) => MaterializedArgumentExpr::ContextRef(v),
             ArgumentExpr::Serialized(v) => MaterializedArgumentExpr::Serialized(v),
+            ArgumentExpr::List(list) => MaterializedArgumentExpr::List(list
+                .into_iter()
+                .map(|v| MaterializedArgumentExpr::from(v, core, arrays))
+                .collect()
+            ),
             ArgumentExpr::Task(key) => MaterializedArgumentExpr::Task(core.get_task_by_key_or_panic(key).clone()),
             ArgumentExpr::TaskArray(key, range) => {
                 let array = arrays.get(key).unwrap();
@@ -133,6 +139,11 @@ impl<'a> EvalContext<'a> {
             },
             MaterializedArgumentExpr::Serialized(data) => TaskArgument::Serialized(
                 SerializedTransport::Inline(rmpv::Value::Binary((*data).clone()))
+            ),
+            MaterializedArgumentExpr::List(items) => TaskArgument::List(items
+                .iter()
+                .map(|v| self.eval_arg(v, deps))
+                .collect()
             ),
             MaterializedArgumentExpr::Task(task_ref) => {
                 let task = task_ref.get();

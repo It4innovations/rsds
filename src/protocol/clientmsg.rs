@@ -123,6 +123,7 @@ pub enum ArgumentExpr {
     Bool(bool),
     #[serde(with = "serde_bytes")]
     Serialized(Vec<u8>),
+    List(Vec<ArgumentExpr>),
     Task(DaskKey),
     TaskArray(DaskKey, RangeExpr),
 }
