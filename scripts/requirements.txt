@@ -1,4 +1,4 @@
-git+https://github.com/kobzol/distributed.git@simple-frame-sched
+git+https://github.com/kobzol/distributed.git@simple-frame
 orco==0.3.0
 pytest==5.3.4
 seaborn==0.9.0

@@ -6,6 +6,8 @@ from random import Random
 
 import dask
 import dask.array as da
+from dask.datasets import timeseries
+from dask.dataframe.shuffle import shuffle
 import joblib
 import numpy as np
 import pandas as pd
@@ -26,6 +28,11 @@ nums_re = re.compile(r"\W*[0-9]+\W*")
 triples_re = re.compile(r"(\w)\1{2,}")
 trash_re = [re.compile(r"<[^>]*>"), re.compile(r"[^a-z0-9' -]+"), re.compile(r" [.0-9'-]+ "), re.compile(r"[-']{2,}"),
             re.compile(r" '"), re.compile(r"  +")]
+
+
+def get_date_range(start, days):
+    end = start + datetime.timedelta(days=days)
+    return (start, end)
 
 
 def normalize_text(text):
@@ -71,9 +78,7 @@ def bench_pandas_groupby(days=1, freq="1s", partition_freq="1H"):
     """
     https://examples.dask.org/dataframe.html
     """
-    start = datetime.datetime(year=2020, month=1, day=1)
-    end = start + datetime.timedelta(days=days)
-
+    start, end = get_date_range(datetime.datetime(year=2020, month=1, day=1), days)
     df = dask.datasets.timeseries(start=start, end=end, seed=0,
                                   freq=freq, partition_freq=partition_freq)
     m = df.groupby("name")["x"].mean().sum()
@@ -82,9 +87,7 @@ def bench_pandas_groupby(days=1, freq="1s", partition_freq="1H"):
 
 
 def bench_pandas_join(days=1, freq="1s", partition_freq="2H"):
-    start = datetime.datetime(year=2020, month=1, day=1)
-    end = start + datetime.timedelta(days=days)
-
+    start, end = get_date_range(datetime.datetime(year=2020, month=1, day=1), days)
     df = dask.datasets.timeseries(start=start, end=end, seed=0,
                                   freq=freq,
                                   partition_freq=partition_freq,
@@ -199,6 +202,27 @@ def bench_scikit():
     with joblib.parallel_backend("dask"):
         grid_search.fit(X, y)
     return np.sum(grid_search.predict(X)[:5])
+
+
+def bench_shuffle(days, client):
+    start_date, end_date = get_date_range(datetime.datetime(year=2000, month=1, day=1), days)
+
+    start = time.time()
+    ddf_d = timeseries(start=start_date, end=end_date, freq="1s", partition_freq='1d', seed=0)
+    ddf_d_2 = shuffle(ddf_d, "id", shuffle="tasks")
+    result = ddf_d_2.compute()
+    duration = time.time() - start
+    return len(result), duration
+
+
+def bench_len(days, client):
+    start_date, end_date = get_date_range(datetime.datetime(year=2000, month=1, day=1), days)
+
+    start = time.time()
+    df = timeseries(start=start_date, end=end_date, freq="1s", partition_freq='1d', seed=0)
+    length = len(df)
+    duration = time.time() - start
+    return length, duration
 
 
 if __name__ == "__main__":

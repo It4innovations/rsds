@@ -159,10 +159,12 @@ python {RUN_BENCHMARK_SCRIPT}
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              env=env)
-                    if process.returncode != 0:
-                        raise Exception(f"Client process exited with an error: {process.stderr.decode()}")
                     stdout = process.stdout.decode()
-                    print(stdout)
+                    stderr = process.stderr.decode()
+
+                    if process.returncode != 0:
+                        raise Exception(f"Client process exited with an error {process.returncode}\n{stdout}\n{stderr}")
+
                     output = json.loads(stdout)
                     if output.get("error"):
                         raise Exception(output["error"])
@@ -420,16 +422,7 @@ def write_metadata(scheduler, directory):
 
 
 def normalize_binary(binary):
-    path = binary.replace("$BUILD", str(BUILD_DIR))
-    if not os.path.isfile(path):
-        for directory in os.environ.get("PATH", "").split(":"):
-            fullpath = os.path.join(directory, path)
-            if os.path.isfile(fullpath):
-                path = fullpath
-                break
-        else:
-            raise Exception(f"Path {path} not found")
-    return path
+    return binary.replace("$BUILD", str(BUILD_DIR))
 
 
 def skip_completed(configurations, bootstrap):

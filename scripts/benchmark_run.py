@@ -8,7 +8,8 @@ from multiprocessing.pool import ThreadPool
 import dask
 from distributed import Client
 from usecases import bench_numpy, bench_pandas_groupby, bench_pandas_join, bench_bag, bench_merge, bench_merge_slow, \
-    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag, bench_merge_variable
+    bench_tree, bench_xarray, bench_wordbatch_vectorizer, bench_wordbatch_wordbag, bench_merge_variable, bench_shuffle, \
+    bench_len
 
 USECASES = {
     "xarray": bench_xarray,
@@ -21,7 +22,9 @@ USECASES = {
     "pandas_groupby": bench_pandas_groupby,
     "pandas_join": bench_pandas_join,
     "wordbatch_vectorizer": bench_wordbatch_vectorizer,
-    "wordbatch_wordbag": bench_wordbatch_wordbag
+    "wordbatch_wordbag": bench_wordbatch_wordbag,
+    "shuffle": bench_shuffle,
+    "len": bench_len
 }
 CLIENT_TIMEOUT = 60
 TIMEOUT_POOL = None
@@ -35,10 +38,6 @@ def with_timeout(fn, timeout):
 
     fut = TIMEOUT_POOL.apply_async(fn)
     return fut.get(timeout=timeout)
-
-
-def compute_client(function, client):
-    return function(client)
 
 
 def compute(function):
@@ -76,7 +75,7 @@ if __name__ == "__main__":
         assert len(client.scheduler_info()["workers"]) == required_workers
 
         if needs_client:
-            res = compute_client(function, client)
+            res = function(client)
         else:
             res = compute(function)
         result, duration = res
