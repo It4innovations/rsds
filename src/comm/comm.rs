@@ -17,6 +17,7 @@ use crate::server::worker::WorkerRef;
 
 use crate::trace::trace_task_send;
 use tokio::sync::mpsc::UnboundedSender;
+use bytes::Bytes;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -82,7 +83,14 @@ impl Comm {
         notifications: Map<WorkerRef, WorkerNotification>,
     ) -> crate::Result<()> {
         for (worker_ref, w_update) in notifications {
-            let mut mbuilder = MessageBuilder::default();
+            let worker = worker_ref.get();
+            for task in w_update.compute_tasks {
+                let task = task.get();
+                trace_task_send(task.id, worker_ref.get().id);
+                task.make_compute_task_msg(core, &worker);
+            }
+
+            /*let mut mbuilder = MessageBuilder::default();
 
             for task in w_update.compute_tasks {
                 let task = task.get();
@@ -105,23 +113,24 @@ impl Comm {
             }
 
             if !mbuilder.is_empty() {
-                self.send_worker_packet(&worker_ref, mbuilder.build_batch()?)
+                self.send_worker_message(&worker_ref, mbuilder.build_batch()?)
                     .unwrap_or_else(|_| {
                         // !!! Do not propagate error right now, we need to finish sending protocol to others
                         // Worker cleanup is done elsewhere (when worker future terminates),
                         // so we can safely ignore this. Since we are nice guys we log (debug) message.
                         log::debug!("Sending tasks to worker {} failed", worker_ref.get().id);
                     });
-            }
+            }*/
         }
 
         Ok(())
     }
 
-    #[inline]
-    fn send_worker_packet(&mut self, worker: &WorkerRef, packet: DaskPacket) -> crate::Result<()> {
-        worker.get_mut().send_dask_packet(packet)
-    }
+    /*#[inline]
+    fn send_worker_message(&mut self, worker: &WorkerRef, packet: Bytes) -> crate::Result<()> {
+        worker.get_mut().send_message(packet)
+    }*/
+
     #[inline]
     fn send_client_packet(&mut self, client: &mut Client, packet: DaskPacket) -> crate::Result<()> {
         client.send_dask_packet(packet)

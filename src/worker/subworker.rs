@@ -3,44 +3,67 @@ use std::env;
 use std::path::{Path, PathBuf};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-use tokio::net::UnixListener;
+use tokio::net::{UnixStream, UnixListener};
 use tokio::process::Command;
-use futures::{Future, FutureExt, Stream, Sink};
+use futures::{Future, FutureExt};
 use std::process::Stdio;
-use tokio::stream::StreamExt;
+use tokio::stream::{Stream, StreamExt};
 use futures::task::LocalSpawnExt;
+use futures::stream::{SplitSink, SplitStream};
 use hashbrown::HashSet;
 use super::messages::RegisterSubworkerMessage;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use std::fs::File;
 use tokio::sync::oneshot;
+use tokio::io::AsyncWrite;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use crate::protocol2::protocol::make_protocol_builder;
+use crate::worker::task::{TaskRef, Task};
+use crate::worker::messages::{ToSubworkerMessage, ComputeTaskMsg};
+
 
 pub(crate) type SubworkerId = u32;
 
 pub struct Subworker {
-    id: SubworkerId,
+    pub id: SubworkerId,
+    pub sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    pub running_task: Option<TaskRef>,
 }
 
 pub type SubworkerRef = WrappedRcRefCell<Subworker>;
 
-impl SubworkerRef {
-    pub fn new(id: SubworkerId) -> Self {
-        Self::wrap(Subworker {
-            id
-        })
+impl Subworker {
+    pub fn start_task(&self, task: &Task) {
+        log::debug!("Starting task {} in subworker {}", task.key, self.id);
+        // Send message to subworker
+        let message = ToSubworkerMessage::ComputeTask(ComputeTaskMsg {
+            key: &task.key,
+            function: &task.function,
+            args: &task.args,
+            kwargs: &task.kwargs
+        });
+        let data = rmp_serde::to_vec_named(&message).unwrap();
+        self.sender.send(data.into()).unwrap();
     }
 }
 
+impl SubworkerRef {
+    pub fn new(id: SubworkerId, sender: tokio::sync::mpsc::UnboundedSender<Bytes>) -> Self {
+        Self::wrap(Subworker {
+            id,
+            sender,
+            running_task: None,
+        })
+    }
 
-async fn subworker_handshake(mut listener: UnixListener, subworker_id: SubworkerId) -> Result<impl Stream<Item=Result<BytesMut, std::io::Error>>, crate::Error> {
+}
+
+
+async fn subworker_handshake(mut listener: UnixListener, subworker_id: SubworkerId) -> Result<(SplitSink<Framed<UnixStream, LengthDelimitedCodec>, Bytes>,
+             SplitStream<Framed<UnixStream, LengthDelimitedCodec>>), crate::Error> {
     if let Some(Ok(mut stream)) = listener.next().await {
-        let mut builder = tokio_util::codec::LengthDelimitedCodec::builder();
-        builder.little_endian();
-        builder.max_frame_length(128 * 1024 * 1024);
-
-
-        let mut framed = builder.new_framed(stream);
-        let message = framed.next().await;
+        let mut framed = make_protocol_builder().new_framed(stream);
+        let message = tokio::stream::StreamExt::next(&mut framed).await;
 
         if message.is_none() {
             panic!("Subworker did not sent register message");
@@ -51,13 +74,21 @@ async fn subworker_handshake(mut listener: UnixListener, subworker_id: Subworker
         if register_message.subworker_id != subworker_id {
             panic!("Subworker registered with an invalid id");
         }
-        Ok(framed)
+        use futures::stream::StreamExt;
+        Ok(framed.split())
     } else {
         panic!("Listening on subworker socket failed");
     }
 }
 
-async fn run_subworker(work_dir: PathBuf, python_program: &str, subworker_id: SubworkerId, ready_shot: oneshot::Sender<SubworkerRef>) -> Result<(), crate::Error>
+async fn run_subworker_message_loop(mut stream: SplitStream<Framed<UnixStream, LengthDelimitedCodec>>) -> crate::Result<()> {
+    while let Some(messages) = stream.next().await {
+        todo!()
+    }
+    Ok(())
+}
+
+async fn run_subworker(work_dir: PathBuf, python_program: String, subworker_id: SubworkerId, ready_shot: oneshot::Sender<SubworkerRef>) -> Result<(), crate::Error>
 {
     let mut socket_path = work_dir.clone();
     socket_path.push(format!("subworker-{}.sock", subworker_id));
@@ -80,7 +111,7 @@ async fn run_subworker(work_dir: PathBuf, python_program: &str, subworker_id: Su
 
     std::mem::drop(socket_path);
 
-    let framed = tokio::select! {
+    let (writer, reader) = tokio::select! {
         result = &mut process_future => {
             panic!("Subworker {} failed without registration: {}, see {}", subworker_id, result?, log_path.display());
         },
@@ -89,40 +120,46 @@ async fn run_subworker(work_dir: PathBuf, python_program: &str, subworker_id: Su
         }
     };
 
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+
     // TODO: pass writing end
-    let subworker = SubworkerRef::new(subworker_id);
+    let subworker = SubworkerRef::new(subworker_id, queue_sender);
     if let Err(_) = ready_shot.send(subworker) {
         panic!("Announcing subworker failed");
     }
 
-    let framed = tokio::select! {
+    tokio::select! {
         result = process_future => {
             panic!("Subworker {} failed: {}, see {}", subworker_id, result?, log_path.display());
         },
-        // TODO: RPC loop
+        result = crate::util::forward_queue_to_sink(queue_receiver, writer) => {
+            panic!("Sending a message to subworker failed");
+        }
+        _ = run_subworker_message_loop(reader) => {
+            panic!("Subworker {} closed stream, see {}", subworker_id, log_path.display());
+        }
     };
 
     Ok(())
 }
 
 
-pub async fn start_subworkers(work_dir: &Path, python_program: &str, count: u32) -> Result<Vec<SubworkerRef>, crate::Error>  {
+pub async fn start_subworkers(work_dir: &Path, python_program: &str, count: u32) -> Result<(Vec<SubworkerRef>, impl Future<Output=usize>), crate::Error>  {
     let mut ready = Vec::with_capacity(count as usize);
     let processes : Vec<_> = (0..count).map(|i| {
         let (sx, rx) = oneshot::channel();
         ready.push(rx);
-        run_subworker(work_dir.to_path_buf(), python_program, i as SubworkerId, sx).boxed_local()
+        run_subworker(work_dir.to_path_buf(), python_program.to_string(), i as SubworkerId, sx).boxed_local()
     }).collect();
-    let mut all_processes = futures::future::select_all(processes);
+    let mut all_processes = futures::future::select_all(processes).map(|(_, idx, _)| idx);
 
     tokio::select! {
-        (result, _, _) = &mut all_processes => {
-            let _ = result?;
-            panic!("Subworker terminated");
+        idx = &mut all_processes => {
+            panic!("Subworker {} terminated", idx);
         }
         subworkers = futures::future::join_all(ready) => {
             // TODO: Return also "all_processes"
-            Ok(subworkers.into_iter().map(|sw| sw.unwrap()).collect())
+            Ok((subworkers.into_iter().map(|sw| sw.unwrap()).collect(), all_processes))
         }
     }
 }
@@ -134,7 +171,6 @@ mod tests {
 
     #[test]
     fn test_start() {
-        dbg!(generate_socket_name());
-        panic!("X");
+        assert_ne!(generate_socket_name(), generate_socket_name());
     }
 }

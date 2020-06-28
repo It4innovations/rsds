@@ -20,7 +20,7 @@ use crate::server::client::Client;
 use crate::server::core::CoreRef;
 
 use crate::server::task::ErrorInfo;
-use crate::server::worker::create_worker;
+//use crate::server::worker::create_worker;
 
 use crate::util::forward_queue_to_sink;
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
@@ -29,6 +29,8 @@ use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
+use crate::protocol2::protocol::make_protocol_builder;
+
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -41,7 +43,8 @@ pub async fn worker_rpc_loop<
     sender: Writer,
     msg: RegisterWorkerMsg,
 ) -> crate::Result<()> {
-    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
+    todo!()
+/*    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
     let worker_ref = create_worker(
         &mut core_ref.get_mut(),
@@ -115,7 +118,7 @@ pub async fn worker_rpc_loop<
     );
     let mut core = core_ref2.get_mut();
     core.unregister_worker(worker_id);
-    Ok(())
+    Ok(())*/
 }
 
 pub async fn client_rpc_loop<
@@ -213,6 +216,7 @@ pub async fn connection_initiator(
         });
     }
 }
+
 
 pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,

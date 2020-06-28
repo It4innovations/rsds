@@ -8,6 +8,8 @@ pub enum DsError {
     SerializationError(String),
     #[error("Scheduler error: {0}")]
     SchedulerError(String),
+    #[error("Error: {0}")]
+    GenericError(String),
 }
 
 impl From<serde_json::error::Error> for DsError {

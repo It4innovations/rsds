@@ -2,10 +2,41 @@ use crate::protocol::protocol::{serialize_single_packet, SerializedTransport};
 use crate::protocol::workermsg::{
     AddKeysMsg, ComputeTaskMsg, FromWorkerMessage, Status, TaskFinishedMsg,
 };
-use crate::worker::state::WorkerStateRef;
+use crate::worker::state::{WorkerStateRef, WorkerState};
 use std::time::{Duration, SystemTime};
+use rand::seq::IteratorRandom;
+use crate::worker::subworker::SubworkerRef;
+use crate::worker::task::TaskState;
+
+
+pub fn choose_subworker(state: &mut WorkerState) -> SubworkerRef {
+    // TODO: Real implementation
+    state.free_subworkers.pop().unwrap()
+}
+
+pub fn try_start_tasks(state: &mut WorkerState) {
+    if state.free_subworkers.is_empty() {
+        return;
+    }
+    while let Some((task_ref, _)) = state.task_queue.pop() {
+        {
+            let subworker_ref = choose_subworker(state);
+            let mut task = task_ref.get_mut();
+            task.set_running(subworker_ref.clone());
+            let mut sw = subworker_ref.get_mut();
+            assert!(sw.running_task.is_none());
+            sw.running_task = Some(task_ref.clone());
+            sw.start_task(&task);
+        }
+        if state.free_subworkers.is_empty() {
+            return;
+        }
+    }
+}
 
 pub fn compute_task(state_ref: &WorkerStateRef, mut msg: ComputeTaskMsg) -> crate::Result<()> {
+    todo!();
+    /*
     let now = SystemTime::UNIX_EPOCH.elapsed().unwrap();
     let mut state = state_ref.get_mut();
 
@@ -41,5 +72,5 @@ pub fn compute_task(state_ref: &WorkerStateRef, mut msg: ComputeTaskMsg) -> crat
             )],
         },
     ))?);
-    Ok(())
+    Ok(())*/
 }

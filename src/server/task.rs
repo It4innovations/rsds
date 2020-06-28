@@ -5,15 +5,15 @@ use std::rc::Rc;
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
 use crate::protocol::clientmsg::{ClientTaskSpec, DirectTaskSpec};
-use crate::protocol::protocol::{MessageBuilder, SerializedMemory};
+use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
 use crate::protocol::Priority;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
 
 use crate::protocol::key::{DaskKey, DaskKeyRef};
-use crate::protocol::workermsg::{ComputeTaskMsg, ToWorkerMessage};
+use crate::protocol2::workermsg::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::protocol::TaskId;
-use crate::server::worker::WorkerRef;
+use crate::server::worker::{WorkerRef, Worker};
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -165,16 +165,13 @@ impl Task {
     pub fn make_compute_task_msg(
         &self,
         core: &Core,
-        mbuilder: &mut MessageBuilder<ToWorkerMessage>,
+        worker: &Worker,
     ) {
-        let task_refs: Vec<_> = self
+        let dep_info: Vec<_> = self
             .dependencies
             .iter()
-            .map(|task_id| core.get_task_by_id_or_panic(*task_id).clone())
-            .collect();
-        let who_has: Vec<_> = task_refs
-            .iter()
-            .map(|task_ref| {
+            .map(|task_id| {
+                let task_ref = core.get_task_by_id_or_panic(*task_id);
                 let task = task_ref.get();
                 let addresses: Vec<_> = task
                     .get_workers()
@@ -183,55 +180,34 @@ impl Task {
                     .map(|w| w.get().listen_address.clone())
                     .collect();
                 (task.key.clone(), addresses)
-            })
-            .collect();
+            }).collect();
 
-        let nbytes: Vec<_> = task_refs
-            .iter()
-            .map(|task_ref| {
-                let task = task_ref.get();
-                (task.key.clone(), task.data_info().unwrap().size)
-            })
-            .collect();
+        let unpack = |s: &SerializedMemory| {
+            match s {
+                SerializedMemory::Inline(v) => v.clone(),
+                _ => todo!(),
+            }
+        };
 
-        let mut msg_function = None;
-        let mut msg_args = None;
-        let mut msg_kwargs = None;
-        let mut msg_task = None;
-
-        match &self.spec {
+        let (function, args, kwargs) = match &self.spec {
             Some(ClientTaskSpec::Direct(DirectTaskSpec {
                 function,
                 args,
                 kwargs,
             })) => {
-                msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                (unpack(function.as_ref().unwrap()), unpack(args.as_ref().unwrap()), kwargs.as_ref().map(unpack))
             }
-            Some(ClientTaskSpec::Serialized(v)) => {
-                msg_task = Some(v.to_transport_clone(mbuilder));
-            }
+            _ => todo!(),
             None => panic!("Task has no specification"),
         };
 
         let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
-            duration: 0.5, // TODO
-            actor: self.actor,
-            who_has,
-            nbytes,
-            task: msg_task,
-            function: msg_function,
-            kwargs: msg_kwargs,
-            args: msg_args,
-            priority: [
-                self.user_priority,
-                self.scheduler_priority,
-                self.client_priority,
-            ],
+            dep_info, function, args, kwargs,
+            user_priority: self.user_priority,
+            scheduler_priority: self.scheduler_priority,
         });
-        mbuilder.add_message(msg);
+        worker.send_message(msg);
     }
 
     #[inline]

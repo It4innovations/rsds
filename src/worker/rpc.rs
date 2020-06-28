@@ -1,5 +1,4 @@
 use crate::common::Map;
-use crate::protocol::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::protocol::key::DaskKey;
 use crate::protocol::protocol::SerializedMemory::Indexed;
 use crate::protocol::protocol::{
@@ -10,19 +9,30 @@ use crate::protocol::workermsg::{
     GetDataResponse, RegisterWorkerResponseMsg, ToWorkerGenericMessage, ToWorkerStreamMessage,
 };
 use crate::util::forward_queue_to_sink;
-use crate::worker::reactor::compute_task;
+use crate::worker::reactor::{compute_task, try_start_tasks};
 use crate::worker::state::WorkerStateRef;
-use bytes::BytesMut;
+use bytes::{BytesMut, Bytes};
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::net::{TcpStream, TcpListener};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::LocalSet;
+use std::time::Duration;
+use tokio::net::lookup_host;
+use tokio::time::delay_for;
+use crate::worker::subworker::SubworkerRef;
+use futures::Future;
+use crate::protocol2::protocol::make_protocol_builder;
+use crate::protocol2::generic::GenericMessage::RegisterWorker;
+use bytes::buf::BufMutExt;
+use crate::protocol2::generic::{GenericMessage, RegisterWorkerMsg};
+use crate::protocol2::workermsg::ToWorkerMessage;
+use crate::worker::task::TaskRef;
+use std::cmp::Reverse;
 
-pub async fn run_worker<R: AsyncRead + AsyncWrite>(server_stream: R) -> crate::Result<()> {
-    let taskset = LocalSet::default();
 
+async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
     let listener = TcpListener::bind(address).await?;
     let address = {
@@ -34,24 +44,87 @@ pub async fn run_worker<R: AsyncRead + AsyncWrite>(server_stream: R) -> crate::R
         )
     };
     log::info!("Listening on {}", address);
-
-    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
-    let ncpus = 1; // TODO
-    let state = WorkerStateRef::new(queue_sender, ncpus, address);
-
-    taskset
-        .run_until(async move {
-            let main_loop =
-                main_rpc_loop(server_stream, state.clone(), queue_receiver).boxed_local();
-            let initiator = connection_initiator(listener, state).boxed_local();
-
-            futures::future::select(main_loop, initiator)
-                .await
-                .factor_first()
-        })
-        .await
-        .0
+    Ok((listener, address))
 }
+
+async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> {
+    let address = lookup_host(&scheduler_address)
+        .await?
+        .next()
+        .expect("Invalid scheduler address");
+
+    let max_attempts = 20;
+    for _ in 0..max_attempts {
+        match TcpStream::connect(address).await {
+            Ok(stream) => {
+                return Ok(stream);
+            }
+            Err(e) => {
+                log::error!("Could not connect to {}, error: {}", scheduler_address, e);
+                delay_for(Duration::from_secs(2)).await;
+            }
+        }
+    }
+    Result::Err(crate::Error::GenericError("Server could not be connected".into()))
+}
+
+
+pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworkers: Vec<SubworkerRef>, sw_processes: impl Future<Output=usize>) -> crate::Result<()> {
+    let (listener, address) = start_listener().await?;
+    let stream = connect_to_server(&scheduler_address).await?;
+
+    let (mut writer, reader) = make_protocol_builder().new_framed(stream).split();
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+
+    let taskset = LocalSet::default();
+    {
+        let message = GenericMessage::RegisterWorker(
+            RegisterWorkerMsg {
+                address: address.clone().into(),
+                ncpus: ncpus,
+            });
+        let mut frame = BytesMut::default().writer();
+        rmp_serde::encode::write_named(&mut frame, &message)?;
+        queue_sender.send(frame.into_inner().into());
+    }
+
+    let state = WorkerStateRef::new(queue_sender, ncpus, address, &subworkers);
+    std::mem::forget(subworkers);
+
+    tokio::select! {
+        _ = worker_message_loop(state.clone(), reader) => {
+            panic!("Connection to server lost");
+        }
+        _ = forward_queue_to_sink(queue_receiver, writer) => {
+            panic!("Cannot send a message to server");
+        }
+        result = taskset.run_until(connection_initiator(listener, state)) => {
+            panic!("Taskset failed");
+        }
+        idx = sw_processes => {
+            panic!("Subworker process {} failed", idx);
+        }
+    }
+    Ok(())
+}
+
+async fn worker_message_loop(state_ref: WorkerStateRef, mut stream: impl Stream<Item=Result<BytesMut, std::io::Error>> + Unpin) -> crate::Result<()> {
+    while let Some(data) = stream.next().await {
+        let data = data?;
+        let message : ToWorkerMessage = rmp_serde::from_slice(&data)?;
+        let mut state = state_ref.get_mut();
+        match message {
+            ToWorkerMessage::ComputeTask(msg) => {
+                let task_ref = TaskRef::new(msg);
+                let priority = task_ref.get().priority;
+                state.task_queue.push(task_ref, Reverse(priority));
+                try_start_tasks(&mut state);
+            }
+        }
+    }
+    Ok(())
+}
+
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -137,7 +210,7 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
-async fn worker_rpc_loop<S: Stream<Item = crate::Result<Batch<ToWorkerStreamMessage>>> + Unpin>(
+/*async fn worker_rpc_loop<S: Stream<Item = crate::Result<Batch<ToWorkerStreamMessage>>> + Unpin>(
     mut stream: S,
     state_ref: WorkerStateRef,
 ) -> crate::Result<()> {
@@ -154,8 +227,9 @@ async fn worker_rpc_loop<S: Stream<Item = crate::Result<Batch<ToWorkerStreamMess
         }
     }
     Ok(())
-}
+}*/
 
+/*
 async fn main_rpc_loop<R: AsyncRead + AsyncWrite>(
     stream: R,
     state_ref: WorkerStateRef,
@@ -206,7 +280,7 @@ async fn register_worker<
         .expect("Didn't receive registration confirmation")?;
     assert_eq!(response.len(), 1);
     Ok(())
-}
+}*/
 
 #[cfg(test)]
 mod tests {

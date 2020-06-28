@@ -23,3 +23,18 @@ def test_worker_merge(rsds_env):
     fs = [delayed_fn1(x) for x in range(22)]
     r = delayed_merge(*fs)
     print(r.compute())
+
+
+def test_worker_x(rsds_env):
+    url = rsds_env.start([1] * 1, rsds_worker=True)
+    client = Client(url)
+
+    f = delayed_fn1(1).compute()
+    print(f)
+
+    #f = delayed_fn1(1).compute()
+    # print(f)
+    #
+    # fs = [delayed_fn1(x) for x in range(22)]
+    # r = delayed_merge(*fs)
+    # print(r.compute())

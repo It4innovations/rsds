@@ -9,8 +9,9 @@ import pytest
 
 PYTEST_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(PYTEST_DIR)
-RSDS_BIN = os.path.join(ROOT, "target", "debug", "rsds-scheduler")
+RSDS_SERVER_BIN = os.path.join(ROOT, "target", "debug", "rsds-scheduler")
 RSDS_WORKER_BIN = os.path.join(ROOT, "target", "debug", "rsds-worker")
+RSDS_PYTHON = os.path.join(ROOT, "python")
 
 
 def check_free_port(port):
@@ -28,7 +29,8 @@ class Env:
         self.cleanups = []
         self.work_path = work_path
 
-    def start_process(self, name, args, env=None, catch_io=True):
+    def start_process(self, name, args, env=None, catch_io=True, cwd=None):
+        cwd = str(cwd or self.work_path)
         logfile = (self.work_path / name).with_suffix(".out")
         if catch_io:
             with open(logfile, "w") as out:
@@ -36,11 +38,11 @@ class Env:
                                      preexec_fn=os.setsid,
                                      stdout=out,
                                      stderr=subprocess.STDOUT,
-                                     cwd=self.work_path,
+                                     cwd=cwd,
                                      env=env)
         else:
             p = subprocess.Popen(args,
-                                 cwd=str(self.work_path),
+                                 cwd=cwd,
                                  env=env)
         self.processes.append((name, p))
         return p
@@ -72,14 +74,24 @@ class RsdsEnv(Env):
         self.id_counter += 1
         name = "worker{}".format(worker_id)
         env = os.environ.copy()
-        env["PYTHONPATH"] = PYTEST_DIR + ":" + env.get("PYTHONPATH", "")
+
+        python_path = [PYTEST_DIR]
+        if "PYTHONPATH" in env:
+            python_path.append(env["PYTHONPATH"])
+        python_path.append(RSDS_PYTHON)
+        env["PYTHONPATH"] = ":".join(python_path)
+
         if rsds_worker:
             env["RUST_BACKTRACE"] = "FULL"
+            env["RUST_LOG"] = "debug"
             program = RSDS_WORKER_BIN
         else:
             program = "dask-worker"
-        args = [program, "localhost:{}".format(port), "--nthreads", str(ncpus)]
-        self.workers[name] = self.start_process(name, args, env)
+
+        work_dir = (self.work_path / name)
+        work_dir.mkdir()
+        args = [program, "localhost:{}".format(port + 1), "--ncpus", str(ncpus), "--work-dir", work_dir]
+        self.workers[name] = self.start_process(name, args, env, cwd=work_dir)
 
     def start(self,
               workers=(),
@@ -104,7 +116,7 @@ class RsdsEnv(Env):
         env["RUST_LOG"] = "trace"
         env["RUST_BACKTRACE"] = "FULL"
 
-        args = [RSDS_BIN, "--port", str(port)]
+        args = [RSDS_SERVER_BIN, "--port", str(port)]
         if scheduler:
             args += ["--scheduler", scheduler]
 

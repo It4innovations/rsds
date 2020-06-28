@@ -33,10 +33,10 @@ pub fn setup_interrupt() -> UnboundedReceiver<()> {
     end_rx
 }
 
-pub async fn forward_queue_to_sink<T, S: Sink<T, Error = crate::Error> + Unpin>(
+pub async fn forward_queue_to_sink<T, E, S: Sink<T, Error = E> + Unpin>(
     mut queue: UnboundedReceiver<T>,
     mut sink: S,
-) -> crate::Result<()> {
+) -> Result<(), E> {
     while let Some(data) = queue.next().await {
         if let Err(e) = sink.send(data).await {
             log::error!("Forwarding from queue failed");

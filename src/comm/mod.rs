@@ -1,6 +1,7 @@
 mod comm;
 pub mod notifications;
 pub mod reactor;
+pub mod rpc2;
 mod rpc;
 
 pub use comm::CommRef;

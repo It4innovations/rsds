@@ -108,6 +108,11 @@ async fn main() -> rsds::Result<()> {
     log::info!("Listening on port {}", address);
     let listener = TcpListener::bind(address).await?;
 
+    // Start "protocol2" on port + 1
+    let address2 = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), listener.local_addr()?.port() + 1);
+    log::info!("Listening on port {}", address2);
+    let listener2 = TcpListener::bind(address2).await?;
+
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
     let msd = Duration::from_millis(opt.msd);
@@ -131,19 +136,19 @@ async fn main() -> rsds::Result<()> {
         task_set
             .run_until(async move {
                 let scheduler = observe_scheduler(core_ref2, comm_ref2, receiver);
-                let connection = rsds::comm::connection_initiator(listener, core_ref, comm_ref);
+                let connection = rsds::comm::connection_initiator(listener, core_ref.clone(), comm_ref.clone());
+                let connection2 = rsds::comm::rpc2::connection_initiator(listener2, core_ref, comm_ref);
                 let end_flag = async move {
                     end_rx.next().await;
                     Ok(())
                 };
 
-                let futures = vec![
-                    scheduler.boxed_local(),
-                    connection.boxed_local(),
-                    end_flag.boxed_local(),
-                ];
-                let (res, _, _) = futures::future::select_all(futures).await;
-                res
+                tokio::select! {
+                    r = scheduler => r ,
+                    r = connection => r ,
+                    r = connection2 => r ,
+                    r = end_flag => r,
+                }
             })
             .await
             .expect("Rsds failed");
