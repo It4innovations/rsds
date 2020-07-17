@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 from .subworker import Subworker
@@ -22,8 +23,13 @@ def main():
     subworker_id = get_environ("RSDS_SUBWORKER_ID", int)
     socket_path = get_environ("RSDS_SUBWORKER_SOCKET")
 
-    Subworker(subworker_id, connect_to_unix_socket(socket_path)).run()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run(subworker_id, socket_path))
 
+
+async def run(subworker_id, socket_path):
+    subworker = Subworker(subworker_id, await connect_to_unix_socket(socket_path))
+    await subworker.run()
 
 
 if __name__ == "__main__":

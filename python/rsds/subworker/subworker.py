@@ -1,7 +1,10 @@
-import socket
-import os
+import asyncio
+import concurrent
+import pickle
+import sys
+from concurrent.futures.thread import ThreadPoolExecutor
 
-import pickle, cloudpickle
+import cloudpickle
 
 from .conn import SocketWrapper
 
@@ -14,31 +17,58 @@ def unpack(data):
 
 
 class Subworker:
-
-    def __init__(self, subworker_id, connection: SocketWrapper):
+    def __init__(self, subworker_id: int, socket: SocketWrapper):
         self.subworker_id = subworker_id
-        self.connection = connection
+        self.socket = socket
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.loop = asyncio.get_event_loop()
+        self.handlers = {
+            "ComputeTask": self.handle_compute_task
+        }
 
-    def run_task(self, message):
-        function = unpack(message["function"])
-        args = unpack(message["args"])
-
-        kwargs = message.get("kwargs", None)
-        if kwargs:
-            kwargs = unpack(kwargs)
-            result = function(*args, **kwargs)
-        else:
-            result = function(*args)
-
-        print(message, result)
-        import sys
-        sys.stdout.flush()
-
-    def run(self):
-        self.connection.send_message({
+    async def run(self):
+        await self.socket.send_message({
             "subworker_id": self.subworker_id,
         })
         while True:
-            message = self.connection.receive_message()
-            assert message["op"] == "ComputeTask"
-            self.run_task(message)
+            message = await self.socket.receive_message()
+            handler = self.handlers[message["op"]]
+            await handler(message)
+
+    async def handle_compute_task(self, message):
+        async def inner():
+            key = message.get("key")
+
+            try:
+                result = await self.loop.run_in_executor(self.executor, run_task, message)
+                await self.socket.send_message({
+                    "op": "TaskFinished",
+                    "key": key,
+                    "result": dumps(result)
+                })
+            except Exception as e:
+                await self.socket.send_message({
+                    "op": "TaskErrored",
+                    "key": key,
+                    "error": dumps(e)
+                })
+
+        self.loop.create_task(inner())
+
+
+def dumps(data):
+    return pickle.dumps(data)
+
+
+def run_task(message):
+    function = unpack(message["function"])
+    args = unpack(message["args"])
+
+    kwargs = message.get("kwargs", None)
+    if kwargs:
+        kwargs = unpack(kwargs)
+        result = function(*args, **kwargs)
+    else:
+        result = function(*args)
+
+    return result

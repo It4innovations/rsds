@@ -1,53 +1,48 @@
-import struct
-import msgpack
-import socket
+import asyncio
 import os
+import struct
+from asyncio import StreamReader, StreamWriter
+
+import msgpack
 
 
-def connect_to_unix_socket(socket_path):
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-
+async def connect_to_unix_socket(socket_path):
     # Protection against long filenames, socket names are limited
     backup = os.getcwd()
     try:
         os.chdir(os.path.dirname(socket_path))
-        sock.connect(os.path.basename(socket_path))
+        reader, writer = await asyncio.open_unix_connection(socket_path)
     finally:
         os.chdir(backup)
 
-    return SocketWrapper(sock)
+    return SocketWrapper(reader, writer)
 
 
 class SocketWrapper:
-
     header = struct.Struct("<I")
     header_size = 4
-    read_buffer_size = 256 * 1024
+    read_buffer_size = 32 * 1024
 
-    def __init__(self, sock):
-        self.socket = sock
+    def __init__(self, reader: StreamReader, writer: StreamWriter):
+        self.reader = reader
+        self.writer = writer
         self._buffer = bytes()
 
-    def close(self):
-        self.socket.close()
+    async def send_message(self, message):
+        return await write_message(message, self.writer)
 
-    def send_message(self, message):
-        msg = msgpack.dumps(message)
-        data = self.header.pack(len(msg)) + msg
-        self.socket.sendall(data)
+    async def receive_message(self):
+        return await read_message(self.reader)
 
-    def receive_message(self):
-        header_size = self.header_size
-        while True:
-            size = len(self._buffer)
-            if size >= header_size:
-                msg_size = self.header.unpack(self._buffer[:header_size])[0] + header_size
-                if size >= msg_size:
-                    message = self._buffer[header_size:msg_size]
-                    self._buffer = self._buffer[msg_size:]
-                    return msgpack.loads(message)
 
-            new_data = self.socket.recv(self.read_buffer_size)
-            if not new_data:
-                raise Exception("Connection to server lost")
-            self._buffer += new_data
+async def write_message(message, writer: StreamWriter):
+    message = msgpack.dumps(message)
+    data = SocketWrapper.header.pack(len(message)) + message
+    writer.write(data)
+    return await writer.drain()
+
+
+async def read_message(reader: StreamReader):
+    header = await reader.readexactly(SocketWrapper.header_size)
+    msg_size = SocketWrapper.header.unpack(header)[0]
+    return msgpack.loads(await reader.readexactly(msg_size))

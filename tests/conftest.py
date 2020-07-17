@@ -2,16 +2,19 @@ import os
 import os.path
 import signal
 import subprocess
+import sys
 import time
 
 import psutil
 import pytest
 
 PYTEST_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(PYTEST_DIR)
-RSDS_SERVER_BIN = os.path.join(ROOT, "target", "debug", "rsds-scheduler")
-RSDS_WORKER_BIN = os.path.join(ROOT, "target", "debug", "rsds-worker")
-RSDS_PYTHON = os.path.join(ROOT, "python")
+ROOT_DIR = os.path.dirname(PYTEST_DIR)
+RSDS_SERVER_BIN = os.path.join(ROOT_DIR, "target", "debug", "rsds-scheduler")
+RSDS_WORKER_BIN = os.path.join(ROOT_DIR, "target", "debug", "rsds-worker")
+RSDS_PYTHON = os.path.join(ROOT_DIR, "python")
+
+sys.path.insert(0, ROOT_DIR)
 
 
 def check_free_port(port):
