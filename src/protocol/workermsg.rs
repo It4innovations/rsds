@@ -188,7 +188,7 @@ pub enum WorkerState {
     Error,
     Rescheduled,
     Constrained,
-    LongRunning
+    LongRunning,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
