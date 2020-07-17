@@ -575,7 +575,10 @@ mod tests {
         task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
         ToClientMessage, UpdateGraphMsg,
     };
-    use crate::protocol::protocol::{asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec, DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport};
+    use crate::protocol::protocol::{
+        asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
+        DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport,
+    };
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
     use futures::SinkExt;
@@ -584,7 +587,7 @@ mod tests {
     use crate::common::Map;
     use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::protocol::IntoInner;
-    use crate::protocol::workermsg::{RegisterWorkerResponseMsg, FromWorkerMessage};
+    use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
@@ -899,7 +902,7 @@ mod tests {
                     FromWorkerMessage::StealResponse(msg) => {
                         assert!(msg.state.is_none());
                     }
-                    _ => panic!()
+                    _ => panic!(),
                 }
             }
             _ => panic!(),
