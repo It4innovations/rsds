@@ -151,16 +151,28 @@ def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
     plot.yaxis.axis_label = 'Task'
     plot.xaxis.axis_label = 'Time [s]'
 
-    events_colors = {
-        "create": "green",
+    # events_colors = {
+    #     "create": "green",
+    #     "ready": "orange",
+    #     "assign": "purple",
+    #     "send": "yellow",
+    #     "place": "brown",
+    #     "compute-start": "pink",
+    #     "compute-end": "blue",
+    #     "finish": "black",
+    #     "remove": "red"
+    # }
+    state_colors = {
+        "create": "blue",
         "ready": "orange",
         "assign": "purple",
-        "send": "yellow",
-        "place": "brown",
-        "compute-start": "pink",
-        "compute-end": "blue",
-        "finish": "black",
-        "remove": "red"
+        "send": "gray",
+        #"running": "green",
+        #"finishing": "black",
+        "finish": "red",
+        "running": "green",
+        "retract": "black",
+        "retract-end": "gray",
     }
     data = collections.defaultdict(lambda: [])
 
@@ -170,33 +182,56 @@ def plot_task_lifespan(tasks, end_time, packets, task_filter=None):
 
     task_height = 0
 
+    def add_rect(task, time1, time2, offset, state):
+        data["task"].append(task_tooltip(task))
+        data["time"].append(f"{time2 - time1} s")
+        if "worker" in args1:
+            data["worker"].append(str(args1["worker"].id))
+        else:
+            data["worker"].append("")
+        data["left"].append(time1)
+        data["right"].append(time2)
+        data["bottom"].append(center_height - rect_height / 2 + offset)
+        data["top"].append(center_height + rect_height / 2 + offset)
+        data["state"].append(state)
+        data["color"].append(state_colors[state])
+
+    def find(events, name):
+        for ev in events:
+            if ev[0] == name:
+                return ev
+
+    extra_actions = ("compute-start", "compute-end", "place", "retract", "retract-end")
     for task in sorted(tasks.values(), key=lambda t: t.id):
         if task_filter and task.key not in task_filter:
             continue
 
         height = task_height
-        task_height += row_height
+        task_height += row_height * 3
         center_height = height + row_height / 2
-        for (event, time, args) in task.events:
-            data["task"].append(task_tooltip(task))
-            data["time"].append(f"{time} s")
+        events = [ev for ev in task.events if ev[0] not in extra_actions]
+        events.sort(key=lambda e: e[1])
+        for ((e1, time1, args1), (e2, time2, args2)) in zip(events, events[1:]):
+            state = e1
+            if e1 == "create" and e2 == "assign":
+                state = "ready"
+            if e1 == "send":
+                continue
+            add_rect(task, time1, time2, 0, state)
+        start = find(task.events, "compute-start")
+        end = find(task.events, "compute-end")
+        add_rect(task, start[1], end[1], 1, "running")
 
-            if "worker" in args:
-                data["worker"].append(str(args["worker"].id))
-            else:
-                data["worker"].append("")
-            data["left"].append(time - rect_width / 2)
-            data["right"].append(time + rect_width / 2)
-            data["bottom"].append(center_height - rect_height / 2)
-            data["top"].append(center_height + rect_height / 2)
-            data["event"].append(event)
-            data["color"].append(events_colors[event])
+        steals = [ev for ev in task.events if ev[0] == "retract" or ev[0] == "retract-end"]
+        for ((e1, time1, args1), (e2, time2, args2)) in zip(steals, steals[1:] + [(0, end_time, None)]):
+            add_rect(task, time1, time2, 2, "retract")
+
         plot.line([0, end_time], [task_height, task_height], color="black", line_dash="dotted", alpha=0.2,
                   line_width=0.2)
 
     source = ColumnDataSource(data=data)
     plot.quad(source=source, left="left", right="right", bottom="bottom", top="top", line_color="color",
-              fill_color="color", legend_field="event", name="tasks")
+              fill_color="color", legend_field="state", name="tasks")
 
     packets = pd.DataFrame(packets)
     packets["y"] = -1

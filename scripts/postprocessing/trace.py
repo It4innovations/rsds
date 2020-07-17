@@ -400,6 +400,14 @@ def parse_trace(trace_path, handle_event, normalize_time=None) -> Tuple[Dict[int
 
                         task.worker = worker
                         task.wait_duration = worker.finish_task(task_id, timestamp, duration)
+            elif action == "steal":
+                task_id = fields["task"]
+                task = tasks[task_id]
+                task.add_event("retract", timestamp)
+            elif action.startswith("steal-response"):
+                task_id = fields["task"]
+                task = tasks[task_id]
+                task.add_event("retract-end", timestamp)
             elif action == "new-worker":
                 worker_id = fields["worker_id"]
                 assert worker_id not in workers

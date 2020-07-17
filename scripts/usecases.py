@@ -16,10 +16,10 @@ from sklearn.datasets import make_classification
 from sklearn.feature_extraction.text import HashingVectorizer
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
-from wordbatch.batcher import Batcher
-from wordbatch.extractors import WordBag
-from wordbatch.pipelines import WordBatch, ApplyBatch
-from wordbatch.transformers import Tokenizer, Dictionary
+#from wordbatch.batcher import Batcher
+#from wordbatch.extractors import WordBag
+#from wordbatch.pipelines import WordBatch, ApplyBatch
+#from wordbatch.transformers import Tokenizer, Dictionary
 
 non_alphanums = re.compile(r'[\W+]')
 nums_re = re.compile(r"\W*[0-9]+\W*")
@@ -206,15 +206,7 @@ if __name__ == "__main__":
 
     os.makedirs("graphs", exist_ok=True)
     usecases = {
-        "pandas-groupby-1-1T-1H": bench_pandas_groupby(1, "1T", "1H"),
-        "pandas-groupby-1-1T-8H": bench_pandas_groupby(1, "1T", "8H"),
-        "pandas-join-1-1T-1H": bench_pandas_join(1, "1T", "1H"),
-        "pandas-join-1-1T-8H": bench_pandas_join(1, "1T", "8H"),
-        "bag-1000": bench_bag(1000),
-        "merge-1000": bench_merge(1000),
-        "numpy-2000": bench_numpy(2000),
-        "tree-8": bench_tree(8),
-        "xarray-20": bench_xarray(20)
+        "pandas-groupby-1-1T-1H": bench_pandas_groupby(1, "1s", "8H"),
     }
     for (name, graph) in usecases.items():
         dot_filename = f"graphs/{name}"
