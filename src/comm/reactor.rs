@@ -1,25 +1,25 @@
 use crate::comm::CommRef;
 use crate::comm::Notifications;
 use crate::common::{Map, Set};
-use crate::protocol::clientmsg::{task_spec_to_memory, UpdateGraphMsg};
+use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg};
 use crate::server::client::ClientId;
 use crate::server::core::CoreRef;
 
-use crate::protocol::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
-use crate::protocol::protocol::{
+use crate::server::protocol::daskmessages::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
     map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
     SerializedMemory,
 };
 
-use crate::protocol::workermsg::{
+use crate::server::protocol::daskmessages::worker::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
 };
 use crate::scheduler::protocol::TaskId;
 
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
 
-use crate::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
 use futures::future::join_all;

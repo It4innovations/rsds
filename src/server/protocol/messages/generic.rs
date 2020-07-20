@@ -1,4 +1,4 @@
-use crate::protocol::key::DaskKey;
+use crate::server::protocol::key::DaskKey;
 use serde::{Deserialize, Serialize};
 
 

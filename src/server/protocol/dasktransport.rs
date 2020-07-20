@@ -571,20 +571,20 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::clientmsg::{
+    use crate::server::protocol::daskmessages::client::{
         task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
         ToClientMessage, UpdateGraphMsg,
     };
-    use crate::protocol::protocol::{asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec, DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport};
+    use crate::server::protocol::dasktransport::{asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec, DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport};
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
     use futures::SinkExt;
     use maplit::hashmap;
 
     use crate::common::Map;
-    use crate::protocol::key::{to_dask_key, DaskKey};
-    use crate::protocol::protocol::IntoInner;
-    use crate::protocol::workermsg::{RegisterWorkerResponseMsg, FromWorkerMessage};
+    use crate::server::protocol::key::{to_dask_key, DaskKey};
+    use crate::server::protocol::dasktransport::IntoInner;
+    use crate::server::protocol::daskmessages::worker::{RegisterWorkerResponseMsg, FromWorkerMessage};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;

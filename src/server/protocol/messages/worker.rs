@@ -1,8 +1,8 @@
 use crate::scheduler::TaskId;
 use bytes::Bytes;
 use serde::{Serialize, Deserialize};
-use crate::protocol::key::DaskKey;
-use crate::protocol::Priority;
+use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::Priority;
 
 
 #[derive(Serialize, Deserialize, Debug)]

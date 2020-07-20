@@ -2,9 +2,9 @@
 
 use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
-use crate::protocol::clientmsg::ClientTaskSpec;
-use crate::protocol::key::to_dask_key;
-use crate::protocol::protocol::{
+use crate::server::protocol::daskmessages::client::ClientTaskSpec;
+use crate::server::protocol::key::to_dask_key;
+use crate::server::protocol::dasktransport::{
     deserialize_packet, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
     DaskPacket, Frame, FromDaskTransport, SerializedMemory, ToDaskTransport,
 };

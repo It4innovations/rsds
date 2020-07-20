@@ -3,12 +3,12 @@ use crate::server::client::{Client, ClientId};
 
 use crate::comm::Notifications;
 use crate::common::{Map, WrappedRcRefCell};
-use crate::protocol::clientmsg::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
+use crate::server::protocol::daskmessages::client::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
 use crate::server::core::Core;
 
-use crate::protocol::protocol::DaskPacket;
-use crate::protocol::protocol::MessageBuilder;
-use crate::protocol::workermsg::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
+use crate::server::protocol::dasktransport::DaskPacket;
+use crate::server::protocol::dasktransport::MessageBuilder;
+use crate::server::protocol::daskmessages::worker::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
 
 use crate::scheduler::ToSchedulerMessage;
 use crate::server::task::TaskRuntimeState;
@@ -77,6 +77,7 @@ impl Comm {
         }
         Ok(())
     }
+
     fn notify_workers(
         &mut self,
         core: &Core,

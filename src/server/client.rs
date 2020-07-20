@@ -1,6 +1,6 @@
-use crate::protocol::protocol::DaskPacket;
+use crate::server::protocol::dasktransport::DaskPacket;
 
-use crate::protocol::key::{DaskKey, DaskKeyRef};
+use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub type ClientId = u64;

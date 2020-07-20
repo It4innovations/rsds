@@ -1,6 +1,6 @@
 use crate::common::Map;
-use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{
+use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::dasktransport::{
     map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
 };
 use serde::{Deserialize, Serialize};
@@ -179,8 +179,8 @@ from_dask_transport!(test, SimpleMessage);
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::generic::{GenericMessage, ScatterMsg};
-    use crate::protocol::protocol::{
+    use crate::server::protocol::daskmessages::generic::{GenericMessage, ScatterMsg};
+    use crate::server::protocol::dasktransport::{
         map_to_transport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport,
     };
 

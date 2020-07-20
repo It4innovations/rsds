@@ -4,18 +4,18 @@ use crate::comm::reactor::{
     who_has,
 };
 use crate::comm::CommRef;
-use crate::protocol::clientmsg::FromClientMessage;
-use crate::protocol::generic::{
+use crate::server::protocol::daskmessages::client::FromClientMessage;
+use crate::server::protocol::daskmessages::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
 };
-use crate::protocol::key::{to_dask_key, DaskKey};
-use crate::protocol::protocol::{
+use crate::server::protocol::key::{to_dask_key, DaskKey};
+use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, Batch, DaskPacket,
 };
-use crate::protocol::workermsg::FromWorkerMessage;
-use crate::protocol::workermsg::RegisterWorkerResponseMsg;
-use crate::protocol::workermsg::Status;
+use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
+use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
+use crate::server::protocol::daskmessages::worker::Status;
 use crate::server::client::Client;
 use crate::server::core::CoreRef;
 
@@ -29,7 +29,7 @@ use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
-use crate::protocol2::protocol::make_protocol_builder;
+use crate::common::transport::make_protocol_builder;
 
 
 pub async fn worker_rpc_loop<
@@ -347,16 +347,16 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 mod tests {
     use crate::comm::notifications::Notifications;
     use crate::comm::rpc::generic_rpc_loop;
-    use crate::protocol::clientmsg::{
+    use crate::server::protocol::daskmessages::client::{
         ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };
-    use crate::protocol::generic::{
+    use crate::server::protocol::daskmessages::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };
-    use crate::protocol::key::{to_dask_key, DaskKey};
-    use crate::protocol::protocol::{serialize_single_packet, Batch, Frames, SerializedTransport};
-    use crate::protocol::workermsg::{FromWorkerMessage, RegisterWorkerResponseMsg};
+    use crate::server::protocol::key::{to_dask_key, DaskKey};
+    use crate::server::protocol::dasktransport::{serialize_single_packet, Batch, Frames, SerializedTransport};
+    use crate::server::protocol::daskmessages::worker::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::server::task::{DataInfo, TaskRuntimeState};
     use crate::test_util::{
         bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,

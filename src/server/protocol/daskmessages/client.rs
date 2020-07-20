@@ -1,9 +1,9 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
-use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
-use crate::protocol::Priority;
+use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::dasktransport::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
+use crate::server::protocol::Priority;
 use serde::de::Error;
 
 #[cfg_attr(test, derive(Serialize))]

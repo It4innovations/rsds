@@ -1,11 +1,11 @@
 use crate::common::Map;
-use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::SerializedMemory::Indexed;
-use crate::protocol::protocol::{
+use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::dasktransport::SerializedMemory::Indexed;
+use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
     serialize_single_packet, Batch, DaskPacket, SerializedTransport,
 };
-use crate::protocol::workermsg::{
+use crate::server::protocol::daskmessages::worker::{
     GetDataResponse, RegisterWorkerResponseMsg, ToWorkerGenericMessage, ToWorkerStreamMessage,
 };
 use crate::util::forward_queue_to_sink;
@@ -23,11 +23,11 @@ use tokio::net::lookup_host;
 use tokio::time::delay_for;
 use crate::worker::subworker::SubworkerRef;
 use futures::Future;
-use crate::protocol2::protocol::make_protocol_builder;
-use crate::protocol2::generic::GenericMessage::RegisterWorker;
+use crate::common::transport::make_protocol_builder;
+use crate::server::protocol::messages::generic::GenericMessage::RegisterWorker;
 use bytes::buf::BufMutExt;
-use crate::protocol2::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::protocol2::workermsg::ToWorkerMessage;
+use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
+use crate::server::protocol::messages::worker::ToWorkerMessage;
 use crate::worker::task::TaskRef;
 use std::cmp::Reverse;
 
@@ -284,11 +284,11 @@ async fn register_worker<
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::generic::GenericMessage;
-    use crate::protocol::protocol::{
+    use crate::server::protocol::daskmessages::generic::GenericMessage;
+    use crate::server::protocol::dasktransport::{
         serialize_single_packet, Batch, DaskPacket, SerializedTransport,
     };
-    use crate::protocol::workermsg::{
+    use crate::server::protocol::daskmessages::worker::{
         ComputeTaskMsg, FromWorkerMessage, RegisterWorkerResponseMsg, TaskFinishedMsg,
         ToWorkerStreamMessage,
     };
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_serialize_task_finished() {
-        use crate::protocol::workermsg::Status;
+        use crate::server::protocol::daskmessages::worker::Status;
         let msg = TaskFinishedMsg {
             status: Status::Ok,
             key: Default::default(),

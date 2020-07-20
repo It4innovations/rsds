@@ -1,5 +1,5 @@
 use crate::common::Map;
-use crate::protocol::key::DaskKey;
+use crate::server::protocol::key::DaskKey;
 use crate::scheduler::protocol::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };

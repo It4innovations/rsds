@@ -6,8 +6,6 @@ mod util;
 pub mod comm;
 mod common;
 mod error;
-pub mod protocol;
-pub mod protocol2;
 pub mod scheduler;
 pub mod server;
 pub mod worker;

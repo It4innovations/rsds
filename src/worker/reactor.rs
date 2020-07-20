@@ -1,5 +1,5 @@
-use crate::protocol::protocol::{serialize_single_packet, SerializedTransport};
-use crate::protocol::workermsg::{
+use crate::server::protocol::dasktransport::{serialize_single_packet, SerializedTransport};
+use crate::server::protocol::daskmessages::worker::{
     AddKeysMsg, ComputeTaskMsg, FromWorkerMessage, Status, TaskFinishedMsg,
 };
 use crate::worker::state::{WorkerStateRef, WorkerState};

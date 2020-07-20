@@ -17,7 +17,7 @@ use std::fs::File;
 use tokio::sync::oneshot;
 use tokio::io::AsyncWrite;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use crate::protocol2::protocol::make_protocol_builder;
+use crate::common::transport::make_protocol_builder;
 use crate::worker::task::{TaskRef, Task};
 use crate::worker::messages::{ToSubworkerMessage, ComputeTaskMsg};
 

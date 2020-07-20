@@ -2,7 +2,7 @@ use bytes::BytesMut;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use futures::SinkExt;
 
-use rsds::protocol::protocol::{asyncwrite_to_sink, DaskPacket};
+use rsds::server::protocol::dasktransport::{asyncwrite_to_sink, DaskPacket};
 use std::fs::OpenOptions;
 use std::time::Duration;
 use tokio::fs::File;

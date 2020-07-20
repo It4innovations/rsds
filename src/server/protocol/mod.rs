@@ -1,20 +1,12 @@
+pub mod dasktransport;
+pub mod daskmessages;
+pub mod key;
+pub mod messages;
+
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::alloc::fmt::Formatter;
 
-pub mod clientmsg;
-pub mod generic;
-pub mod key;
-pub mod protocol;
-pub mod workermsg;
-
-
-pub type Priority = i32;
-
-#[derive(Serialize, Debug, Default, PartialOrd, PartialEq)]
-pub struct Float(f64);
-
-struct FloatVisitor;
 
 impl<'de> Visitor<'de> for FloatVisitor {
     type Value = f64;
@@ -43,6 +35,9 @@ impl<'de> Visitor<'de> for FloatVisitor {
     }
 }
 
+#[derive(Serialize, Debug, Default, PartialOrd, PartialEq)]
+pub struct Float(f64);
+
 impl<'de> Deserialize<'de> for Float {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
@@ -52,13 +47,18 @@ impl<'de> Deserialize<'de> for Float {
     }
 }
 
-impl From<f64> for Float {
-    fn from(value: f64) -> Self {
-        Self(value)
-    }
-}
 impl From<Float> for f64 {
     fn from(value: Float) -> Self {
         value.0
+    }
+}
+
+pub type Priority = i32;
+
+struct FloatVisitor;
+
+impl From<f64> for Float {
+    fn from(value: f64) -> Self {
+        Self(value)
     }
 }

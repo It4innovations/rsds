@@ -1,11 +1,11 @@
 use crate::common::WrappedRcRefCell;
 use crate::server::core::Core;
 
-use crate::protocol::key::{DaskKey, DaskKeyRef};
-use crate::protocol::protocol::DaskPacket;
+use crate::server::protocol::key::{DaskKey, DaskKeyRef};
+use crate::server::protocol::dasktransport::DaskPacket;
 use std::str;
 use bytes::Bytes;
-use crate::protocol2::workermsg::ToWorkerMessage;
+use crate::server::protocol::messages::worker::ToWorkerMessage;
 
 pub type WorkerId = u64;
 

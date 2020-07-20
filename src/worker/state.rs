@@ -1,11 +1,11 @@
 use crate::common::{Set, WrappedRcRefCell};
-use crate::protocol::key::DaskKey;
-use crate::protocol::protocol::DaskPacket;
+use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::dasktransport::DaskPacket;
 use tokio::sync::mpsc::UnboundedSender;
 use bytes::Bytes;
 use crate::worker::subworker::{SubworkerRef, SubworkerId};
 use hashbrown::{HashSet, HashMap};
-use crate::protocol::Priority;
+use crate::server::protocol::Priority;
 use crate::worker::task::TaskRef;
 use std::cmp::Reverse;
 

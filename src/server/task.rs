@@ -4,14 +4,14 @@ use std::rc::Rc;
 
 use crate::comm::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
-use crate::protocol::clientmsg::{ClientTaskSpec, DirectTaskSpec};
-use crate::protocol::protocol::{MessageBuilder, SerializedMemory, SerializedTransport};
-use crate::protocol::Priority;
+use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
+use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory, SerializedTransport};
+use crate::server::protocol::Priority;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
 
-use crate::protocol::key::{DaskKey, DaskKeyRef};
-use crate::protocol2::workermsg::{ComputeTaskMsg, ToWorkerMessage};
+use crate::server::protocol::key::{DaskKey, DaskKeyRef};
+use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::scheduler::protocol::TaskId;
 use crate::server::worker::{WorkerRef, Worker};
 

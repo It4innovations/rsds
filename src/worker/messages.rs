@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 use super::subworker::SubworkerId;
-use crate::protocol::key::DaskKey;
+use crate::server::protocol::key::DaskKey;
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct RegisterSubworkerMessage {
