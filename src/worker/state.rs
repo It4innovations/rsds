@@ -1,13 +1,13 @@
-use crate::common::{Set, WrappedRcRefCell};
-use crate::server::protocol::key::DaskKey;
-use crate::server::protocol::dasktransport::DaskPacket;
-use tokio::sync::mpsc::UnboundedSender;
-use bytes::Bytes;
-use crate::worker::subworker::{SubworkerRef, SubworkerId};
-use hashbrown::{HashSet, HashMap};
-use crate::server::protocol::Priority;
-use crate::worker::task::TaskRef;
 use std::cmp::Reverse;
+
+use bytes::Bytes;
+use hashbrown::HashMap;
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::common::WrappedRcRefCell;
+use crate::server::protocol::Priority;
+use crate::worker::subworker::{SubworkerId, SubworkerRef};
+use crate::worker::task::TaskRef;
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -21,19 +21,20 @@ pub struct WorkerState {
     pub task_queue: priority_queue::PriorityQueue<TaskRef, Reverse<(Priority, Priority)>>,
 }
 
-impl WorkerState {
-    /*pub fn send(&self, packet: DaskPacket) {
-        self.sender.send(packet).unwrap();
-    }*/
-
-}
-
 impl WorkerStateRef {
-    pub fn new(sender: UnboundedSender<Bytes>, ncpus: u32, listen_address: String, subworkers: &[SubworkerRef]) -> Self {
-        let sw : HashMap<SubworkerId, SubworkerRef> = subworkers.iter().map(|s| {
-            let id = s.get().id;
-            (id, s.clone())
-        }).collect();
+    pub fn new(
+        sender: UnboundedSender<Bytes>,
+        ncpus: u32,
+        listen_address: String,
+        subworkers: &[SubworkerRef],
+    ) -> Self {
+        let sw: HashMap<SubworkerId, SubworkerRef> = subworkers
+            .iter()
+            .map(|s| {
+                let id = s.get().id;
+                (id, s.clone())
+            })
+            .collect();
         Self::wrap(WorkerState {
             sender,
             ncpus,
@@ -43,5 +44,4 @@ impl WorkerStateRef {
             task_queue: Default::default(),
         })
     }
-
 }

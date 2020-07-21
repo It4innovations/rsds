@@ -1,8 +1,10 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
+use crate::server::protocol::dasktransport::{
+    Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
+};
 use crate::server::protocol::key::DaskKey;
-use crate::server::protocol::dasktransport::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport};
 use crate::server::protocol::Priority;
 use serde::de::Error;
 

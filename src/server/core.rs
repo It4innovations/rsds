@@ -1,12 +1,16 @@
 use std::rc::Rc;
 
-use crate::server::notifications::Notifications;
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCell};
-use crate::server::protocol::daskmessages::worker::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 use crate::server::client::{Client, ClientId};
+use crate::server::notifications::Notifications;
+use crate::server::protocol::daskmessages::worker::{
+    StealResponseMsg, TaskFinishedMsg, WorkerState,
+};
 
-use crate::server::protocol::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
+use crate::server::protocol::key::{
+    dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef,
+};
 use crate::server::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::server::worker::WorkerRef;
 use crate::trace::{
@@ -532,13 +536,13 @@ mod tests {
     use super::Core;
     use crate::comm::{notifications::ClientNotification, Notifications};
     use crate::common::Set;
-    use crate::server::protocol::key::DaskKey;
-    use crate::server::protocol::daskmessages::worker::Status;
-    use crate::server::protocol::daskmessages::worker::TaskFinishedMsg;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
     use crate::server::client::Client;
     use crate::server::core::get_task_duration;
+    use crate::server::protocol::daskmessages::worker::Status;
+    use crate::server::protocol::daskmessages::worker::TaskFinishedMsg;
+    use crate::server::protocol::key::DaskKey;
     use crate::server::task::{ErrorInfo, TaskRuntimeState};
     use crate::test_util::{
         client, dummy_serialized, task_add, task_add_deps, task_assign, worker,

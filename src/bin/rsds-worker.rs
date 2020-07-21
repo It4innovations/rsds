@@ -1,16 +1,18 @@
-use rsds::trace::setup_file_trace;
-use rsds::worker::rpc::run_worker;
-use rsds::worker::subworker::start_subworkers;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
+use std::{env, fs};
+
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use structopt::StructOpt;
 use tokio::net::lookup_host;
 use tokio::net::TcpStream;
-use std::path::PathBuf;
-use std::{env, fs};
-use rand::Rng;
-use rand::distributions::Alphanumeric;
-use std::str::FromStr;
 
+use rsds::setup_logging;
+use rsds::trace::setup_file_trace;
+use rsds::worker::rpc::run_worker;
+use rsds::worker::subworker::start_subworkers;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -39,26 +41,16 @@ struct Opt {
     no_dashboard: bool,
 }
 
-fn setup_logging(trace_file: Option<String>) {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
-    env_logger::builder().format_timestamp_millis().init();
-
-    if let Some(trace_file) = trace_file {
-        setup_file_trace(trace_file);
-    }
-}
-
-fn create_work_directory() -> Result<PathBuf, std::io::Error>
-{
+fn create_work_directory() -> Result<PathBuf, std::io::Error> {
     let mut work_dir = env::temp_dir();
-    let rnd_string: String = rand::thread_rng().sample_iter(&Alphanumeric).take(5).collect();
+    let rnd_string: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(5)
+        .collect();
     work_dir.push(format!("rsds-{}", rnd_string));
     fs::create_dir(&work_dir)?;
     Ok(work_dir)
 }
-
 
 #[tokio::main(basic_scheduler)]
 async fn main() -> rsds::Result<()> {

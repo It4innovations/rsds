@@ -1,7 +1,6 @@
-use serde::{Serialize, Deserialize};
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::Priority;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ComputeTaskMsg {
@@ -26,5 +25,5 @@ pub struct ComputeTaskMsg {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 pub enum ToWorkerMessage {
-    ComputeTask(ComputeTaskMsg)
+    ComputeTask(ComputeTaskMsg),
 }

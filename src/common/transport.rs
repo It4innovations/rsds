@@ -1,4 +1,4 @@
-use tokio_util::codec::length_delimited::{LengthDelimitedCodec, Builder};
+use tokio_util::codec::length_delimited::{Builder, LengthDelimitedCodec};
 
 pub fn make_protocol_builder() -> Builder {
     *LengthDelimitedCodec::builder()

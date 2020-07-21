@@ -1,9 +1,9 @@
 use crate::common::Map;
-use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::dasktransport::{
     map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
     SerializedMemory, SerializedTransport, ToDaskTransport,
 };
+use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::{Float, Priority};
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -188,7 +188,7 @@ pub enum WorkerState {
     Error,
     Rescheduled,
     Constrained,
-    LongRunning
+    LongRunning,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

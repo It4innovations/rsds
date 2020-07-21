@@ -1,16 +1,26 @@
 use crate::common::WrappedRcRefCell;
 
+use crate::scheduler::protocol::WorkerInfo;
+use crate::server::core::Core;
+use crate::server::protocol::dasktransport::DaskPacket;
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
-use std::str;
-use bytes::Bytes;
 use crate::server::protocol::messages::worker::ToWorkerMessage;
+use bytes::Bytes;
+use std::str;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub type WorkerId = u64;
 
 #[derive(Debug)]
+pub enum WorkerMessage {
+    Dask(DaskPacket),
+    Rsds(Bytes),
+}
+
+#[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
-    pub sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+    pub sender: UnboundedSender<WorkerMessage>,
     pub ncpus: u32,
     pub listen_address: DaskKey,
 }
@@ -37,17 +47,25 @@ impl Worker {
         s.chars().take_while(|x| *x != ':').collect()
     }
 
-    pub fn make_sched_info(&self) -> crate::scheduler::protocol::WorkerInfo {
-        crate::scheduler::protocol::WorkerInfo {
+    pub fn make_sched_info(&self) -> WorkerInfo {
+        WorkerInfo {
             id: self.id,
             n_cpus: self.ncpus,
             hostname: self.hostname(),
         }
     }
 
-    pub fn send_message(&self, message: ToWorkerMessage) {
+    pub fn send_dask_message(&self, packet: DaskPacket) {
+        self.send_message(WorkerMessage::Dask(packet))
+    }
+
+    pub fn send_rsds_message(&self, message: ToWorkerMessage) {
         let data = rmp_serde::to_vec_named(&message).unwrap();
-        self.sender.send(data.into()).expect("Send to worker failed");
+        self.send_message(WorkerMessage::Rsds(data.into()))
+    }
+
+    fn send_message(&self, data: WorkerMessage) {
+        self.sender.send(data).expect("Send to worker failed");
     }
 }
 
@@ -57,7 +75,7 @@ impl WorkerRef {
     pub fn new(
         id: WorkerId,
         ncpus: u32,
-        sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+        sender: UnboundedSender<WorkerMessage>,
         listen_address: DaskKey,
     ) -> Self {
         Self::wrap(Worker {
@@ -68,14 +86,14 @@ impl WorkerRef {
         })
     }
 }
-/*
+
 pub(crate) fn create_worker(
     core: &mut Core,
-    sender: tokio::sync::mpsc::UnboundedSender<DaskPacket>,
+    sender: UnboundedSender<WorkerMessage>,
     address: DaskKey,
     ncpus: u32,
 ) -> WorkerRef {
     let worker_ref = WorkerRef::new(core.new_worker_id(), ncpus, sender, address);
     core.register_worker(worker_ref.clone());
     worker_ref
-}*/
+}

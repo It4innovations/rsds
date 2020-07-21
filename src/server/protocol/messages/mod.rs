@@ -1,2 +1,2 @@
-pub mod worker;
 pub mod generic;
+pub mod worker;

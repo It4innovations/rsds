@@ -9,7 +9,7 @@ pub mod scheduler;
 pub mod server;
 pub mod worker;
 
-pub use util::setup_interrupt;
+pub use util::{setup_interrupt, setup_logging};
 
 #[cfg(test)]
 mod test_util;

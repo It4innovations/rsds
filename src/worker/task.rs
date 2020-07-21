@@ -1,7 +1,7 @@
-use crate::server::protocol::key::DaskKey;
-use crate::server::protocol::Priority;
 use crate::common::WrappedRcRefCell;
+use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::worker::ComputeTaskMsg;
+use crate::server::protocol::Priority;
 use crate::worker::subworker::SubworkerRef;
 
 pub enum TaskState {

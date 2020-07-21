@@ -1,12 +1,11 @@
-use serde::{Deserialize, Serialize, Serializer};
 use super::subworker::SubworkerId;
 use crate::server::protocol::key::DaskKey;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct RegisterSubworkerMessage {
-    pub(crate) subworker_id: SubworkerId
+    pub(crate) subworker_id: SubworkerId,
 }
-
 
 #[derive(Serialize, Debug)]
 pub struct ComputeTaskMsg<'a> {
@@ -20,10 +19,8 @@ pub struct ComputeTaskMsg<'a> {
     pub kwargs: &'a Option<rmpv::Value>,
 }
 
-
 #[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 pub enum ToSubworkerMessage<'a> {
     ComputeTask(ComputeTaskMsg<'a>),
 }
-

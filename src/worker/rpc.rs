@@ -1,36 +1,33 @@
+use std::cmp::Reverse;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
+
+use bytes::buf::BufMutExt;
+use bytes::{Bytes, BytesMut};
+use futures::Future;
+use futures::{SinkExt, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::lookup_host;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::task::LocalSet;
+use tokio::time::delay_for;
+
+use crate::common::rpc::forward_queue_to_sink;
+use crate::common::transport::make_protocol_builder;
 use crate::common::Map;
-use crate::server::protocol::key::DaskKey;
+use crate::server::protocol::daskmessages::worker::{GetDataResponse, ToWorkerGenericMessage};
 use crate::server::protocol::dasktransport::SerializedMemory::Indexed;
 use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    serialize_single_packet, Batch, DaskPacket, SerializedTransport,
+    serialize_single_packet, Batch,
 };
-use crate::server::protocol::daskmessages::worker::{
-    GetDataResponse, RegisterWorkerResponseMsg, ToWorkerGenericMessage, ToWorkerStreamMessage,
-};
-use crate::util::forward_queue_to_sink;
-use crate::worker::reactor::{compute_task, try_start_tasks};
-use crate::worker::state::WorkerStateRef;
-use bytes::{BytesMut, Bytes};
-use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
-use std::net::{Ipv4Addr, SocketAddr};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpStream, TcpListener};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::task::LocalSet;
-use std::time::Duration;
-use tokio::net::lookup_host;
-use tokio::time::delay_for;
-use crate::worker::subworker::SubworkerRef;
-use futures::Future;
-use crate::common::transport::make_protocol_builder;
-use crate::server::protocol::messages::generic::GenericMessage::RegisterWorker;
-use bytes::buf::BufMutExt;
+use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::ToWorkerMessage;
+use crate::worker::reactor::try_start_tasks;
+use crate::worker::state::WorkerStateRef;
+use crate::worker::subworker::SubworkerRef;
 use crate::worker::task::TaskRef;
-use std::cmp::Reverse;
-
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -65,32 +62,32 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
             }
         }
     }
-    Result::Err(crate::Error::GenericError("Server could not be connected".into()))
+    Result::Err(crate::Error::GenericError(
+        "Server could not be connected".into(),
+    ))
 }
-
 
 pub async fn run_worker(
     scheduler_address: &str,
     ncpus: u32,
     subworkers: Vec<SubworkerRef>,
-    sw_processes: impl Future<Output=usize>
+    sw_processes: impl Future<Output = usize>,
 ) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
 
-    let (mut writer, reader) = make_protocol_builder().new_framed(stream).split();
+    let (writer, reader) = make_protocol_builder().new_framed(stream).split();
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
 
     let taskset = LocalSet::default();
     {
-        let message = GenericMessage::RegisterWorker(
-            RegisterWorkerMsg {
-                address: address.clone().into(),
-                ncpus,
-            });
+        let message = GenericMessage::RegisterWorker(RegisterWorkerMsg {
+            address: address.clone().into(),
+            ncpus,
+        });
         let mut frame = BytesMut::default().writer();
         rmp_serde::encode::write_named(&mut frame, &message)?;
-        queue_sender.send(frame.into_inner().into());
+        queue_sender.send(frame.into_inner().into()).unwrap();
     }
 
     let state = WorkerStateRef::new(queue_sender, ncpus, address, &subworkers);
@@ -115,11 +112,11 @@ pub async fn run_worker(
 
 async fn worker_message_loop(
     state_ref: WorkerStateRef,
-    mut stream: impl Stream<Item=Result<BytesMut, std::io::Error>> + Unpin
+    mut stream: impl Stream<Item = Result<BytesMut, std::io::Error>> + Unpin,
 ) -> crate::Result<()> {
     while let Some(data) = stream.next().await {
         let data = data?;
-        let message : ToWorkerMessage = rmp_serde::from_slice(&data)?;
+        let message: ToWorkerMessage = rmp_serde::from_slice(&data)?;
         let mut state = state_ref.get_mut();
         match message {
             ToWorkerMessage::ComputeTask(msg) => {
@@ -132,7 +129,6 @@ async fn worker_message_loop(
     }
     Ok(())
 }
-
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -218,93 +214,22 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
-/*async fn worker_rpc_loop<S: Stream<Item = crate::Result<Batch<ToWorkerStreamMessage>>> + Unpin>(
-    mut stream: S,
-    state_ref: WorkerStateRef,
-) -> crate::Result<()> {
-    while let Some(messages) = stream.next().await {
-        for message in messages? {
-            match message {
-                ToWorkerStreamMessage::ComputeTask(msg) => {
-                    compute_task(&state_ref, msg)?;
-                }
-                _ => {
-                    log::warn!("Unhandled worker message: {:?}", message);
-                }
-            }
-        }
-    }
-    Ok(())
-}*/
-
-/*
-async fn main_rpc_loop<R: AsyncRead + AsyncWrite>(
-    stream: R,
-    state_ref: WorkerStateRef,
-    queue_receiver: UnboundedReceiver<DaskPacket>,
-) -> crate::Result<()> {
-    let (reader, writer) = tokio::io::split(stream);
-    let mut reader = dask_parse_stream::<RegisterWorkerResponseMsg, _>(asyncread_to_stream(reader));
-    let mut writer = asyncwrite_to_sink(writer);
-
-    register_worker(state_ref.clone(), &mut reader, &mut writer).await?;
-
-    let snd_loop = forward_queue_to_sink(queue_receiver, writer);
-    let recv_loop = worker_rpc_loop(
-        dask_parse_stream::<ToWorkerStreamMessage, _>(reader.into_inner()),
-        state_ref,
-    );
-
-    let result = futures::future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
-    if let Err(e) = result.factor_first().0 {
-        panic!("Worker error: {}", e);
-    }
-    Ok(())
-}
-
-async fn register_worker<
-    S: Stream<Item = crate::Result<Batch<RegisterWorkerResponseMsg>>> + Unpin,
-    W: Sink<DaskPacket, Error = crate::Error> + Unpin,
->(
-    state: WorkerStateRef,
-    reader: &mut S,
-    writer: &mut W,
-) -> crate::Result<()> {
-    let address = state.get().listen_address.clone();
-    writer
-        .send(serialize_single_packet(GenericMessage::<
-            SerializedTransport,
-        >::RegisterWorker(
-            RegisterWorkerMsg {
-                name: address.clone(),
-                address: address.into(),
-                nthreads: state.get().ncpus,
-            },
-        ))?)
-        .await?;
-    let response: Batch<RegisterWorkerResponseMsg> = reader
-        .next()
-        .await
-        .expect("Didn't receive registration confirmation")?;
-    assert_eq!(response.len(), 1);
-    Ok(())
-}*/
-
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+    use tokio::sync::mpsc::UnboundedReceiver;
+
     use crate::server::protocol::daskmessages::generic::GenericMessage;
-    use crate::server::protocol::dasktransport::{
-        serialize_single_packet, Batch, DaskPacket, SerializedTransport,
-    };
     use crate::server::protocol::daskmessages::worker::{
         ComputeTaskMsg, FromWorkerMessage, RegisterWorkerResponseMsg, TaskFinishedMsg,
         ToWorkerStreamMessage,
     };
+    use crate::server::protocol::dasktransport::{
+        serialize_single_packet, Batch, DaskPacket, SerializedTransport,
+    };
     use crate::test_util::{bytes_to_msg, packets_to_bytes, MemoryStream};
     use crate::worker::rpc::main_rpc_loop;
     use crate::worker::state::WorkerStateRef;
-    use tokio::sync::mpsc::UnboundedReceiver;
-    use bytes::Bytes;
 
     #[tokio::test]
     async fn register_self() -> crate::Result<()> {

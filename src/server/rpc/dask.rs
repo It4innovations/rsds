@@ -1,35 +1,34 @@
-use crate::server::notifications::Notifications;
-use crate::server::reactor::{
-    gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
-    who_has,
-};
+use crate::server::client::Client;
 use crate::server::comm::CommRef;
+use crate::server::core::CoreRef;
+use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::FromClientMessage;
 use crate::server::protocol::daskmessages::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
 };
-use crate::server::protocol::key::{to_dask_key, DaskKey};
+use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
+use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
+use crate::server::protocol::daskmessages::worker::Status;
 use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, Batch, DaskPacket,
 };
-use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
-use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
-use crate::server::protocol::daskmessages::worker::Status;
-use crate::server::client::Client;
-use crate::server::core::CoreRef;
+use crate::server::protocol::key::{to_dask_key, DaskKey};
+use crate::server::reactor::{
+    gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
+    who_has,
+};
 
 use crate::server::task::ErrorInfo;
-//use crate::server::worker::create_worker;
+use crate::server::worker::{create_worker, WorkerMessage};
 
-use crate::util::forward_queue_to_sink;
+use crate::common::rpc::forward_queue_to_sink;
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
 use smallvec::smallvec;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
-use crate::common::transport::make_protocol_builder;
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
@@ -42,8 +41,7 @@ pub async fn worker_rpc_loop<
     sender: Writer,
     msg: RegisterWorkerMsg,
 ) -> crate::Result<()> {
-    todo!()
-/*    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<WorkerMessage>();
 
     let worker_ref = create_worker(
         &mut core_ref.get_mut(),
@@ -60,7 +58,13 @@ pub async fn worker_rpc_loop<
 
     log::info!("Worker {} registered from {}", worker_id, address);
 
-    let snd_loop = forward_queue_to_sink(queue_receiver, sender);
+    let snd_loop = forward_queue_to_sink(
+        queue_receiver,
+        sender.with(|msg| match msg {
+            WorkerMessage::Dask(data) => futures::future::ok::<_, crate::Error>(data),
+            _ => panic!("Received RSDS worker packet instead of Dask worker packet"),
+        }),
+    );
 
     let core_ref2 = core_ref.clone();
     let recv_loop = async move {
@@ -117,7 +121,7 @@ pub async fn worker_rpc_loop<
     );
     let mut core = core_ref2.get_mut();
     core.unregister_worker(worker_id);
-    Ok(())*/
+    Ok(())
 }
 
 pub async fn client_rpc_loop<
@@ -215,7 +219,6 @@ pub async fn connection_initiator(
         });
     }
 }
-
 
 pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
@@ -353,9 +356,13 @@ mod tests {
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };
+    use crate::server::protocol::daskmessages::worker::{
+        FromWorkerMessage, RegisterWorkerResponseMsg,
+    };
+    use crate::server::protocol::dasktransport::{
+        serialize_single_packet, Batch, Frames, SerializedTransport,
+    };
     use crate::server::protocol::key::{to_dask_key, DaskKey};
-    use crate::server::protocol::dasktransport::{serialize_single_packet, Batch, Frames, SerializedTransport};
-    use crate::server::protocol::daskmessages::worker::{FromWorkerMessage, RegisterWorkerResponseMsg};
     use crate::server::task::{DataInfo, TaskRuntimeState};
     use crate::test_util::{
         bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,

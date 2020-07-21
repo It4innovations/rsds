@@ -10,5 +10,6 @@ pub use key_id_map::{Identifiable, KeyIdMap};
 mod cycle_wrapped;
 mod id_counter;
 mod key_id_map;
-mod wrapped;
+pub mod rpc;
 pub mod transport;
+mod wrapped;

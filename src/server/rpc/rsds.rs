@@ -1,15 +1,15 @@
-use crate::server::core::CoreRef;
-use crate::server::comm::CommRef;
-use crate::server::notifications::Notifications;
-use futures::{Stream, Sink};
-use tokio::io::{AsyncRead, AsyncWrite};
+use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
+use crate::server::comm::CommRef;
+use crate::server::core::CoreRef;
+use crate::server::notifications::Notifications;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use bytes::{BytesMut, Bytes};
-use crate::server::worker::WorkerRef;
-use crate::util::forward_queue_to_sink;
-use tokio::net::TcpListener;
+use crate::server::worker::{WorkerMessage, WorkerRef};
+use bytes::{Bytes, BytesMut};
 use futures::FutureExt;
+use futures::{Sink, SinkExt, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -31,38 +31,28 @@ pub async fn connection_initiator(
     }
 }
 
-
 pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
     comm_ref: CommRef,
     stream: T,
     address: std::net::SocketAddr,
 ) -> crate::Result<()> {
-    use futures::stream::StreamExt;
     let (writer, mut reader) = make_protocol_builder().new_framed(stream).split();
     while let Some(message_data) = reader.next().await {
-            let message : GenericMessage = rmp_serde::from_slice(&message_data?)?;
-            match message {
-                GenericMessage::RegisterWorker(msg) => {
-                    log::debug!("Worker registration from {}", address);
-                    worker_rpc_loop(
-                        &core_ref,
-                        &comm_ref,
-                        address,
-                        reader,
-                        writer,
-                        msg,
-                    )
-                    .await?;
-                    break
-                }
+        let message: GenericMessage = rmp_serde::from_slice(&message_data?)?;
+        match message {
+            GenericMessage::RegisterWorker(msg) => {
+                log::debug!("Worker registration from {}", address);
+                worker_rpc_loop(&core_ref, &comm_ref, address, reader, writer, msg).await?;
+                break;
+            }
         }
     }
     Ok(())
 }
 
 pub async fn worker_rpc_loop<
-    Reader: Stream<Item=Result<BytesMut, std::io::Error>> + Unpin,
+    Reader: Stream<Item = Result<BytesMut, std::io::Error>> + Unpin,
     Writer: Sink<Bytes, Error = std::io::Error> + Unpin,
 >(
     core_ref: &CoreRef,
@@ -72,7 +62,7 @@ pub async fn worker_rpc_loop<
     sender: Writer,
     msg: RegisterWorkerMsg,
 ) -> crate::Result<()> {
-    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<WorkerMessage>();
 
     let (worker_ref, worker_id) = {
         let mut core = core_ref.get_mut();
@@ -90,12 +80,18 @@ pub async fn worker_rpc_loop<
 
     log::info!("Worker {} registered from {}", worker_id, address);
 
-    let snd_loop = forward_queue_to_sink(queue_receiver, sender);
+    let snd_loop = forward_queue_to_sink(
+        queue_receiver,
+        sender.with(|msg| match msg {
+            WorkerMessage::Rsds(data) => futures::future::ok::<_, crate::Error>(data),
+            _ => panic!("Received Dask worker packet instead of RSDS worker packet"),
+        }),
+    );
 
     let core_ref2 = core_ref.clone();
     let recv_loop = async move {
-        while let Some(message) = tokio::stream::StreamExt::next(&mut receiver).await {
-            let mut notifications = Notifications::default();
+        while let Some(message) = receiver.next().await {
+            let notifications = Notifications::default();
             let mut core = core_ref.get_mut();
             todo!();
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();

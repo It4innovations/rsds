@@ -1,23 +1,22 @@
+use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::Pin;
+use std::str::FromStr;
 use std::thread;
+use std::time::Duration;
 
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 
-use rsds::server::comm::CommRef;
 use rsds::scheduler::{
-    drive_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm,
-    TLevelMetric,
+    drive_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm, TLevelMetric,
 };
 use rsds::server::comm::observe_scheduler;
+use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
-use rsds::setup_interrupt;
-use rsds::trace::setup_file_trace;
-use std::future::Future;
-use std::pin::Pin;
-use std::str::FromStr;
-use std::time::Duration;
+use rsds::server::WorkerType;
+use rsds::{setup_interrupt, setup_logging};
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -72,6 +71,32 @@ impl FromStr for SchedulerType {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum WorkerTypeCmd {
+    Dask,
+    Rsds,
+}
+
+impl FromStr for WorkerTypeCmd {
+    type Err = String;
+    fn from_str(worker: &str) -> Result<WorkerTypeCmd, Self::Err> {
+        match worker {
+            "rsds" => Ok(WorkerTypeCmd::Rsds),
+            "dask" => Ok(WorkerTypeCmd::Dask),
+            _ => Err(format!("Worker type '{}' does not exist", worker)),
+        }
+    }
+}
+
+impl From<WorkerTypeCmd> for WorkerType {
+    fn from(worker: WorkerTypeCmd) -> Self {
+        match worker {
+            WorkerTypeCmd::Dask => WorkerType::Dask,
+            WorkerTypeCmd::Rsds => WorkerType::Rsds,
+        }
+    }
+}
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
 struct Opt {
@@ -79,21 +104,12 @@ struct Opt {
     port: u16,
     #[structopt(long, default_value = "workstealing")]
     scheduler: SchedulerType,
+    #[structopt(long, default_value = "dask")]
+    worker: WorkerTypeCmd,
     #[structopt(long, default_value = "0")]
     msd: u64,
     #[structopt(long)]
     trace_file: Option<String>,
-}
-
-fn setup_logging(trace_file: Option<String>) {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
-    env_logger::builder().format_timestamp_millis().init();
-
-    if let Some(trace_file) = trace_file {
-        setup_file_trace(trace_file);
-    }
 }
 
 #[tokio::main(basic_scheduler)]
@@ -105,18 +121,22 @@ async fn main() -> rsds::Result<()> {
     setup_logging(opt.trace_file.take());
     let mut end_rx = setup_interrupt();
 
-    let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), opt.port);
-    log::info!("Listening on port {}", address);
-    let listener = TcpListener::bind(address).await?;
+    let dask_address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), opt.port);
+    log::info!("Listening for Dask messages on port {}", dask_address);
+    let dask_listener = TcpListener::bind(dask_address).await?;
 
     // Start "protocol2" on port + 1
-    let address2 = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), listener.local_addr()?.port() + 1);
-    log::info!("Listening on port {}", address2);
-    let listener2 = TcpListener::bind(address2).await?;
+    let rsds_address = SocketAddr::new(
+        Ipv4Addr::UNSPECIFIED.into(),
+        dask_listener.local_addr()?.port() + 1,
+    );
+    log::info!("Listening for RSDS messages on port {}", rsds_address);
+    let rsds_listener = TcpListener::bind(rsds_address).await?;
 
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
     let msd = Duration::from_millis(opt.msd);
+    let worker_type = opt.worker;
     let scheduler_thread = thread::spawn(move || {
         let mut runtime = tokio::runtime::Builder::new()
             .basic_scheduler()
@@ -127,18 +147,23 @@ async fn main() -> rsds::Result<()> {
             .block_on(create_scheduler(opt.scheduler, msd, comm))
             .expect("Scheduler failed");
     });
-
     {
         let task_set = tokio::task::LocalSet::default();
-        let comm_ref = CommRef::new(sender);
+        let comm_ref = CommRef::new(sender, worker_type.into());
         let core_ref = CoreRef::default();
-        let core_ref2 = core_ref.clone();
-        let comm_ref2 = comm_ref.clone();
         task_set
             .run_until(async move {
-                let scheduler = observe_scheduler(core_ref2, comm_ref2, receiver);
-                let connection = rsds::server::rpc::dask::connection_initiator(listener, core_ref.clone(), comm_ref.clone());
-                let connection2 = rsds::server::rpc::rsds::connection_initiator(listener2, core_ref, comm_ref);
+                let scheduler = observe_scheduler(core_ref.clone(), comm_ref.clone(), receiver);
+                let dask_connection = rsds::server::rpc::dask::connection_initiator(
+                    dask_listener,
+                    core_ref.clone(),
+                    comm_ref.clone(),
+                );
+                let rsds_connection = rsds::server::rpc::rsds::connection_initiator(
+                    rsds_listener,
+                    core_ref,
+                    comm_ref,
+                );
                 let end_flag = async move {
                     end_rx.next().await;
                     Ok(())
@@ -146,8 +171,8 @@ async fn main() -> rsds::Result<()> {
 
                 tokio::select! {
                     r = scheduler => r ,
-                    r = connection => r ,
-                    r = connection2 => r ,
+                    r = dask_connection => r ,
+                    r = rsds_connection => r ,
                     r = end_flag => r,
                 }
             })

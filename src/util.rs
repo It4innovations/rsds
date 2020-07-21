@@ -1,4 +1,4 @@
-use futures::{Sink, SinkExt, StreamExt};
+use crate::trace::setup_file_trace;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 #[macro_export]
@@ -33,15 +33,13 @@ pub fn setup_interrupt() -> UnboundedReceiver<()> {
     end_rx
 }
 
-pub async fn forward_queue_to_sink<T, E, S: Sink<T, Error = E> + Unpin>(
-    mut queue: UnboundedReceiver<T>,
-    mut sink: S,
-) -> Result<(), E> {
-    while let Some(data) = queue.next().await {
-        if let Err(e) = sink.send(data).await {
-            log::error!("Forwarding from queue failed");
-            return Err(e);
-        }
+pub fn setup_logging(trace_file: Option<String>) {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
     }
-    Ok(())
+    env_logger::builder().format_timestamp_millis().init();
+
+    if let Some(trace_file) = trace_file {
+        setup_file_trace(trace_file);
+    }
 }

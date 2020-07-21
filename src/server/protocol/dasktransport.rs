@@ -142,10 +142,7 @@ impl Decoder for DaskCodec {
             trace_packet_receive(total_size as usize);
 
             // preallocate space
-            std::mem::replace(
-                &mut self.decoder.main_message,
-                BytesMut::with_capacity(main_size as usize),
-            );
+            self.decoder.main_message = BytesMut::with_capacity(main_size as usize);
             self.decoder.other_messages.clear();
             for size in &sizes {
                 self.decoder
@@ -575,16 +572,21 @@ mod tests {
         task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
         ToClientMessage, UpdateGraphMsg,
     };
-    use crate::server::protocol::dasktransport::{asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec, DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport};
+    use crate::server::protocol::dasktransport::{
+        asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
+        DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport,
+    };
     use crate::Result;
     use bytes::{Buf, BufMut, BytesMut};
     use futures::SinkExt;
     use maplit::hashmap;
 
     use crate::common::Map;
-    use crate::server::protocol::key::{to_dask_key, DaskKey};
+    use crate::server::protocol::daskmessages::worker::{
+        FromWorkerMessage, RegisterWorkerResponseMsg,
+    };
     use crate::server::protocol::dasktransport::IntoInner;
-    use crate::server::protocol::daskmessages::worker::{RegisterWorkerResponseMsg, FromWorkerMessage};
+    use crate::server::protocol::key::{to_dask_key, DaskKey};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
@@ -899,7 +901,7 @@ mod tests {
                     FromWorkerMessage::StealResponse(msg) => {
                         assert!(msg.state.is_none());
                     }
-                    _ => panic!()
+                    _ => panic!(),
                 }
             }
             _ => panic!(),

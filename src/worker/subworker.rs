@@ -1,19 +1,12 @@
-use std::env;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use bytes::{Bytes, BytesMut};
-use futures::{Future, FutureExt};
+use bytes::Bytes;
 use futures::stream::{SplitSink, SplitStream};
-use futures::task::LocalSpawnExt;
-use hashbrown::HashSet;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
-use tokio::io::AsyncWrite;
+use futures::{Future, FutureExt, StreamExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::process::Command;
-use tokio::stream::{Stream, StreamExt};
 use tokio::sync::oneshot;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -62,11 +55,16 @@ impl SubworkerRef {
 async fn subworker_handshake(
     mut listener: UnixListener,
     subworker_id: SubworkerId,
-) -> Result<(SplitSink<Framed<UnixStream, LengthDelimitedCodec>, Bytes>,
-             SplitStream<Framed<UnixStream, LengthDelimitedCodec>>), crate::Error> {
-    if let Some(Ok(mut stream)) = listener.next().await {
+) -> Result<
+    (
+        SplitSink<Framed<UnixStream, LengthDelimitedCodec>, Bytes>,
+        SplitStream<Framed<UnixStream, LengthDelimitedCodec>>,
+    ),
+    crate::Error,
+> {
+    if let Some(Ok(stream)) = listener.next().await {
         let mut framed = make_protocol_builder().new_framed(stream);
-        let message = tokio::stream::StreamExt::next(&mut framed).await;
+        let message = framed.next().await;
 
         if message.is_none() {
             panic!("Subworker did not sent register message");
@@ -77,14 +75,15 @@ async fn subworker_handshake(
         if register_message.subworker_id != subworker_id {
             panic!("Subworker registered with an invalid id");
         }
-        use futures::stream::StreamExt;
         Ok(framed.split())
     } else {
         panic!("Listening on subworker socket failed");
     }
 }
 
-async fn run_subworker_message_loop(mut stream: SplitStream<Framed<UnixStream, LengthDelimitedCodec>>) -> crate::Result<()> {
+async fn run_subworker_message_loop(
+    mut stream: SplitStream<Framed<UnixStream, LengthDelimitedCodec>>,
+) -> crate::Result<()> {
     while let Some(messages) = stream.next().await {
         todo!()
     }
@@ -96,8 +95,7 @@ async fn run_subworker(
     python_program: String,
     subworker_id: SubworkerId,
     ready_shot: oneshot::Sender<SubworkerRef>,
-) -> Result<(), crate::Error>
-{
+) -> Result<(), crate::Error> {
     let mut socket_path = work_dir.clone();
     socket_path.push(format!("subworker-{}.sock", subworker_id));
 
@@ -114,7 +112,8 @@ async fn run_subworker(
             .stderr(Stdio::from(log_stderr))
             .env("RSDS_SUBWORKER_SOCKET", &socket_path)
             .env("RSDS_SUBWORKER_ID", format!("{}", subworker_id))
-            .args(&["-m", "rsds.subworker"]).spawn()?
+            .args(&["-m", "rsds.subworker"])
+            .spawn()?
     };
 
     std::mem::drop(socket_path);
@@ -140,14 +139,13 @@ async fn run_subworker(
         result = process_future => {
             panic!("Subworker {} failed: {}, see {}", subworker_id, result?, log_path.display());
         },
-        result = crate::util::forward_queue_to_sink(queue_receiver, writer) => {
+        result = crate::common::rpc::forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Sending a message to subworker failed");
         }
         _ = run_subworker_message_loop(reader) => {
             panic!("Subworker {} closed stream, see {}", subworker_id, log_path.display());
         }
-    }
-    ;
+    };
 
     Ok(())
 }
@@ -156,13 +154,21 @@ pub async fn start_subworkers(
     work_dir: &Path,
     python_program: &str,
     count: u32,
-) -> Result<(Vec<SubworkerRef>, impl Future<Output=usize>), crate::Error> {
+) -> Result<(Vec<SubworkerRef>, impl Future<Output = usize>), crate::Error> {
     let mut ready = Vec::with_capacity(count as usize);
-    let processes: Vec<_> = (0..count).map(|i| {
-        let (sx, rx) = oneshot::channel();
-        ready.push(rx);
-        run_subworker(work_dir.to_path_buf(), python_program.to_string(), i as SubworkerId, sx).boxed_local()
-    }).collect();
+    let processes: Vec<_> = (0..count)
+        .map(|i| {
+            let (sx, rx) = oneshot::channel();
+            ready.push(rx);
+            run_subworker(
+                work_dir.to_path_buf(),
+                python_program.to_string(),
+                i as SubworkerId,
+                sx,
+            )
+            .boxed_local()
+        })
+        .collect();
     let mut all_processes = futures::future::select_all(processes).map(|(_, idx, _)| idx);
 
     tokio::select! {

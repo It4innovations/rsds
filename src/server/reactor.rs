@@ -1,21 +1,23 @@
-use crate::server::comm::CommRef;
-use crate::server::notifications::Notifications;
 use crate::common::{Map, Set};
-use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg};
 use crate::server::client::ClientId;
+use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
+use crate::server::notifications::Notifications;
+use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg};
 
-use crate::server::protocol::daskmessages::generic::{ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::server::protocol::daskmessages::generic::{
+    ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse,
+};
 use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
     map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
     SerializedMemory,
 };
 
+use crate::scheduler::protocol::TaskId;
 use crate::server::protocol::daskmessages::worker::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
 };
-use crate::scheduler::protocol::TaskId;
 
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
 
@@ -461,9 +463,9 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 ) -> crate::Result<()> {
     let response: WhoHasMsgResponse = {
         let core = core_ref.get();
-        let keys = keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
-        keys
-            .into_iter()
+        let keys =
+            keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
+        keys.into_iter()
             .map(|key| {
                 let workers = match core.get_task_by_key(&key) {
                     Some(task) => match task.get().get_workers() {

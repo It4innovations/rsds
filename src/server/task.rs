@@ -2,18 +2,21 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::server::notifications::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
-use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
-use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory, SerializedTransport};
-use crate::server::protocol::Priority;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
+use crate::server::notifications::Notifications;
+use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
+use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory};
+use crate::server::protocol::Priority;
 
+use crate::scheduler::protocol::TaskId;
+use crate::server::protocol::daskmessages::worker::{
+    ComputeTaskMsg as DaskComputeTaskMsg, ToWorkerMessage as DaskToWorkerMessage,
+};
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
-use crate::scheduler::protocol::TaskId;
-use crate::server::worker::{WorkerRef, Worker};
+use crate::server::worker::WorkerRef;
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -162,11 +165,7 @@ impl Task {
         result
     }
 
-    pub fn make_compute_task_msg(
-        &self,
-        core: &Core,
-        worker: &Worker,
-    ) {
+    pub fn make_compute_task_msg_rsds(&self, core: &Core) -> ToWorkerMessage {
         let dep_info: Vec<_> = self
             .dependencies
             .iter()
@@ -180,13 +179,12 @@ impl Task {
                     .map(|w| w.get().listen_address.clone())
                     .collect();
                 (task.key.clone(), addresses)
-            }).collect();
+            })
+            .collect();
 
-        let unpack = |s: &SerializedMemory| {
-            match s {
-                SerializedMemory::Inline(v) => v.clone(),
-                _ => todo!(),
-            }
+        let unpack = |s: &SerializedMemory| match s {
+            SerializedMemory::Inline(v) => v.clone(),
+            _ => todo!(),
         };
 
         let (function, args, kwargs) = match &self.spec {
@@ -194,20 +192,96 @@ impl Task {
                 function,
                 args,
                 kwargs,
-            })) => {
-                (unpack(function.as_ref().unwrap()), unpack(args.as_ref().unwrap()), kwargs.as_ref().map(unpack))
-            }
+            })) => (
+                unpack(function.as_ref().unwrap()),
+                unpack(args.as_ref().unwrap()),
+                kwargs.as_ref().map(unpack),
+            ),
             _ => todo!(),
             None => panic!("Task has no specification"),
         };
 
-        let msg = ToWorkerMessage::ComputeTask(ComputeTaskMsg {
+        ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             key: self.key.clone(),
-            dep_info, function, args, kwargs,
+            dep_info,
+            function,
+            args,
+            kwargs,
             user_priority: self.user_priority,
             scheduler_priority: self.scheduler_priority,
+        })
+    }
+
+    pub fn make_compute_task_msg_dask(
+        &self,
+        core: &Core,
+        mbuilder: &mut MessageBuilder<DaskToWorkerMessage>,
+    ) {
+        let task_refs: Vec<_> = self
+            .dependencies
+            .iter()
+            .map(|task_id| core.get_task_by_id_or_panic(*task_id).clone())
+            .collect();
+        let who_has: Vec<_> = task_refs
+            .iter()
+            .map(|task_ref| {
+                let task = task_ref.get();
+                let addresses: Vec<_> = task
+                    .get_workers()
+                    .unwrap()
+                    .iter()
+                    .map(|w| w.get().listen_address.clone())
+                    .collect();
+                (task.key.clone(), addresses)
+            })
+            .collect();
+
+        let nbytes: Vec<_> = task_refs
+            .iter()
+            .map(|task_ref| {
+                let task = task_ref.get();
+                (task.key.clone(), task.data_info().unwrap().size)
+            })
+            .collect();
+
+        let mut msg_function = None;
+        let mut msg_args = None;
+        let mut msg_kwargs = None;
+        let mut msg_task = None;
+
+        match &self.spec {
+            Some(ClientTaskSpec::Direct(DirectTaskSpec {
+                function,
+                args,
+                kwargs,
+            })) => {
+                msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
+                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
+            }
+            Some(ClientTaskSpec::Serialized(v)) => {
+                msg_task = Some(v.to_transport_clone(mbuilder));
+            }
+            None => panic!("Task has no specification"),
+        };
+
+        let msg = DaskToWorkerMessage::ComputeTask(DaskComputeTaskMsg {
+            key: self.key.clone(),
+            duration: 0.5, // TODO
+            actor: self.actor,
+            who_has,
+            nbytes,
+            task: msg_task,
+            function: msg_function,
+            kwargs: msg_kwargs,
+            args: msg_args,
+            priority: [
+                self.user_priority,
+                self.scheduler_priority,
+                self.client_priority,
+            ],
         });
-        worker.send_message(msg);
+        mbuilder.add_message(msg);
     }
 
     #[inline]

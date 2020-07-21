@@ -2,23 +2,30 @@ use futures::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::common::{Map, WrappedRcRefCell};
-use crate::Error;
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
 use crate::server::client::{Client, ClientId};
 use crate::server::core::{Core, CoreRef};
-use crate::server::notifications::{ClientNotification, WorkerNotification};
 use crate::server::notifications::Notifications;
-use crate::server::protocol::daskmessages::client::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
+use crate::server::notifications::{ClientNotification, WorkerNotification};
+use crate::server::protocol::daskmessages::client::{
+    KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
+};
+use crate::server::protocol::daskmessages::worker::{
+    DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
+};
 use crate::server::protocol::dasktransport::DaskPacket;
 use crate::server::protocol::dasktransport::MessageBuilder;
 use crate::server::task::TaskRuntimeState;
 use crate::server::worker::WorkerRef;
+use crate::server::WorkerType;
 use crate::trace::trace_task_send;
+use crate::Error;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
 pub struct Comm {
     sender: UnboundedSender<Vec<ToSchedulerMessage>>,
+    worker_type: WorkerType,
 }
 
 impl Comm {
@@ -80,53 +87,68 @@ impl Comm {
         notifications: Map<WorkerRef, WorkerNotification>,
     ) -> crate::Result<()> {
         for (worker_ref, w_update) in notifications {
-            let worker = worker_ref.get();
-            for task in w_update.compute_tasks {
-                let task = task.get();
-                trace_task_send(task.id, worker_ref.get().id);
-                task.make_compute_task_msg(core, &worker);
+            match &self.worker_type {
+                WorkerType::Dask => {
+                    let mut mbuilder = MessageBuilder::default();
+
+                    for task in w_update.compute_tasks {
+                        let task = task.get();
+                        trace_task_send(task.id, worker_ref.get().id);
+                        task.make_compute_task_msg_dask(core, &mut mbuilder);
+                    }
+
+                    if !w_update.delete_keys.is_empty() {
+                        mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
+                            keys: w_update.delete_keys,
+                            report: false,
+                        }));
+                    }
+
+                    for tref in w_update.steal_tasks {
+                        let task = tref.get();
+                        mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
+                            key: task.key().into(),
+                        }));
+                    }
+
+                    if !mbuilder.is_empty() {
+                        self.send_worker_dask_message(&worker_ref, mbuilder.build_batch()?)
+                            .unwrap_or_else(|_| {
+                                // !!! Do not propagate error right now, we need to finish sending protocol to others
+                                // Worker cleanup is done elsewhere (when worker future terminates),
+                                // so we can safely ignore this. Since we are nice guys we log (debug) message.
+                                log::debug!(
+                                    "Sending tasks to worker {} failed",
+                                    worker_ref.get().id
+                                );
+                            });
+                    }
+                }
+                WorkerType::Rsds => {
+                    let worker = worker_ref.get();
+                    for task in w_update.compute_tasks {
+                        let task = task.get();
+                        trace_task_send(task.id, worker_ref.get().id);
+                        let msg = task.make_compute_task_msg_rsds(core);
+                        worker.send_rsds_message(msg);
+                    }
+                }
             }
-
-            /*let mut mbuilder = MessageBuilder::default();
-
-            for task in w_update.compute_tasks {
-                let task = task.get();
-                trace_task_send(task.id, worker_ref.get().id);
-                task.make_compute_task_msg(core, &mut mbuilder);
-            }
-
-            if !w_update.delete_keys.is_empty() {
-                mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
-                    keys: w_update.delete_keys,
-                    report: false,
-                }));
-            }
-
-            for tref in w_update.steal_tasks {
-                let task = tref.get();
-                mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
-                    key: task.key().into(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                self.send_worker_message(&worker_ref, mbuilder.build_batch()?)
-                    .unwrap_or_else(|_| {
-                        // !!! Do not propagate error right now, we need to finish sending protocol to others
-                        // Worker cleanup is done elsewhere (when worker future terminates),
-                        // so we can safely ignore this. Since we are nice guys we log (debug) message.
-                        log::debug!("Sending tasks to worker {} failed", worker_ref.get().id);
-                    });
-            }*/
         }
 
         Ok(())
     }
 
-    /*#[inline]
-    fn send_worker_message(&mut self, worker: &WorkerRef, packet: Bytes) -> crate::Result<()> {
-        worker.get_mut().send_message(packet)
-    }*/
+    #[inline]
+    fn send_worker_dask_message(
+        &mut self,
+        worker: &WorkerRef,
+        packet: DaskPacket,
+    ) -> crate::Result<()> {
+        // TODO: use result
+        worker.get_mut().send_dask_message(packet);
+        Ok(())
+    }
 
     #[inline]
     fn send_client_packet(&mut self, client: &mut Client, packet: DaskPacket) -> crate::Result<()> {
@@ -135,8 +157,11 @@ impl Comm {
 }
 
 impl CommRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        Self::wrap(Comm { sender })
+    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>, worker_type: WorkerType) -> Self {
+        Self::wrap(Comm {
+            sender,
+            worker_type,
+        })
     }
 }
 
@@ -186,4 +211,3 @@ pub async fn observe_scheduler(
 
     Ok(())
 }
-
