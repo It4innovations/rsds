@@ -69,7 +69,7 @@ class RsdsEnv(Env):
     def no_final_check(self):
         self.do_final_check = False
 
-    def start_worker(self, ncpus, port, rsds_worker):
+    def start_worker(self, ncpus, port, rsds_worker=False):
         worker_id = self.id_counter
         self.id_counter += 1
         name = "worker{}".format(worker_id)
@@ -85,13 +85,15 @@ class RsdsEnv(Env):
             env["RUST_BACKTRACE"] = "FULL"
             env["RUST_LOG"] = "debug"
             program = RSDS_WORKER_BIN
+
+            work_dir = (self.work_path / name)
+            work_dir.mkdir()
+            args = [program, "localhost:{}".format(port + 1), "--ncpus", str(ncpus), "--work-dir", work_dir]
+            self.workers[name] = self.start_process(name, args, env, cwd=work_dir)
         else:
             program = "dask-worker"
-
-        work_dir = (self.work_path / name)
-        work_dir.mkdir()
-        args = [program, "localhost:{}".format(port + 1), "--ncpus", str(ncpus), "--work-dir", work_dir]
-        self.workers[name] = self.start_process(name, args, env, cwd=work_dir)
+            args = [program, "localhost:{}".format(port), "--nthreads", str(ncpus)]
+            self.workers[name] = self.start_process(name, args, env)
 
     def start(self,
               workers=(),

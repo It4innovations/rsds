@@ -41,7 +41,7 @@ def test_bag(rsds_env, scheduler):
         .frequencies(sort=True) \
         .topk(10, key=1) \
         .compute()
-    assert sum(v[1] for v in res) == 12
+    assert sum(v[1] for v in res) == 13
 
 
 @with_all_schedulers
