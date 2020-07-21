@@ -181,13 +181,3 @@ pub async fn start_subworkers(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_start() {
-        assert_ne!(generate_socket_name(), generate_socket_name());
-    }
-}

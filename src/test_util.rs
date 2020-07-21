@@ -1,6 +1,5 @@
 #![cfg(test)]
 
-use crate::comm::{CommRef, Notifications};
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::scheduler::ToSchedulerMessage;
@@ -13,8 +12,10 @@ use crate::server::protocol::dasktransport::{
 };
 use crate::server::protocol::key::to_dask_key;
 use crate::server::task::TaskRef;
-use crate::server::worker::{create_worker, WorkerRef};
+use crate::server::worker::{create_worker, WorkerMessage, WorkerRef};
+use crate::server::{comm::CommRef, notifications::Notifications, WorkerType};
 use bytes::BytesMut;
+use futures::{Stream, StreamExt};
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
@@ -80,7 +81,7 @@ pub fn dummy_ctx() -> (
     tokio::sync::mpsc::UnboundedReceiver<Vec<ToSchedulerMessage>>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (CoreRef::default(), CommRef::new(tx), rx)
+    (CoreRef::default(), CommRef::new(tx, WorkerType::Dask), rx)
 }
 pub fn dummy_address() -> SocketAddr {
     "127.0.0.1:8080".parse().unwrap()
@@ -109,10 +110,16 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
     }
     task
 }
-pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, UnboundedReceiver<DaskPacket>) {
+pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, impl Stream<Item = DaskPacket>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let worker = create_worker(core, tx, to_dask_key(address), 1);
-    (worker, rx)
+    (
+        worker,
+        rx.map(|msg| match msg {
+            WorkerMessage::Dask(packet) => packet,
+            _ => panic!("Received RSDS packet"),
+        }),
+    )
 }
 pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();

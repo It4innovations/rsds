@@ -534,12 +534,12 @@ fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::Core;
-    use crate::comm::{notifications::ClientNotification, Notifications};
     use crate::common::Set;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
     use crate::server::client::Client;
     use crate::server::core::get_task_duration;
+    use crate::server::notifications::{ClientNotification, Notifications};
     use crate::server::protocol::daskmessages::worker::Status;
     use crate::server::protocol::daskmessages::worker::TaskFinishedMsg;
     use crate::server::protocol::key::DaskKey;

@@ -347,8 +347,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 
 #[cfg(test)]
 mod tests {
-    use crate::comm::notifications::Notifications;
-    use crate::comm::rpc::generic_rpc_loop;
+    use crate::server::notifications::Notifications;
     use crate::server::protocol::daskmessages::client::{
         ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };
@@ -363,6 +362,7 @@ mod tests {
         serialize_single_packet, Batch, Frames, SerializedTransport,
     };
     use crate::server::protocol::key::{to_dask_key, DaskKey};
+    use crate::server::rpc::dask::generic_rpc_loop;
     use crate::server::task::{DataInfo, TaskRuntimeState};
     use crate::test_util::{
         bytes_to_msg, client, dummy_address, dummy_ctx, dummy_serialized, frame, msg_to_bytes,

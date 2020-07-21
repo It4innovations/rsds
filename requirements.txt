@@ -1,0 +1,3 @@
+git+https://github.com/kobzol/distributed.git@simple-frame-sched
+pytest==5.4.0
+dask[dataframe]==2.8.1

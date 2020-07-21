@@ -1,13 +1,15 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use rsds::comm::reactor::update_graph;
-use rsds::comm::CommRef;
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use tokio::sync::mpsc::UnboundedReceiver;
+
 use rsds::scheduler::ToSchedulerMessage;
 use rsds::server::client::{Client, ClientId};
+use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
 use rsds::server::protocol::daskmessages::client::{ClientTaskSpec, UpdateGraphMsg};
 use rsds::server::protocol::dasktransport::{DaskPacket, SerializedTransport};
 use rsds::server::protocol::key::DaskKey;
-use tokio::sync::mpsc::UnboundedReceiver;
+use rsds::server::reactor::update_graph;
+use rsds::server::WorkerType;
 
 struct Context {
     core: CoreRef,
@@ -35,7 +37,7 @@ pub fn update_graph_bench(c: &mut Criterion) {
                         id
                     };
                     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-                    let comm = CommRef::new(tx);
+                    let comm = CommRef::new(tx, WorkerType::Dask);
 
                     let mut tasks: Vec<(DaskKey, ClientTaskSpec<SerializedTransport>)> = vec![];
                     for i in 0..task_count {

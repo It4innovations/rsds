@@ -1,16 +1,12 @@
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::Duration;
 use std::{env, fs};
 
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use structopt::StructOpt;
-use tokio::net::lookup_host;
-use tokio::net::TcpStream;
 
 use rsds::setup_logging;
-use rsds::trace::setup_file_trace;
 use rsds::worker::rpc::run_worker;
 use rsds::worker::subworker::start_subworkers;
 

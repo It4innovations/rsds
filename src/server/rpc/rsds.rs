@@ -90,7 +90,7 @@ pub async fn worker_rpc_loop<
 
     let core_ref2 = core_ref.clone();
     let recv_loop = async move {
-        while let Some(message) = receiver.next().await {
+        while let Some(_message) = receiver.next().await {
             let notifications = Notifications::default();
             let mut core = core_ref.get_mut();
             todo!();
