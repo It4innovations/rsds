@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::comm::Notifications;
+use crate::server::notifications::Notifications;
 use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCell};
 use crate::server::protocol::daskmessages::worker::{StealResponseMsg, TaskFinishedMsg, WorkerState};
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};

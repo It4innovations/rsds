@@ -1,5 +1,9 @@
+pub mod reactor;
+pub mod comm;
+pub mod notifications;
 pub mod client;
 pub mod core;
 pub mod task;
 pub mod worker;
 pub mod protocol;
+pub mod rpc;

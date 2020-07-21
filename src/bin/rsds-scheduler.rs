@@ -5,11 +5,12 @@ use futures::{FutureExt, StreamExt};
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 
-use rsds::comm::CommRef;
+use rsds::server::comm::CommRef;
 use rsds::scheduler::{
-    drive_scheduler, observe_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm,
+    drive_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm,
     TLevelMetric,
 };
+use rsds::server::comm::observe_scheduler;
 use rsds::server::core::CoreRef;
 use rsds::setup_interrupt;
 use rsds::trace::setup_file_trace;
@@ -136,8 +137,8 @@ async fn main() -> rsds::Result<()> {
         task_set
             .run_until(async move {
                 let scheduler = observe_scheduler(core_ref2, comm_ref2, receiver);
-                let connection = rsds::comm::connection_initiator(listener, core_ref.clone(), comm_ref.clone());
-                let connection2 = rsds::comm::rpc2::connection_initiator(listener2, core_ref, comm_ref);
+                let connection = rsds::server::rpc::dask::connection_initiator(listener, core_ref.clone(), comm_ref.clone());
+                let connection2 = rsds::server::rpc::rsds::connection_initiator(listener2, core_ref, comm_ref);
                 let end_flag = async move {
                     end_rx.next().await;
                     Ok(())

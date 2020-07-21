@@ -1,9 +1,9 @@
-use crate::comm::notifications::Notifications;
-use crate::comm::reactor::{
+use crate::server::notifications::Notifications;
+use crate::server::reactor::{
     gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
     who_has,
 };
-use crate::comm::CommRef;
+use crate::server::comm::CommRef;
 use crate::server::protocol::daskmessages::client::FromClientMessage;
 use crate::server::protocol::daskmessages::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
@@ -30,7 +30,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
 use crate::common::transport::make_protocol_builder;
-
 
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,

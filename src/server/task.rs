@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::comm::Notifications;
+use crate::server::notifications::Notifications;
 use crate::common::{Set, WrappedRcRefCell};
 use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
 use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory, SerializedTransport};

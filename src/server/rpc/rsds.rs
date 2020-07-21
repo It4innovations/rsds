@@ -1,5 +1,6 @@
 use crate::server::core::CoreRef;
-use crate::comm::{CommRef, Notifications};
+use crate::server::comm::CommRef;
+use crate::server::notifications::Notifications;
 use futures::{Stream, Sink};
 use tokio::io::{AsyncRead, AsyncWrite};
 use crate::common::transport::make_protocol_builder;
@@ -9,7 +10,6 @@ use crate::server::worker::WorkerRef;
 use crate::util::forward_queue_to_sink;
 use tokio::net::TcpListener;
 use futures::FutureExt;
-
 
 pub async fn connection_initiator(
     mut listener: TcpListener,

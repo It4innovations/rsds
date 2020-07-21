@@ -1,8 +1,6 @@
 use crate::common::WrappedRcRefCell;
-use crate::server::core::Core;
 
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
-use crate::server::protocol::dasktransport::DaskPacket;
 use std::str;
 use bytes::Bytes;
 use crate::server::protocol::messages::worker::ToWorkerMessage;
@@ -51,11 +49,6 @@ impl Worker {
         let data = rmp_serde::to_vec_named(&message).unwrap();
         self.sender.send(data.into()).expect("Send to worker failed");
     }
-
-    /*pub fn send_dask_packet(&mut self, message: DaskPacket) -> crate::Result<()> {
-        self.sender.send(message).expect("Send to worker failed");
-        Ok(())
-    }*/
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;

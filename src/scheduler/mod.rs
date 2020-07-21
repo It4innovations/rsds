@@ -1,7 +1,14 @@
+use tokio::sync::mpsc::UnboundedSender;
+
+pub use comm::{drive_scheduler, prepare_scheduler_comm, SchedulerComm};
+pub use level::LevelScheduler;
+pub use metrics::{BLevelMetric, TLevelMetric};
 pub use protocol::{FromSchedulerMessage, ToSchedulerMessage};
+pub use protocol::{TaskAssignment, TaskId, WorkerId};
+pub use random::RandomScheduler;
+pub use workstealing::WorkstealingScheduler;
 
 use crate::scheduler::protocol::SchedulerRegistration;
-use tokio::sync::mpsc::UnboundedSender;
 
 mod comm;
 mod graph;
@@ -17,13 +24,6 @@ mod workstealing;
 
 #[cfg(test)]
 mod test_util;
-
-pub use comm::{drive_scheduler, observe_scheduler, prepare_scheduler_comm, SchedulerComm};
-pub use level::LevelScheduler;
-pub use metrics::{BLevelMetric, TLevelMetric};
-pub use protocol::{TaskAssignment, TaskId, WorkerId};
-pub use random::RandomScheduler;
-pub use workstealing::WorkstealingScheduler;
 
 pub type SchedulerSender = UnboundedSender<FromSchedulerMessage>;
 

@@ -3,7 +3,6 @@ pub mod trace;
 #[macro_use]
 mod util;
 
-pub mod comm;
 mod common;
 mod error;
 pub mod scheduler;

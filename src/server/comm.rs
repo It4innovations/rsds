@@ -1,23 +1,19 @@
-use crate::comm::notifications::{ClientNotification, WorkerNotification};
-use crate::server::client::{Client, ClientId};
+use futures::StreamExt;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::comm::Notifications;
 use crate::common::{Map, WrappedRcRefCell};
+use crate::Error;
+use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
+use crate::server::client::{Client, ClientId};
+use crate::server::core::{Core, CoreRef};
+use crate::server::notifications::{ClientNotification, WorkerNotification};
+use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
-use crate::server::core::Core;
-
 use crate::server::protocol::dasktransport::DaskPacket;
 use crate::server::protocol::dasktransport::MessageBuilder;
-use crate::server::protocol::daskmessages::worker::{DeleteDataMsg, StealRequestMsg, ToWorkerMessage};
-
-use crate::scheduler::ToSchedulerMessage;
 use crate::server::task::TaskRuntimeState;
-
 use crate::server::worker::WorkerRef;
-
 use crate::trace::trace_task_send;
-use tokio::sync::mpsc::UnboundedSender;
-use bytes::Bytes;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -143,3 +139,51 @@ impl CommRef {
         Self::wrap(Comm { sender })
     }
 }
+
+pub async fn observe_scheduler(
+    core_ref: CoreRef,
+    comm_ref: CommRef,
+    mut receiver: UnboundedReceiver<FromSchedulerMessage>,
+) -> crate::Result<()> {
+    log::debug!("Starting scheduler");
+
+    match receiver.next().await {
+        Some(crate::scheduler::FromSchedulerMessage::Register(r)) => {
+            log::debug!("Scheduler registered: {:?}", r)
+        }
+        None => {
+            return Err(Error::SchedulerError(
+                "Scheduler closed connection without registration".to_owned(),
+            ));
+        }
+        _ => {
+            return Err(Error::SchedulerError(
+                "First message of scheduler has to be registration".to_owned(),
+            ));
+        }
+    }
+
+    while let Some(msg) = receiver.next().await {
+        match msg {
+            FromSchedulerMessage::TaskAssignments(assignments) => {
+                let mut core = core_ref.get_mut();
+                let mut notifications = Default::default();
+
+                trace_time!("core", "process_assignments", {
+                    core.process_assignments(assignments, &mut notifications);
+                    trace_time!("core", "notify", {
+                        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
+                    });
+                });
+            }
+            FromSchedulerMessage::Register(_) => {
+                return Err(Error::SchedulerError(
+                    "Double registration of scheduler".to_owned(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+

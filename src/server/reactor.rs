@@ -1,5 +1,5 @@
-use crate::comm::CommRef;
-use crate::comm::Notifications;
+use crate::server::comm::CommRef;
+use crate::server::notifications::Notifications;
 use crate::common::{Map, Set};
 use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg};
 use crate::server::client::ClientId;

@@ -69,7 +69,12 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
 }
 
 
-pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworkers: Vec<SubworkerRef>, sw_processes: impl Future<Output=usize>) -> crate::Result<()> {
+pub async fn run_worker(
+    scheduler_address: &str,
+    ncpus: u32,
+    subworkers: Vec<SubworkerRef>,
+    sw_processes: impl Future<Output=usize>
+) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
 
@@ -81,7 +86,7 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworkers: Vec<Sub
         let message = GenericMessage::RegisterWorker(
             RegisterWorkerMsg {
                 address: address.clone().into(),
-                ncpus: ncpus,
+                ncpus,
             });
         let mut frame = BytesMut::default().writer();
         rmp_serde::encode::write_named(&mut frame, &message)?;
@@ -108,7 +113,10 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworkers: Vec<Sub
     Ok(())
 }
 
-async fn worker_message_loop(state_ref: WorkerStateRef, mut stream: impl Stream<Item=Result<BytesMut, std::io::Error>> + Unpin) -> crate::Result<()> {
+async fn worker_message_loop(
+    state_ref: WorkerStateRef,
+    mut stream: impl Stream<Item=Result<BytesMut, std::io::Error>> + Unpin
+) -> crate::Result<()> {
     while let Some(data) = stream.next().await {
         let data = data?;
         let message : ToWorkerMessage = rmp_serde::from_slice(&data)?;
@@ -296,6 +304,7 @@ mod tests {
     use crate::worker::rpc::main_rpc_loop;
     use crate::worker::state::WorkerStateRef;
     use tokio::sync::mpsc::UnboundedReceiver;
+    use bytes::Bytes;
 
     #[tokio::test]
     async fn register_self() -> crate::Result<()> {
@@ -356,8 +365,8 @@ mod tests {
         let r: FromWorkerMessage<SerializedTransport> = rmp_serde::from_slice(&v).unwrap();
     }
 
-    fn create_ctx(ncpus: u32, address: &str) -> (WorkerStateRef, UnboundedReceiver<DaskPacket>) {
-        let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
+    fn create_ctx(ncpus: u32, address: &str) -> (WorkerStateRef, UnboundedReceiver<Bytes>) {
+        let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
         (
             WorkerStateRef::new(queue_sender, ncpus, address.to_string()),
             queue_receiver,
