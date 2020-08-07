@@ -1,14 +1,24 @@
 # rsds
 
-``rsds`` is a Rust implementation of dask-scheduler for [https://distributed.dask.org](dask/distributed).
-It is an experiment for evaluating performance gain of non-Python scheduler and for playing with different schedulers.
+``rsds`` is a Rust implementation of the [Dask/distributed](https://distributed.dask.org) central scheduler.
+It is an experiment for evaluating the performance gain of a non-Python scheduler and for benchmarking different scheduling algorithms.
+
+## Disclaimer
+Dask/distributed has a very complex feature set and protocol and we do not support most of it.
+Features like dashboard or custom communication protocols (UCX) and others are not supported.
+
+If RSDS can run your use case, you could possibly see some speedup if the scheduler is the bottleneck
+of your pipeline. If it isn't, it can be actually slower than Dask, since it uses much simpler scheduling
+heuristics. YMMV.
+
+If your pipeline cannot be run by rsds, feel free to send us an issue.
 
 ## Usage
 To compile and use `rsds`, you must have Rust toolchain installed. You can install it using e.g. [Rustup](https://rustup.rs/).
 
 1) Build `rsds`:
 ```bash
-$ cargo build --release
+$ RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 2) Install our modified version of Dask:
 ```bash
@@ -19,13 +29,16 @@ $ pip install git+https://github.com/Kobzol/distributed@simplified-encoding
 $ ./target/release/rsds-scheduler
 ```
 
-## Warning!
+After that just use `target/release/rsds-scheduler` as you would use `dask-scheduler`.
+Be wary that most of the command line options from `dask-scheduler` are not supported though.
 
-This branch uses a simplified Dask protocol, hence it does *NOT* work with an upstream version. You have to use Dask from:
+## Benchmarks
+You can find a set of benchmarks in the `script` folder. Here are some result of comparing `RSDS` and `Dask`
+on 1/7 nodes with 24 workers each.
 
-https://github.com/Kobzol/distributed/
+![image](resources/speedup-zw-rsds-ws-1.png)
 
-branch: simple-frame
+![image](resources/speedup-zw-rsds-ws-7.png)
 
 ## Reports
 
