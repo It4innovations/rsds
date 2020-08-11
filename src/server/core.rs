@@ -547,8 +547,6 @@ mod tests {
     };
 
     use super::Core;
-    use maplit::hashmap;
-    use hashbrown::HashMap;
 
     #[test]
     fn add_remove() {
@@ -759,8 +757,8 @@ mod tests {
                 nbytes: 16,
                 r#type: vec![1, 2, 3],
                 startstops: vec!(
-                    startstop_item("send", 1.0, 2.0),
-                    startstop_item("compute", 100.0, 200.0)
+                    startstop_item("send", 100.0, 200.0),
+                    startstop_item("compute", 200.134, 300.456)
                 ),
             }),
             (200134000, 300456000)
@@ -782,10 +780,10 @@ mod tests {
     }
 
     fn startstop_item(action: &str, start: f64, stop: f64) -> Map<DaskKey, rmpv::Value> {
-        let map = Map::new();
+        let mut startstops = Map::new();
         startstops.insert(to_dask_key("action"), rmpv::Value::String(rmpv::Utf8String::from(action)));
         startstops.insert(to_dask_key("start"), rmpv::Value::F64(start));
         startstops.insert(to_dask_key("stop"), rmpv::Value::F64(stop));
-        map
+        startstops
     }
 }
