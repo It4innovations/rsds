@@ -24,6 +24,8 @@ $ RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```bash
 $ pip install git+https://github.com/Kobzol/distributed@simplified-encoding
 ```
+The modifications that we had to perform to make it manageable to implement the Dask
+protocol in Rust are described [here](https://github.com/dask/distributed/pull/3809).
 3) Use `rsds-scheduler` instead of `dask-scheduler` when starting a Dask cluster:
 ```bash
 $ ./target/release/rsds-scheduler
@@ -36,9 +38,9 @@ Be wary that most of the command line options from `dask-scheduler` are not supp
 You can find a set of benchmarks in the `script` folder. Here are some result of comparing `RSDS` and `Dask`
 on 1/7 nodes with 24 workers each.
 
-![image](resources/speedup-zw-rsds-ws-1.png)
+![image](resources/speedup-rsds-ws-1.png)
 
-![image](resources/speedup-zw-rsds-ws-7.png)
+![image](resources/speedup-rsds-ws-7.png)
 
 ## Reports
 
