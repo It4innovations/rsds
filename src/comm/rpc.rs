@@ -91,7 +91,7 @@ pub async fn worker_rpc_loop<
                     }
                     FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
                     FromWorkerMessage::Release(_) => { /* Do nothing TODO */ }
-                    FromWorkerMessage::Unregister => break 'outer,
+                    FromWorkerMessage::Unregister | FromWorkerMessage::CloseStream => break 'outer,
                 }
             }
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();

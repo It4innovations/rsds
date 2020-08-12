@@ -213,6 +213,7 @@ pub enum FromWorkerMessage<T = SerializedMemory> {
     Unregister,
     StealResponse(StealResponseMsg),
     Release(ReleaseMsg),
+    CloseStream,
 }
 
 impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
@@ -233,6 +234,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
             Self::Transport::Unregister => Self::Unregister,
             Self::Transport::StealResponse(msg) => Self::StealResponse(msg),
             Self::Transport::Release(msg) => Self::Release(msg),
+            Self::Transport::CloseStream => Self::CloseStream,
         }
     }
 }

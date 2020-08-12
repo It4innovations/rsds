@@ -153,7 +153,7 @@ impl Core {
         assert!(self.tasks_by_key.remove(task.key()).is_some());
     }
 
-    pub fn get_tasks(&self) -> impl Iterator<Item=&TaskRef> {
+    pub fn get_tasks(&self) -> impl Iterator<Item = &TaskRef> {
         self.tasks_by_id.values()
     }
 
@@ -523,18 +523,20 @@ fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
     msg.startstops
         .iter()
         .find(|map| map[b"action" as &[u8]].as_str().unwrap() == "compute")
-        .map(|map| (
-            (map[b"start" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64,
-            (map[b"stop" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64)
-        )
+        .map(|map| {
+            (
+                (map[b"start" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64,
+                (map[b"stop" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64,
+            )
+        })
         .unwrap_or((0, 0))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::comm::{Notifications, notifications::ClientNotification};
-    use crate::common::{Set, Map};
-    use crate::protocol::key::{DaskKey, to_dask_key};
+    use crate::comm::{notifications::ClientNotification, Notifications};
+    use crate::common::{Map, Set};
+    use crate::protocol::key::{to_dask_key, DaskKey};
     use crate::protocol::workermsg::Status;
     use crate::protocol::workermsg::TaskFinishedMsg;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
@@ -781,7 +783,10 @@ mod tests {
 
     fn startstop_item(action: &str, start: f64, stop: f64) -> Map<DaskKey, rmpv::Value> {
         let mut startstops = Map::new();
-        startstops.insert(to_dask_key("action"), rmpv::Value::String(rmpv::Utf8String::from(action)));
+        startstops.insert(
+            to_dask_key("action"),
+            rmpv::Value::String(rmpv::Utf8String::from(action)),
+        );
         startstops.insert(to_dask_key("start"), rmpv::Value::F64(start));
         startstops.insert(to_dask_key("stop"), rmpv::Value::F64(stop));
         startstops
