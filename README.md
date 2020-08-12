@@ -56,7 +56,7 @@ Be wary that most of the command line options from `dask-scheduler` are not supp
     ```
 
 ## Benchmarks
-You can find a set of benchmarks in the `script` folder. Here are some result of comparing `RSDS` and `Dask`
+You can find a set of benchmarks in the `scripts` folder. Here are some result of comparing `RSDS` and `Dask`
 on 1 and 7 node clusters with 24 workers per node.
 
 ![image](resources/speedup-rsds-ws-1.png)
