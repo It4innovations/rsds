@@ -10,19 +10,19 @@ from python.rsds.subworker.conn import connect_to_unix_socket, read_message, wri
 from python.rsds.subworker.subworker import Subworker
 
 
-async def unix_server():
+async def unix_server(tmp_path):
     connect_fut = asyncio.Future()
 
     async def cb(reader, writer):
         connect_fut.set_result((reader, writer))
 
-    path = f"/tmp/rsds-{random.randint(0, 1024)}"
+    path = str(tmp_path / "rsds-unix-socket")
     srv = await asyncio.start_unix_server(cb, path)
     return srv, path, connect_fut
 
 
-async def create_subworker(id: int = 0):
-    server, path, connect_fut = await unix_server()
+async def create_subworker(tmp_path, id: int = 0):
+    server, path, connect_fut = await unix_server(tmp_path)
     socket = await connect_to_unix_socket(path)
     reader, writer = await connect_fut
     subworker = Subworker(id, socket)
@@ -31,8 +31,8 @@ async def create_subworker(id: int = 0):
 
 
 @pytest.mark.asyncio
-async def test_send_receive():
-    server, path, connect_fut = await unix_server()
+async def test_send_receive(tmp_path):
+    server, path, connect_fut = await unix_server(tmp_path)
     socket = await connect_to_unix_socket(path)
     reader, writer = await connect_fut
 
@@ -48,8 +48,8 @@ async def init_subworker(subworker: Subworker, reader: StreamReader):
 
 
 @pytest.mark.asyncio
-async def test_compute_success():
-    subworker, reader, writer = await create_subworker()
+async def test_compute_success(tmp_path):
+    subworker, reader, writer = await create_subworker(tmp_path)
 
     key = "key"
     await write_message({
@@ -66,8 +66,8 @@ async def test_compute_success():
 
 
 @pytest.mark.asyncio
-async def test_compute_error():
-    subworker, reader, writer = await create_subworker()
+async def test_compute_error(tmp_path):
+    subworker, reader, writer = await create_subworker(tmp_path)
 
     def func():
         raise Exception("foo")
