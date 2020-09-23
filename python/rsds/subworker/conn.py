@@ -21,7 +21,6 @@ async def connect_to_unix_socket(socket_path):
 class SocketWrapper:
     header = struct.Struct("<I")
     header_size = 4
-    read_buffer_size = 32 * 1024
 
     def __init__(self, reader: StreamReader, writer: StreamWriter):
         self.reader = reader
@@ -37,8 +36,12 @@ class SocketWrapper:
 
 async def write_message(message, writer: StreamWriter):
     message = msgpack.dumps(message)
-    data = SocketWrapper.header.pack(len(message)) + message
-    writer.write(data)
+    header = SocketWrapper.header.pack(len(message))
+    if len(message) <= 1_024:
+        writer.write(header + message)
+    else:
+        writer.write(header)
+        writer.write(message)
     return await writer.drain()
 
 
