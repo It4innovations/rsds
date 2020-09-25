@@ -68,10 +68,9 @@ async fn main() -> rsds::Result<()> {
     if ncpus < 1 {
         panic!("Invalid number of cpus");
     }
-    let (subworkers, sw_processes) = start_subworkers(&work_dir, "python3", ncpus).await?;
     let scheduler_address = opt.scheduler_address.trim_start_matches("tcp://");
 
-    run_worker(scheduler_address, ncpus, subworkers, sw_processes).await?;
+    run_worker(scheduler_address, ncpus, &work_dir).await?;
     log::info!("rsds worker ends");
     Ok(())
 }

@@ -4,12 +4,13 @@ use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::server::worker::{WorkerMessage, WorkerRef};
+use crate::server::worker::{WorkerRef};
 use bytes::{Bytes, BytesMut};
 use futures::FutureExt;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use crate::server::protocol::messages::worker::FromWorkerMessage;
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -62,7 +63,7 @@ pub async fn worker_rpc_loop<
     sender: Writer,
     msg: RegisterWorkerMsg,
 ) -> crate::Result<()> {
-    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<WorkerMessage>();
+    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
 
     let (worker_ref, worker_id) = {
         let mut core = core_ref.get_mut();
@@ -82,18 +83,25 @@ pub async fn worker_rpc_loop<
 
     let snd_loop = forward_queue_to_sink(
         queue_receiver,
-        sender.with(|msg| match msg {
+        sender/*.with(|msg| match msg {
             WorkerMessage::Rsds(data) => futures::future::ok::<_, crate::Error>(data),
             _ => panic!("Received Dask worker packet instead of RSDS worker packet"),
-        }),
+        })*/,
     );
 
     let core_ref2 = core_ref.clone();
     let recv_loop = async move {
-        while let Some(_message) = receiver.next().await {
-            let notifications = Notifications::default();
+        while let Some(message) = receiver.next().await {
+            // TODO: If more worker messages are waiting, process them at once and
+            // after that send the notifications
+            let message: FromWorkerMessage = rmp_serde::from_slice(&message.unwrap()).unwrap();
+            let mut notifications = Notifications::default();
             let mut core = core_ref.get_mut();
-            todo!();
+            match message {
+                FromWorkerMessage::TaskFinished(msg) => {
+                    core.on_task_finished(&worker_ref, msg, &mut notifications);
+                }
+            }
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();
         }
         Ok(())

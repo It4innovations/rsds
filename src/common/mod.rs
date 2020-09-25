@@ -7,9 +7,12 @@ pub use cycle_wrapped::{CycleOwner, HasCycle};
 pub use id_counter::IdCounter;
 pub use key_id_map::{Identifiable, KeyIdMap};
 
+pub use data::DataInfo;
+
 mod cycle_wrapped;
 mod id_counter;
 mod key_id_map;
 pub mod rpc;
 pub mod transport;
 mod wrapped;
+pub mod data;

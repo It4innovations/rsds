@@ -27,3 +27,18 @@ pub struct ComputeTaskMsg {
 pub enum ToWorkerMessage {
     ComputeTask(ComputeTaskMsg),
 }
+
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TaskFinishedMsg {
+    pub key: DaskKey,
+    pub nbytes: u64,
+    #[serde(with = "serde_bytes")]
+    pub r#type: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "op")]
+pub enum FromWorkerMessage {
+    TaskFinished(TaskFinishedMsg),
+}

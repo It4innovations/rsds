@@ -4,19 +4,21 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCel
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 use crate::server::client::{Client, ClientId};
 use crate::server::notifications::Notifications;
-use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::daskmessages::worker::{
     StealResponseMsg, TaskFinishedMsg, WorkerState,
-};
+};*/
 
 use crate::server::protocol::key::{
     dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef,
 };
-use crate::server::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
+use crate::common::data::DataInfo;
+use crate::server::task::{ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::server::worker::WorkerRef;
 use crate::trace::{
     trace_task_assign, trace_task_finish, trace_task_place, trace_task_remove, trace_worker_new,
     trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing,
 };
+use crate::server::protocol::messages::worker::TaskFinishedMsg;
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -329,10 +331,12 @@ impl Core {
     pub fn on_steal_response(
         &mut self,
         worker_ref: &WorkerRef,
-        msg: StealResponseMsg,
+        msg: () /*StealResponseMsg*/,
         notifications: &mut Notifications,
     ) {
-        let task_ref = self.get_task_by_key(&msg.key);
+        todo!();
+        /*OLD DASK PROTOCOL let task_ref = self.get_task_by_key(&msg.key);
+
         match task_ref {
             Some(task_ref) => {
                 let new_state = {
@@ -379,7 +383,7 @@ impl Core {
                 task_ref.get_mut().state = new_state;
             }
             None => trace_worker_steal_response_missing(msg.key.as_str(), worker_ref.get().id),
-        }
+        }*/
     }
 
     pub fn on_task_error(
@@ -446,7 +450,7 @@ impl Core {
             {
                 let mut task = task_ref.get_mut();
                 let worker_ref = worker.get();
-                trace_task_finish(task.id, worker_ref.id, msg.nbytes, get_task_duration(&msg));
+                trace_task_finish(task.id, worker_ref.id, msg.nbytes, (0, 0) /* TODO: gather real computation */);
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
                 let mut set = Set::new();
@@ -521,6 +525,7 @@ impl Core {
     }
 }
 
+/*
 /// Returns task duration as specified by Dask.
 /// Converts from UNIX in seconds to a microseconds.
 fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
@@ -529,7 +534,7 @@ fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
         .find(|(key, _, _)| key.as_bytes() == b"compute")
         .map(|(_, start, stop)| ((start * 1_000_000f64) as u64, (stop * 1_000_000f64) as u64))
         .unwrap_or((0, 0))
-}
+}*/
 
 #[cfg(test)]
 mod tests {

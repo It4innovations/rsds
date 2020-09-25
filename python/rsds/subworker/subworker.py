@@ -38,7 +38,6 @@ class Subworker:
     async def handle_compute_task(self, message):
         async def inner():
             key = message.get("key")
-
             try:
                 result = await self.loop.run_in_executor(self.executor, run_task, message)
                 await self.socket.send_message({
@@ -52,7 +51,6 @@ class Subworker:
                     "key": key,
                     "error": dumps(e)
                 })
-
         self.loop.create_task(inner())
 
 

@@ -10,14 +10,13 @@ use crate::server::notifications::{ClientNotification, WorkerNotification};
 use crate::server::protocol::daskmessages::client::{
     KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
 };
-use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::daskmessages::worker::{
     DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
-};
+};*/
 use crate::server::protocol::dasktransport::DaskPacket;
 use crate::server::protocol::dasktransport::MessageBuilder;
 use crate::server::task::TaskRuntimeState;
 use crate::server::worker::WorkerRef;
-use crate::server::WorkerType;
 use crate::trace::trace_task_send;
 use crate::Error;
 
@@ -25,7 +24,6 @@ pub type CommRef = WrappedRcRefCell<Comm>;
 
 pub struct Comm {
     sender: UnboundedSender<Vec<ToSchedulerMessage>>,
-    worker_type: WorkerType,
 }
 
 impl Comm {
@@ -87,7 +85,17 @@ impl Comm {
         notifications: Map<WorkerRef, WorkerNotification>,
     ) -> crate::Result<()> {
         for (worker_ref, w_update) in notifications {
-            match &self.worker_type {
+            let worker = worker_ref.get();
+            for task in w_update.compute_tasks {
+                let task = task.get();
+                trace_task_send(task.id, worker_ref.get().id);
+                let msg = task.make_compute_task_msg_rsds(core);
+                worker.send_message(msg);
+            }
+        }
+
+            /* OLD DASK PROTOCOL
+                match &self.worker_type {
                 WorkerType::Dask => {
                     let mut mbuilder = MessageBuilder::default();
 
@@ -98,7 +106,7 @@ impl Comm {
                     }
 
                     if !w_update.delete_keys.is_empty() {
-                        mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
+                            mbuilder.add_message(ToWorkerMessage::DeleteData(DeleteDataMsg {
                             keys: w_update.delete_keys,
                             report: false,
                         }));
@@ -134,12 +142,12 @@ impl Comm {
                     }
                 }
             }
-        }
+        }*/
 
         Ok(())
     }
 
-    #[inline]
+    /*#[inline]
     fn send_worker_dask_message(
         &mut self,
         worker: &WorkerRef,
@@ -148,7 +156,7 @@ impl Comm {
         // TODO: use result
         worker.get_mut().send_dask_message(packet);
         Ok(())
-    }
+    }*/
 
     #[inline]
     fn send_client_packet(&mut self, client: &mut Client, packet: DaskPacket) -> crate::Result<()> {
@@ -157,10 +165,9 @@ impl Comm {
 }
 
 impl CommRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>, worker_type: WorkerType) -> Self {
+    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
         Self::wrap(Comm {
             sender,
-            worker_type,
         })
     }
 }

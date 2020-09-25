@@ -154,3 +154,10 @@ pub enum ToClientMessage {
     TaskErred(TaskErredMsg),
 }
 from_dask_transport!(test, ToClientMessage);
+
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct GetDataResponse<T = SerializedMemory> {
+    pub status: DaskKey, // TODO: Migrate to enum Status
+    pub data: Map<DaskKey, T>,
+}

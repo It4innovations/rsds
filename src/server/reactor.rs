@@ -3,7 +3,7 @@ use crate::server::client::ClientId;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::notifications::Notifications;
-use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg};
+use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg, GetDataResponse};
 
 use crate::server::protocol::daskmessages::generic::{
     ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse,
@@ -15,11 +15,12 @@ use crate::server::protocol::dasktransport::{
 };
 
 use crate::scheduler::protocol::TaskId;
-use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::daskmessages::worker::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
-};
+};*/
 
-use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
+use crate::common::data::DataInfo;
+use crate::server::task::{TaskRef, TaskRuntimeState};
 
 use crate::server::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
 use crate::server::worker::WorkerRef;
@@ -235,16 +236,9 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
             .map(|(worker, keys)| get_data_from_worker(worker, keys)),
     );
 
-    while let Some(data) = worker_futures.next().await {
-        let data = data?;
-        let mut responses: Batch<GetDataResponse> = deserialize_packet(data)?;
-        assert_eq!(responses.len(), 1);
-
-        let response = responses.pop().unwrap();
-        assert_eq!(response.status.as_bytes(), b"OK");
-        response.data.into_iter().for_each(|(k, v)| {
-            debug_assert!(!result_map.contains_key(&k));
-            result_map.insert(k, v);
+    while let Some(result) = worker_futures.next().await {
+        result?.into_iter().for_each(|(k, v)| {
+            result_map.insert(k, SerializedMemory::Inline(rmpv::Value::Binary(v)));
         });
     }
 
@@ -409,8 +403,10 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 pub async fn get_data_from_worker(
     worker_address: DaskKey,
     keys: Vec<DaskKey>,
-) -> crate::Result<DaskPacket> {
+) -> crate::Result<Vec<(DaskKey, Vec<u8>)>> {
     let mut connection = connect_to_worker(worker_address).await?;
+    todo!();
+    /* OLD DASK PROTOCOL
     let msg = ToWorkerMessage::GetData(GetDataMsg {
         keys,
         who: None,
@@ -428,7 +424,7 @@ pub async fn get_data_from_worker(
     let response = reader.next().await.unwrap()?;
     writer.send(serialize_single_packet("OK")?).await?;
 
-    Ok(response)
+    Ok(response)*/
 }
 
 pub async fn update_data_on_worker(
@@ -436,7 +432,9 @@ pub async fn update_data_on_worker(
     data: Map<DaskKey, SerializedMemory>,
 ) -> crate::Result<Map<DaskKey, u64>> {
     let mut connection = connect_to_worker(worker_address).await?;
+    todo!();
 
+    /* OLD DASK PROTOCOL
     let mut builder = MessageBuilder::<ToWorkerMessage>::default();
     let msg = ToWorkerMessage::UpdateData(UpdateDataMsg {
         data: map_to_transport(data, &mut builder),
@@ -453,6 +451,7 @@ pub async fn update_data_on_worker(
     let mut response: Batch<UpdateDataResponse> = reader.next().await.unwrap()?;
     assert_eq!(response[0].status.as_bytes(), b"OK");
     Ok(response.pop().unwrap().nbytes)
+    */
 }
 
 pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(

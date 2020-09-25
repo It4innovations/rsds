@@ -54,5 +54,8 @@ codegen-units = 1
 opt-level = 3
 panic = "abort"
 
+[profile.dev]
+panic = "abort"
+
 [profile.bench]
 incremental = true

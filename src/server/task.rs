@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::common::{Set, WrappedRcRefCell};
+use crate::common::{Set, WrappedRcRefCell, DataInfo};
 use crate::server::client::ClientId;
 use crate::server::core::Core;
 use crate::server::notifications::Notifications;
@@ -11,9 +11,9 @@ use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory};
 use crate::server::protocol::Priority;
 
 use crate::scheduler::protocol::TaskId;
-use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::daskmessages::worker::{
     ComputeTaskMsg as DaskComputeTaskMsg, ToWorkerMessage as DaskToWorkerMessage,
-};
+};*/
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::worker::WorkerRef;
@@ -46,12 +46,6 @@ impl fmt::Debug for TaskRuntimeState {
 pub struct ErrorInfo {
     pub exception: SerializedMemory,
     pub traceback: SerializedMemory,
-}
-
-#[derive(Debug)]
-pub struct DataInfo {
-    pub size: u64,
-    pub r#type: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -212,7 +206,7 @@ impl Task {
         })
     }
 
-    pub fn make_compute_task_msg_dask(
+    /*pub fn make_compute_task_msg_dask(
         &self,
         core: &Core,
         mbuilder: &mut MessageBuilder<DaskToWorkerMessage>,
@@ -282,7 +276,7 @@ impl Task {
             ],
         });
         mbuilder.add_message(msg);
-    }
+    }*/
 
     #[inline]
     pub fn is_waiting(&self) -> bool {

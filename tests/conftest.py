@@ -85,7 +85,7 @@ class RsdsEnv(Env):
         env["PYTHONPATH"] = ":".join(python_path)
 
         if rsds_worker:
-            env["RUST_BACKTRACE"] = "FULL"
+            env["RUST_BACKTRACE"] = "full"
             env["RUST_LOG"] = "debug"
             program = RSDS_WORKER_BIN
 
@@ -119,11 +119,13 @@ class RsdsEnv(Env):
 
         env = os.environ.copy()
         env["RUST_LOG"] = "trace"
-        env["RUST_BACKTRACE"] = "FULL"
+        env["RUST_BACKTRACE"] = "full"
 
         args = [RSDS_SERVER_BIN, "--port", str(port)]
         if scheduler:
             args += ["--scheduler", scheduler]
+        #if rsds_worker:
+        #    args += ["--worker", "rsds"]
 
         self.server = self.start_process("server", args, env=env)
         assert self.server is not None

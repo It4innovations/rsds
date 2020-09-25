@@ -7,6 +7,7 @@ pub fn choose_subworker(state: &mut WorkerState) -> SubworkerRef {
 }
 
 pub fn try_start_tasks(state: &mut WorkerState) {
+    //log::debug!("XX {} {}", state.free_subworkers.len(), state.subworkers.len());
     if state.free_subworkers.is_empty() {
         return;
     }

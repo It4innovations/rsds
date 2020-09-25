@@ -11,11 +11,16 @@ use tokio::sync::oneshot;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::common::transport::make_protocol_builder;
-use crate::common::WrappedRcRefCell;
-use crate::worker::messages::{ComputeTaskMsg, ToSubworkerMessage};
+use crate::common::{WrappedRcRefCell, DataInfo};
+use crate::worker::messages::{ComputeTaskMsg, ToSubworkerMessage, FromSubworkerMessage};
 use crate::worker::task::{Task, TaskRef};
+use crate::worker::messages;
 
 use super::messages::RegisterSubworkerMessage;
+use crate::worker::state::WorkerStateRef;
+use crate::worker::data::DataObjectRef;
+use crate::server::protocol::messages::worker::FromWorkerMessage::TaskFinished;
+use crate::server::protocol::messages::worker::{FromWorkerMessage, TaskFinishedMsg};
 
 pub(crate) type SubworkerId = u32;
 
@@ -81,16 +86,50 @@ async fn subworker_handshake(
     }
 }
 
+
+fn subworker_task_finished(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef, msg: messages::TaskFinishedMsg) {
+    let mut state = state_ref.get_mut();
+    let mut sw = subworker_ref.get_mut();
+    log::debug!("Task {} finished in subworker {}", msg.key, sw.id);
+    let task = sw.running_task.take().unwrap();
+    assert_eq!(task.get().key, msg.key);
+
+    let message = FromWorkerMessage::TaskFinished(TaskFinishedMsg {
+        key: msg.key.clone(),
+        nbytes: msg.result.len() as u64,
+        r#type: Default::default(),
+    });
+    state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
+
+    let data_ref = DataObjectRef::new(
+        msg.key,
+        DataInfo {
+            size: msg.result.len() as u64,
+            r#type: Default::default(),
+        },
+        Some(msg.result));
+    state.add_data_object(data_ref);
+}
+
 async fn run_subworker_message_loop(
+    state_ref: WorkerStateRef,
+    subworker_ref: SubworkerRef,
     mut stream: SplitStream<Framed<UnixStream, LengthDelimitedCodec>>,
 ) -> crate::Result<()> {
-    while let Some(messages) = stream.next().await {
-        todo!()
+    while let Some(message) = stream.next().await {
+        let message: FromSubworkerMessage = rmp_serde::from_slice(&message?)?;
+        match message {
+            FromSubworkerMessage::TaskFinished(msg) => {
+                subworker_task_finished(&state_ref, &subworker_ref, msg);
+            }
+            FromSubworkerMessage::TaskErrored(_) => { todo!() }
+        };
     }
     Ok(())
 }
 
 async fn run_subworker(
+    state: WorkerStateRef,
     work_dir: PathBuf,
     python_program: String,
     subworker_id: SubworkerId,
@@ -131,7 +170,7 @@ async fn run_subworker(
 
     // TODO: pass writing end
     let subworker = SubworkerRef::new(subworker_id, queue_sender);
-    if let Err(_) = ready_shot.send(subworker) {
+    if let Err(_) = ready_shot.send(subworker.clone()) {
         panic!("Announcing subworker failed");
     }
 
@@ -142,7 +181,7 @@ async fn run_subworker(
         result = crate::common::rpc::forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Sending a message to subworker failed");
         }
-        _ = run_subworker_message_loop(reader) => {
+        _ = run_subworker_message_loop(state, subworker, reader) => {
             panic!("Subworker {} closed stream, see {}", subworker_id, log_path.display());
         }
     };
@@ -151,6 +190,7 @@ async fn run_subworker(
 }
 
 pub async fn start_subworkers(
+    state: &WorkerStateRef,
     work_dir: &Path,
     python_program: &str,
     count: u32,
@@ -161,6 +201,7 @@ pub async fn start_subworkers(
             let (sx, rx) = oneshot::channel();
             ready.push(rx);
             run_subworker(
+                state.clone(),
                 work_dir.to_path_buf(),
                 python_program.to_string(),
                 i as SubworkerId,

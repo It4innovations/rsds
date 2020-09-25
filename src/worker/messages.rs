@@ -24,3 +24,25 @@ pub struct ComputeTaskMsg<'a> {
 pub enum ToSubworkerMessage<'a> {
     ComputeTask(ComputeTaskMsg<'a>),
 }
+
+
+#[derive(Deserialize, Debug)]
+pub struct TaskFinishedMsg {
+    pub key: DaskKey,
+    #[serde(with = "serde_bytes")]
+    pub result: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TaskErroredMsg {
+    pub key: DaskKey,
+    #[serde(with = "serde_bytes")]
+    pub result: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "op")]
+pub enum FromSubworkerMessage {
+    TaskFinished(TaskFinishedMsg),
+    TaskErrored(TaskErroredMsg),
+}

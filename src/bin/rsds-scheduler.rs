@@ -15,7 +15,6 @@ use rsds::scheduler::{
 use rsds::server::comm::observe_scheduler;
 use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
-use rsds::server::WorkerType;
 use rsds::{setup_interrupt, setup_logging};
 
 #[global_allocator]
@@ -71,13 +70,7 @@ impl FromStr for SchedulerType {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum WorkerTypeCmd {
-    Dask,
-    Rsds,
-}
-
-impl FromStr for WorkerTypeCmd {
+/*impl FromStr for WorkerTypeCmd {
     type Err = String;
     fn from_str(worker: &str) -> Result<WorkerTypeCmd, Self::Err> {
         match worker {
@@ -86,16 +79,7 @@ impl FromStr for WorkerTypeCmd {
             _ => Err(format!("Worker type '{}' does not exist", worker)),
         }
     }
-}
-
-impl From<WorkerTypeCmd> for WorkerType {
-    fn from(worker: WorkerTypeCmd) -> Self {
-        match worker {
-            WorkerTypeCmd::Dask => WorkerType::Dask,
-            WorkerTypeCmd::Rsds => WorkerType::Rsds,
-        }
-    }
-}
+}*/
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
@@ -104,8 +88,6 @@ struct Opt {
     port: u16,
     #[structopt(long, default_value = "workstealing")]
     scheduler: SchedulerType,
-    #[structopt(long, default_value = "dask")]
-    worker: WorkerTypeCmd,
     #[structopt(long, default_value = "0")]
     msd: u64,
     #[structopt(long)]
@@ -136,7 +118,7 @@ async fn main() -> rsds::Result<()> {
     let (comm, sender, receiver) = prepare_scheduler_comm();
 
     let msd = Duration::from_millis(opt.msd);
-    let worker_type = opt.worker;
+    //let worker_type = opt.worker;
     let scheduler_thread = thread::spawn(move || {
         let mut runtime = tokio::runtime::Builder::new()
             .basic_scheduler()
@@ -149,7 +131,7 @@ async fn main() -> rsds::Result<()> {
     });
     {
         let task_set = tokio::task::LocalSet::default();
-        let comm_ref = CommRef::new(sender, worker_type.into());
+        let comm_ref = CommRef::new(sender);
         let core_ref = CoreRef::default();
         task_set
             .run_until(async move {

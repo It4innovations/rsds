@@ -11,11 +11,12 @@ use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::LocalSet;
 use tokio::time::delay_for;
+use std::path::Path;
 
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
 use crate::common::Map;
-use crate::server::protocol::daskmessages::worker::{GetDataResponse, ToWorkerGenericMessage};
+//use crate::server::protocol::daskmessages::worker::{GetDataResponse, ToWorkerGenericMessage};
 use crate::server::protocol::dasktransport::SerializedMemory::Indexed;
 use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
@@ -26,8 +27,9 @@ use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerM
 use crate::server::protocol::messages::worker::ToWorkerMessage;
 use crate::worker::reactor::try_start_tasks;
 use crate::worker::state::WorkerStateRef;
-use crate::worker::subworker::SubworkerRef;
+use crate::worker::subworker::{SubworkerRef, start_subworkers};
 use crate::worker::task::TaskRef;
+
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -45,6 +47,7 @@ async fn start_listener() -> crate::Result<(TcpListener, String)> {
 }
 
 async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> {
+    log::info!("Connecting to server {}", scheduler_address);
     let address = lookup_host(&scheduler_address)
         .await?
         .next()
@@ -54,6 +57,7 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
     for _ in 0..max_attempts {
         match TcpStream::connect(address).await {
             Ok(stream) => {
+                log::debug!("Connected to server");
                 return Ok(stream);
             }
             Err(e) => {
@@ -70,13 +74,10 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
 pub async fn run_worker(
     scheduler_address: &str,
     ncpus: u32,
-    subworkers: Vec<SubworkerRef>,
-    sw_processes: impl Future<Output = usize>,
+    work_dir: &Path
 ) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
-
-    let (writer, reader) = make_protocol_builder().new_framed(stream).split();
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
 
     let taskset = LocalSet::default();
@@ -90,8 +91,17 @@ pub async fn run_worker(
         queue_sender.send(frame.into_inner().into()).unwrap();
     }
 
-    let state = WorkerStateRef::new(queue_sender, ncpus, address, &subworkers);
-    std::mem::forget(subworkers);
+    let state = WorkerStateRef::new(queue_sender, ncpus, address);
+
+    log::info!("Starting {} subworkers", ncpus);
+    let (subworkers, sw_processes) = start_subworkers(&state, &work_dir, "python3", ncpus).await?;
+    log::debug!("Subworkers started");
+
+    state.get_mut().set_subworkers(subworkers);
+
+
+    let (writer, reader) = make_protocol_builder().new_framed(stream).split();
+
 
     tokio::select! {
         _ = worker_message_loop(state.clone(), reader) => {
@@ -120,6 +130,7 @@ async fn worker_message_loop(
         let mut state = state_ref.get_mut();
         match message {
             ToWorkerMessage::ComputeTask(msg) => {
+                log::debug!("Task assigned: {}", msg.key);
                 let task_ref = TaskRef::new(msg);
                 let priority = task_ref.get().priority;
                 state.task_queue.push(task_ref, Reverse(priority));
@@ -157,7 +168,8 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
     let (reader, writer) = tokio::io::split(stream);
     let reader = asyncread_to_stream(reader);
     let mut writer = asyncwrite_to_sink(writer);
-
+    todo!();
+    /* OLD DASK PROTOCOL
     let mut reader = dask_parse_stream::<ToWorkerGenericMessage, _>(reader);
     while let Some(messages) = reader.next().await {
         for message in messages? {
@@ -211,5 +223,5 @@ async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
         }
     }
 
-    Ok(())
+    Ok(())*/
 }

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub type WorkerId = u64;
 pub type TaskId = u64;
 
+
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkerInfo {

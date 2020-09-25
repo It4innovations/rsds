@@ -1,4 +1,4 @@
-use crate::common::Map;
+/*use crate::common::Map;
 use crate::server::protocol::dasktransport::{
     map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
     SerializedMemory, SerializedTransport, ToDaskTransport,
@@ -240,12 +240,6 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Empty;
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct GetDataResponse<T = SerializedMemory> {
-    pub status: DaskKey, // TODO: Migrate to enum Status
-    pub data: Map<DaskKey, T>,
-}
-
 impl FromDaskTransport for GetDataResponse<SerializedMemory> {
     type Transport = GetDataResponse<SerializedTransport>;
 
@@ -274,3 +268,4 @@ pub struct UpdateDataResponse {
     pub nbytes: Map<DaskKey, u64>,
 }
 from_dask_transport!(UpdateDataResponse);
+*/

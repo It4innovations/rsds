@@ -11,16 +11,16 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub type WorkerId = u64;
 
-#[derive(Debug)]
+/*#[derive(Debug)]
 pub enum WorkerMessage {
     Dask(DaskPacket),
     Rsds(Bytes),
-}
+}*/
 
 #[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
-    pub sender: UnboundedSender<WorkerMessage>,
+    pub sender: UnboundedSender<Bytes>,
     pub ncpus: u32,
     pub listen_address: DaskKey,
 }
@@ -55,18 +55,18 @@ impl Worker {
         }
     }
 
-    pub fn send_dask_message(&self, packet: DaskPacket) {
+    /*pub fn send_dask_message(&self, packet: DaskPacket) {
         self.send_message(WorkerMessage::Dask(packet))
-    }
+    }*/
 
-    pub fn send_rsds_message(&self, message: ToWorkerMessage) {
+    pub fn send_message(&self, message: ToWorkerMessage) {
         let data = rmp_serde::to_vec_named(&message).unwrap();
-        self.send_message(WorkerMessage::Rsds(data.into()))
+        self.sender.send(data.into()).expect("Send to worker failed");
     }
 
-    fn send_message(&self, data: WorkerMessage) {
+    /*fn send_message(&self, data: WorkerMessage) {
         self.sender.send(data).expect("Send to worker failed");
-    }
+    }*/
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;
@@ -75,7 +75,7 @@ impl WorkerRef {
     pub fn new(
         id: WorkerId,
         ncpus: u32,
-        sender: UnboundedSender<WorkerMessage>,
+        sender: UnboundedSender<Bytes>,
         listen_address: DaskKey,
     ) -> Self {
         Self::wrap(Worker {
@@ -89,7 +89,7 @@ impl WorkerRef {
 
 pub(crate) fn create_worker(
     core: &mut Core,
-    sender: UnboundedSender<WorkerMessage>,
+    sender: UnboundedSender<Bytes>,
     address: DaskKey,
     ncpus: u32,
 ) -> WorkerRef {

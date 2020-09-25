@@ -6,9 +6,9 @@ use crate::server::protocol::daskmessages::client::FromClientMessage;
 use crate::server::protocol::daskmessages::generic::{
     GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
 };
-use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
-use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
-use crate::server::protocol::daskmessages::worker::Status;
+//use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
+//use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
+//use crate::server::protocol::daskmessages::worker::Status;
 use crate::server::protocol::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, Batch, DaskPacket,
@@ -20,7 +20,7 @@ use crate::server::reactor::{
 };
 
 use crate::server::task::ErrorInfo;
-use crate::server::worker::{create_worker, WorkerMessage};
+use crate::server::worker::{create_worker};
 
 use crate::common::rpc::forward_queue_to_sink;
 use futures::{FutureExt, Sink, SinkExt, StreamExt};
@@ -30,6 +30,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::stream::Stream;
 
+/*
 pub async fn worker_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
     Writer: Sink<DaskPacket, Error = crate::Error> + Unpin,
@@ -122,7 +123,7 @@ pub async fn worker_rpc_loop<
     let mut core = core_ref2.get_mut();
     core.unregister_worker(worker_id);
     Ok(())
-}
+}*/
 
 pub async fn client_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
@@ -238,6 +239,8 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     log::debug!("Heartbeat from worker");
                 }
                 GenericMessage::RegisterWorker(msg) => {
+                    log::error!("Original dask worker is not supported by this server");
+                    /* OLD DASK PROTOCOL
                     log::debug!("Worker registration from {}", address);
                     let hb = RegisterWorkerResponseMsg {
                         status: to_dask_key("OK"),
@@ -254,7 +257,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                         writer,
                         msg,
                     )
-                    .await?;
+                    .await?;*/
                     break 'outer;
                 }
                 GenericMessage::RegisterClient(msg) => {
