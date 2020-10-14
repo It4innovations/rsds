@@ -1,9 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
-use crate::server::protocol::dasktransport::{
-    Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
-};
+use crate::server::protocol::dasktransport::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport, map_from_transport, ToDaskTransport, map_to_transport, MessageBuilder};
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::Priority;
 use serde::de::Error;
@@ -160,4 +158,26 @@ from_dask_transport!(test, ToClientMessage);
 pub struct GetDataResponse<T = SerializedMemory> {
     pub status: DaskKey, // TODO: Migrate to enum Status
     pub data: Map<DaskKey, T>,
+}
+
+impl FromDaskTransport for GetDataResponse<SerializedMemory> {
+    type Transport = GetDataResponse<SerializedTransport>;
+
+    fn deserialize(source: Self::Transport, frames: &mut Frames) -> Self {
+        GetDataResponse {
+            status: source.status,
+            data: map_from_transport(source.data, frames),
+        }
+    }
+}
+impl ToDaskTransport for GetDataResponse<SerializedMemory> {
+    type Transport = GetDataResponse<SerializedTransport>;
+
+    fn to_transport(self, message_builder: &mut MessageBuilder<Self::Transport>) {
+        let msg = GetDataResponse {
+            status: self.status,
+            data: map_to_transport(self.data, message_builder),
+        };
+        message_builder.add_message(msg);
+    }
 }
