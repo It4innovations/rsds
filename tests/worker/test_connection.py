@@ -6,7 +6,7 @@ from cloudpickle import dumps, loads
 
 import pytest
 
-from python.rsds.subworker.conn import connect_to_unix_socket, read_message, write_message
+from python.rsds.subworker.conn import connect_to_unix_socket
 from python.rsds.subworker.subworker import Subworker
 
 

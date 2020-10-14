@@ -4,23 +4,19 @@ use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::{task_spec_to_memory, UpdateGraphMsg, GetDataResponse};
+use bytes::{BytesMut, Bytes};
 
 use crate::server::protocol::daskmessages::generic::{
     ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse,
 };
-use crate::server::protocol::dasktransport::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper,
-    SerializedMemory,
-};
+use crate::server::protocol::dasktransport::{asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet, map_to_transport, serialize_single_packet, Batch, DaskPacket, MessageBuilder, MessageWrapper, SerializedMemory, make_dask_pickle_payload, make_dask_payload};
 
 use crate::scheduler::protocol::TaskId;
 /*use crate::server::protocol::daskmessages::worker::{
     GetDataMsg, GetDataResponse, ToWorkerMessage, UpdateDataMsg, UpdateDataResponse,
 };*/
 
-use crate::common::data::DataInfo;
-use crate::server::task::{TaskRef, TaskRuntimeState};
+use crate::server::task::{TaskRef, TaskRuntimeState, DataInfo};
 
 use crate::server::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
 use crate::server::worker::WorkerRef;
@@ -31,6 +27,13 @@ use futures::{Sink, SinkExt, StreamExt};
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
 use tokio::net::TcpStream;
+use crate::server::protocol::messages::worker::{FetchRequest, FetchResponse};
+use tokio::io::AsyncWriteExt;
+use crate::common::transport::make_protocol_builder;
+use crate::error::DsError::GenericError;
+use crate::common::data::SerializationType;
+use crate::server::protocol::daskmessages::client::ClientTaskSpec::Serialized;
+
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -217,7 +220,9 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         let mut rng = rand::thread_rng();
         for key in &keys {
             let task_ref = core.get_task_by_key_or_panic(key);
-            task_ref.get().get_workers().map(|ws| {
+            let task = task_ref.get();
+            //let data_info = task.data_info().unwrap();
+            task.get_workers().map(|ws| {
                 let ws = Vec::from_iter(ws.into_iter());
                 ws.choose(&mut rng).map(|w| {
                     worker_map
@@ -237,8 +242,8 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     );
 
     while let Some(result) = worker_futures.next().await {
-        result?.into_iter().for_each(|(k, v)| {
-            result_map.insert(k, SerializedMemory::Inline(rmpv::Value::Binary(v)));
+        result?.into_iter().for_each(|(k, v, s)| {
+            result_map.insert(k, make_dask_payload(s, v));
         });
     }
 
@@ -375,7 +380,6 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
                     task.state = TaskRuntimeState::Finished(
                         DataInfo {
                             size,
-                            r#type: vec![],
                         },
                         set,
                     );
@@ -400,31 +404,54 @@ pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     Ok(())
 }
 
+/*pub async fn fetch_from_worker(worker_address: &DaskKey, key: DaskKey) {
+
+}*/
+
+pub async fn fetch_data(stream: &mut tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>, key: DaskKey) -> crate::Result<(BytesMut, SerializationType)>
+{
+    let message = FetchRequest {
+        key,
+    };
+    let data = rmp_serde::to_vec_named(&message).unwrap();
+    stream.send(data.into()).await?;
+
+    let message : FetchResponse = {
+        let data = match stream.next().await {
+            None => return Err(GenericError("Unexpected close of connection".into())),
+            Some(data) => data?
+        };
+        rmp_serde::from_slice(&data)?
+    };
+    let header = match message {
+        FetchResponse::NotAvailable => todo!(),
+        FetchResponse::Data(x) => x,
+    };
+    let data = match stream.next().await {
+            None => return Err(GenericError("Unexpected close of connection".into())),
+            Some(data) => data?
+    };
+    Ok((data.into(), header.serializer))
+}
+
 pub async fn get_data_from_worker(
     worker_address: DaskKey,
-    keys: Vec<DaskKey>,
-) -> crate::Result<Vec<(DaskKey, Vec<u8>)>> {
-    let mut connection = connect_to_worker(worker_address).await?;
-    todo!();
-    /* OLD DASK PROTOCOL
-    let msg = ToWorkerMessage::GetData(GetDataMsg {
-        keys,
-        who: None,
-        max_connections: false,
-        reply: true,
-    });
-
-    let (reader, writer) = connection.split();
-    let mut writer = asyncwrite_to_sink(writer);
-    writer.send(serialize_single_packet(msg)?).await?;
-
-    let mut reader = asyncread_to_stream(reader);
-    // TODO: Error propagation
+    key: Vec<DaskKey>,
+) -> crate::Result<Vec<(DaskKey, BytesMut, SerializationType)>> {
     // TODO: Storing worker connection?
-    let response = reader.next().await.unwrap()?;
-    writer.send(serialize_single_packet("OK")?).await?;
+    // Directly resend to client?
 
-    Ok(response)*/
+    let mut connection = connect_to_worker(worker_address.clone()).await?;
+    let mut stream  = make_protocol_builder().new_framed(connection);
+
+    let mut result = Vec::with_capacity(key.len());
+    for key in key {
+        log::debug!("Fetching {} from {}", &key, worker_address);
+        let (data, serializer) = fetch_data(&mut stream, key.clone()).await?;
+        log::debug!("Fetched {} from {} ({} bytes)", &key, worker_address, data.len());
+        result.push((key, data, serializer));
+    }
+    Ok(result)
 }
 
 pub async fn update_data_on_worker(

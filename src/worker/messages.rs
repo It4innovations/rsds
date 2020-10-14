@@ -1,10 +1,17 @@
 use super::subworker::SubworkerId;
 use crate::server::protocol::key::DaskKey;
 use serde::{Deserialize, Serialize};
+use crate::common::data::SerializationType;
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct RegisterSubworkerMessage {
     pub(crate) subworker_id: SubworkerId,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Upload {
+    pub key: DaskKey,
+    pub serializer: SerializationType,
 }
 
 #[derive(Serialize, Debug)]
@@ -15,8 +22,10 @@ pub struct ComputeTaskMsg<'a> {
     pub args: &'a rmpv::Value,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     pub kwargs: &'a Option<rmpv::Value>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub uploads: Vec<Upload>,
 }
 
 #[derive(Serialize, Debug)]
@@ -29,20 +38,23 @@ pub enum ToSubworkerMessage<'a> {
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub key: DaskKey,
+    pub serializer: SerializationType,
     #[serde(with = "serde_bytes")]
     pub result: Vec<u8>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct TaskErroredMsg {
+pub struct TaskFailedMsg {
     pub key: DaskKey,
     #[serde(with = "serde_bytes")]
-    pub result: Vec<u8>,
+    pub exception: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub traceback: Vec<u8>
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 pub enum FromSubworkerMessage {
     TaskFinished(TaskFinishedMsg),
-    TaskErrored(TaskErroredMsg),
+    TaskFailed(TaskFailedMsg),
 }

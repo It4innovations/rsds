@@ -5,15 +5,13 @@ import sys
 from concurrent.futures.thread import ThreadPoolExecutor
 
 import cloudpickle
+import logging
 
 from .conn import SocketWrapper
+from .serialize import serialize, serialize_by_pickle, deserialize_by_pickle, deserialize
+from .utils import substitude_keys
 
-
-def unpack(data):
-    try:
-        return pickle.loads(data)
-    except:
-        return cloudpickle.loads(data)
+logger = logging.getLogger(__name__)
 
 
 class Subworker:
@@ -22,9 +20,6 @@ class Subworker:
         self.socket = socket
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.loop = asyncio.get_event_loop()
-        self.handlers = {
-            "ComputeTask": self.handle_compute_task
-        }
 
     async def run(self):
         await self.socket.send_message({
@@ -32,41 +27,74 @@ class Subworker:
         })
         while True:
             message = await self.socket.receive_message()
-            handler = self.handlers[message["op"]]
-            await handler(message)
+            op = message["op"]
+            if op == "ComputeTask":
+                await self.handle_compute_task(message)
+            else:
+                raise Exception("Unknown command: {}".format(op))
+
+    async def get_uploads(self, uploads):
+        result = {}
+        count = 0
+        for upload in uploads:
+            key = upload["key"]
+            logger.info("Uploading %s from worker", key)
+            data = await self.socket.read_raw_message()
+            count += 1
+            try:
+                result[key] = deserialize(data, upload["serializer"])
+            except Exception as e:
+                # Read (and throw away) remaining data
+                for _ in range(count, len(uploads)):
+                    await self.socket.read_raw_message()
+                raise e
+        return result
 
     async def handle_compute_task(self, message):
+        key = message.get("key")
+        logger.info("Starting task %s", key)
+        uploads = message.get("uploads")
+        if uploads:
+            logger.info("Need %s uploads", len(uploads))
+            deps = await self.get_uploads(uploads)
+        else:
+            deps = {}
+
         async def inner():
-            key = message.get("key")
-            try:
-                result = await self.loop.run_in_executor(self.executor, run_task, message)
+            state, result = await self.loop.run_in_executor(self.executor, run_task, message, deps)
+            if state == "ok":
+                logger.info("Task %s successfully finished", key)
+                serializer, data = serialize(result)
                 await self.socket.send_message({
                     "op": "TaskFinished",
+                    "serializer": serializer,
                     "key": key,
-                    "result": dumps(result)
+                    "result": data
                 })
-            except Exception as e:
+            else:
+                exception, traceback = result
+                logger.error("Task %s failed: %s", key, result)
                 await self.socket.send_message({
-                    "op": "TaskErrored",
+                    "op": "TaskFailed",
                     "key": key,
-                    "error": dumps(e)
+                    "exception": serialize_by_pickle(exception),
+                    "traceback": serialize_by_pickle(traceback),
                 })
         self.loop.create_task(inner())
 
 
-def dumps(data):
-    return pickle.dumps(data)
-
-
-def run_task(message):
-    function = unpack(message["function"])
-    args = unpack(message["args"])
-
-    kwargs = message.get("kwargs", None)
-    if kwargs:
-        kwargs = unpack(kwargs)
-        result = function(*args, **kwargs)
-    else:
-        result = function(*args)
-
-    return result
+def run_task(message, deps):
+    try:
+        function = deserialize_by_pickle(message["function"])
+        args = deserialize_by_pickle(message["args"])
+        args = [substitude_keys(a, deps) for a in args]
+        kwargs = message.get("kwargs", None)
+        if kwargs:
+            kwargs = deserialize_by_pickle(kwargs)
+            result = function(*args, **kwargs)
+        else:
+            result = function(*args)
+        return "ok", result
+    except Exception as e:
+        _, _, traceback = sys.exc_info()
+        return "error", (e, traceback)

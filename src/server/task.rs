@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::common::{Set, WrappedRcRefCell, DataInfo};
+use crate::common::{Set, WrappedRcRefCell};
 use crate::server::client::ClientId;
 use crate::server::core::Core;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
 use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory};
-use crate::server::protocol::Priority;
+use crate::server::protocol::PriorityValue;
 
 use crate::scheduler::protocol::TaskId;
 /*use crate::server::protocol::daskmessages::worker::{
@@ -17,6 +17,12 @@ use crate::scheduler::protocol::TaskId;
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::worker::WorkerRef;
+
+#[derive(Debug)]
+pub struct DataInfo {
+    pub size: u64,
+    //pub r#type: Vec<u8>,
+}
 
 pub enum TaskRuntimeState {
     Waiting,
@@ -44,8 +50,8 @@ impl fmt::Debug for TaskRuntimeState {
 }
 
 pub struct ErrorInfo {
-    pub exception: SerializedMemory,
-    pub traceback: SerializedMemory,
+    pub exception: Vec<u8>,
+    pub traceback: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -172,7 +178,7 @@ impl Task {
                     .iter()
                     .map(|w| w.get().listen_address.clone())
                     .collect();
-                (task.key.clone(), addresses)
+                (task.key.clone(), task.data_info().unwrap().size, addresses)
             })
             .collect();
 
@@ -352,8 +358,8 @@ impl TaskRef {
         spec: Option<ClientTaskSpec>,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
-        user_priority: Priority,
-        client_priority: Priority,
+        user_priority: PriorityValue,
+        client_priority: PriorityValue,
     ) -> Self {
         Self::wrap(Task {
             id,

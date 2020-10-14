@@ -24,11 +24,19 @@ use crate::server::protocol::dasktransport::{
 };
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::server::protocol::messages::worker::ToWorkerMessage;
-use crate::worker::reactor::try_start_tasks;
+use crate::server::protocol::messages::worker::{ToWorkerMessage, FetchRequest, FetchResponse, FetchResponseData};
+use crate::worker::reactor::{try_start_tasks};
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{SubworkerRef, start_subworkers};
 use crate::worker::task::TaskRef;
+use crate::worker::data::{DataObjectRef, DataObjectState, RemoteData};
+use crate::server::protocol::PriorityValue;
+use crate::server::protocol::Priority;
+use tracing_subscriber::registry::Data;
+use rand::rngs::SmallRng;
+use rand::SeedableRng;
+use rand::seq::SliceRandom;
+use crate::server::reactor::fetch_data;
 
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
@@ -79,6 +87,7 @@ pub async fn run_worker(
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+    let (download_sender, download_reader) = tokio::sync::mpsc::unbounded_channel::<(DataObjectRef, (PriorityValue, PriorityValue))>();
 
     let taskset = LocalSet::default();
     {
@@ -91,17 +100,14 @@ pub async fn run_worker(
         queue_sender.send(frame.into_inner().into()).unwrap();
     }
 
-    let state = WorkerStateRef::new(queue_sender, ncpus, address);
+    let state = WorkerStateRef::new(queue_sender, ncpus, address, download_sender);
 
     log::info!("Starting {} subworkers", ncpus);
     let (subworkers, sw_processes) = start_subworkers(&state, &work_dir, "python3", ncpus).await?;
     log::debug!("Subworkers started");
 
     state.get_mut().set_subworkers(subworkers);
-
-
     let (writer, reader) = make_protocol_builder().new_framed(stream).split();
-
 
     tokio::select! {
         _ = worker_message_loop(state.clone(), reader) => {
@@ -110,14 +116,57 @@ pub async fn run_worker(
         _ = forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Cannot send a message to server");
         }
-        result = taskset.run_until(connection_initiator(listener, state)) => {
+        result = taskset.run_until(connection_initiator(listener, state.clone())) => {
             panic!("Taskset failed");
         }
         idx = sw_processes => {
             panic!("Subworker process {} failed", idx);
         }
+        _ = worker_data_downloader(state, download_reader) => {
+            unreachable!()
+        }
     }
     Ok(())
+}
+
+
+async fn worker_data_downloader(state_ref: WorkerStateRef, mut stream: tokio::sync::mpsc::UnboundedReceiver<(DataObjectRef, Priority)>) {
+    // TODO: Limit downloads, more parallel downloads, respect priorities
+    // TODO: Reuse connections
+    let queue : priority_queue::PriorityQueue<DataObjectRef, Reverse<Priority>> = Default::default();
+    let mut random = SmallRng::from_entropy();
+    loop {
+        let (data_ref, priority) = stream.next().await.unwrap();
+
+        let (worker_address, key) = {
+            let data_obj = data_ref.get();
+            let workers = match &data_obj.state {
+                DataObjectState::Remote(rs) => {
+                    &rs.workers
+                },
+                DataObjectState::Local(_) | DataObjectState::Removed => {
+                    /* It is already finished */
+                    continue;
+                },
+            };
+            let worker_address = workers.choose(&mut random).cloned().unwrap();
+            (worker_address, data_obj.key.clone())
+        };
+
+        let mut connection = connect_to_worker(worker_address).await.unwrap();
+        let mut stream  = make_protocol_builder().new_framed(connection);
+        let (data, serializer) = fetch_data(&mut stream, key).await.unwrap();
+        state_ref.get_mut().on_data_downloaded(data_ref, data, serializer);
+    }
+}
+
+/* TODO: Refactor this! the same function is in the server */
+async fn connect_to_worker(address: DaskKey) -> crate::Result<tokio::net::TcpStream> {
+    let address = address.to_string();
+    let address = address.trim_start_matches("tcp://");
+    let stream = TcpStream::connect(address).await?;
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
 
 async fn worker_message_loop(
@@ -129,12 +178,14 @@ async fn worker_message_loop(
         let message: ToWorkerMessage = rmp_serde::from_slice(&data)?;
         let mut state = state_ref.get_mut();
         match message {
-            ToWorkerMessage::ComputeTask(msg) => {
+            ToWorkerMessage::ComputeTask(mut msg) => {
                 log::debug!("Task assigned: {}", msg.key);
+                let dep_info = std::mem::take(&mut msg.dep_info);
                 let task_ref = TaskRef::new(msg);
-                let priority = task_ref.get().priority;
-                state.task_queue.push(task_ref, Reverse(priority));
-                try_start_tasks(&mut state);
+                for (key, size, workers) in dep_info {
+                    state.add_dependancy(&task_ref, key.clone(), size, workers);
+                }
+                state.add_task(task_ref);
             }
         }
     }
@@ -160,68 +211,39 @@ pub async fn connection_initiator(
     }
 }
 
-async fn connection_rpc_loop<R: AsyncRead + AsyncWrite>(
-    stream: R,
+async fn connection_rpc_loop(
+    stream: TcpStream,
     state_ref: WorkerStateRef,
     address: SocketAddr,
 ) -> crate::Result<()> {
-    let (reader, writer) = tokio::io::split(stream);
-    let reader = asyncread_to_stream(reader);
-    let mut writer = asyncwrite_to_sink(writer);
-    todo!();
-    /* OLD DASK PROTOCOL
-    let mut reader = dask_parse_stream::<ToWorkerGenericMessage, _>(reader);
-    while let Some(messages) = reader.next().await {
-        for message in messages? {
-            match message {
-                ToWorkerGenericMessage::GetData(request) => {
-                    let data: Map<_, _> = request
-                        .keys
-                        .into_iter()
-                        .map(|key| {
-                            (
-                                key,
-                                Indexed {
-                                    frames: vec![BytesMut::from(&b"\x80\x03K*."[..])],
-                                    header: rmpv::Value::Map(vec![
-                                        (
-                                            rmpv::Value::String("serializer".into()),
-                                            rmpv::Value::String("pickle".into()),
-                                        ),
-                                        (
-                                            rmpv::Value::String("lengths".into()),
-                                            rmpv::Value::Array(vec![5.into()]),
-                                        ),
-                                        (rmpv::Value::String("count".into()), 1.into()),
-                                        (rmpv::Value::String("deserialize".into()), false.into()),
-                                    ]),
-                                },
-                            )
-                        })
-                        .collect();
-                    let response = GetDataResponse {
-                        status: "OK".into(),
-                        data,
-                    };
-                    writer
-                        .send(serialize_single_packet(response).unwrap())
-                        .await
-                        .unwrap();
-                    let mut inner = reader.into_inner();
-                    let packet = inner.next().await.unwrap()?;
-                    let response: Batch<DaskKey> = deserialize_packet(packet)?;
-                    assert_eq!(response.len(), 1);
-                    assert_eq!(response[0], "OK".into());
-                    reader = dask_parse_stream::<ToWorkerGenericMessage, _>(inner);
+    let mut stream = make_protocol_builder().new_framed(stream);
+    loop {
+        let data = match stream.next().await {
+            None => return Ok(()),
+            Some(data) => data?
+        };
+        let request: FetchRequest = rmp_serde::from_slice(&data)?;
+        log::debug!("Object {} request from {} started", request.key, address);
+        let state = state_ref.get();
+        let (bytes, serializer) = {
+            let data_obj = match state.data_objects.get(&request.key) {
+                None => {
+                    let response = FetchResponse::NotAvailable;
+                    let data = rmp_serde::to_vec_named(&response).unwrap();
+                    stream.send(data.into()).await?;
+                    continue;
                 }
-                _ => {
-                    log::warn!("Unhandled message: {:?}", message);
-                }
+                Some(x) => x.get()
             };
-            //Indexed { frames: [b"\x80\x04\x95\x03\0\0\0\0\0\0\0K\0."], header: Map([
-            // (String(Utf8String { s: Ok("serializer") }), String(Utf8String { s: Ok("pickle") })), (String(Utf8String { s: Ok("lengths") }), Array([Integer(PosInt(14))])), (String(Utf8String { s: Ok("compression") }), Array([Nil])), (String(Utf8String { s: Ok("count") }), Integer(PosInt(1))), (String(Utf8String { s: Ok("deserialize") }), Boolean(false))]) }}
-        }
+            let data = data_obj.local_data().unwrap();
+            (data.bytes.clone(), data.serializer.clone())
+        };
+        let response = FetchResponse::Data(FetchResponseData {
+                serializer: serializer,
+        });
+        let data = rmp_serde::to_vec_named(&response).unwrap();
+        stream.send(data.into()).await?;
+        stream.send(bytes).await?;
+        log::debug!("Object {} request from {} finished", request.key, address);
     }
-
-    Ok(())*/
 }

@@ -11,6 +11,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use crate::server::protocol::messages::worker::FromWorkerMessage;
+use crate::server::task::ErrorInfo;
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -100,6 +101,11 @@ pub async fn worker_rpc_loop<
             match message {
                 FromWorkerMessage::TaskFinished(msg) => {
                     core.on_task_finished(&worker_ref, msg, &mut notifications);
+                }
+                FromWorkerMessage::TaskFailed(msg) => {
+                    core.on_task_error(&worker_ref, msg.key, ErrorInfo {
+                        exception: msg.exception, traceback: msg.traceback,
+                    }, &mut notifications);
                 }
             }
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();

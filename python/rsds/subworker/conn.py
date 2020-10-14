@@ -2,8 +2,12 @@ import asyncio
 import os
 import struct
 from asyncio import StreamReader, StreamWriter
+from asyncio.exceptions import IncompleteReadError
 
 import msgpack
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def connect_to_unix_socket(socket_path):
@@ -28,24 +32,30 @@ class SocketWrapper:
         self._buffer = bytes()
 
     async def send_message(self, message):
-        return await write_message(message, self.writer)
+        return await self.write_raw_message(msgpack.dumps(message))
 
     async def receive_message(self):
-        return await read_message(self.reader)
+        data = await self.read_raw_message()
+        # logger.info("MESSAGE %s", data)
+        return msgpack.loads(data)
 
+    async def write_raw_message(self, message):
+        header = SocketWrapper.header.pack(len(message))
+        writer = self.writer
+        if len(message) <= 1_024:
+            writer.write(header + message)
+        else:
+            writer.write(header)
+            writer.write(message)
+        return await writer.drain()
 
-async def write_message(message, writer: StreamWriter):
-    message = msgpack.dumps(message)
-    header = SocketWrapper.header.pack(len(message))
-    if len(message) <= 1_024:
-        writer.write(header + message)
-    else:
-        writer.write(header)
-        writer.write(message)
-    return await writer.drain()
-
-
-async def read_message(reader: StreamReader):
-    header = await reader.readexactly(SocketWrapper.header_size)
-    msg_size = SocketWrapper.header.unpack(header)[0]
-    return msgpack.loads(await reader.readexactly(msg_size))
+    async def read_raw_message(self):
+        try:
+            header = await self.reader.readexactly(SocketWrapper.header_size)
+        except IncompleteReadError as e:
+            if not e.partial:
+                raise Exception("Connection closed")
+            else:
+                raise e
+        msg_size = SocketWrapper.header.unpack(header)[0]
+        return await self.reader.readexactly(msg_size)

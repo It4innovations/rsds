@@ -1,5 +1,8 @@
 use crate::worker::state::WorkerState;
 use crate::worker::subworker::SubworkerRef;
+use crate::worker::data::DataObjectRef;
+use bytes::BytesMut;
+use crate::common::data::SerializationType;
 
 pub fn choose_subworker(state: &mut WorkerState) -> SubworkerRef {
     // TODO: Real implementation
@@ -11,7 +14,7 @@ pub fn try_start_tasks(state: &mut WorkerState) {
     if state.free_subworkers.is_empty() {
         return;
     }
-    while let Some((task_ref, _)) = state.task_queue.pop() {
+    while let Some((task_ref, _)) = state.ready_task_queue.pop() {
         {
             let subworker_ref = choose_subworker(state);
             let mut task = task_ref.get_mut();
@@ -26,3 +29,7 @@ pub fn try_start_tasks(state: &mut WorkerState) {
         }
     }
 }
+
+/*pub fn try_download_tasks(state: &mut WorkerState, stream: ()) {
+    while state.
+}*/

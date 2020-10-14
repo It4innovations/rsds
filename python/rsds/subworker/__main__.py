@@ -1,8 +1,6 @@
 
 import uvloop
-
-
-#uvloop.install()  # noqa
+uvloop.install()  # noqa
 
 
 import asyncio

@@ -11,8 +11,8 @@ use crate::server::notifications::Notifications;
 use crate::server::protocol::key::{
     dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef,
 };
-use crate::common::data::DataInfo;
-use crate::server::task::{ErrorInfo, Task, TaskRef, TaskRuntimeState};
+
+use crate::server::task::{ErrorInfo, Task, TaskRef, TaskRuntimeState, DataInfo};
 use crate::server::worker::WorkerRef;
 use crate::trace::{
     trace_task_assign, trace_task_finish, trace_task_place, trace_task_remove, trace_worker_new,
@@ -418,14 +418,15 @@ impl Core {
     ) {
         let worker = worker_ref.get();
         for key in keys {
+            // TODO handle the race when task is removed from server before this message arrives
             let task_ref = self.get_task_by_key_or_panic(&key);
             let mut task = task_ref.get_mut();
             match &mut task.state {
                 TaskRuntimeState::Finished(_, ws) => {
                     ws.insert(worker_ref.clone());
                 }
-                TaskRuntimeState::Released => { /* It ok to ignore the message */ }
-                TaskRuntimeState::Error(_)
+                TaskRuntimeState::Released
+                | TaskRuntimeState::Error(_)
                 | TaskRuntimeState::Waiting
                 | TaskRuntimeState::Scheduled(_)
                 | TaskRuntimeState::Assigned(_)
@@ -458,7 +459,7 @@ impl Core {
                 task.state = TaskRuntimeState::Finished(
                     DataInfo {
                         size: msg.nbytes,
-                        r#type: msg.r#type,
+                        //r#type: msg.r#type,
                     },
                     set,
                 );

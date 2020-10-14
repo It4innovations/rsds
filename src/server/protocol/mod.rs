@@ -52,7 +52,9 @@ impl From<Float> for f64 {
     }
 }
 
-pub type Priority = i32;
+pub type PriorityValue = i32;
+
+pub type Priority = (PriorityValue, PriorityValue);
 
 struct FloatVisitor;
 

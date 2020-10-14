@@ -60,7 +60,7 @@ class Env:
 
 
 class RsdsEnv(Env):
-    default_listen_port = 17070
+    default_listen_port = 17002
 
     def __init__(self, work_dir):
         Env.__init__(self, work_dir)

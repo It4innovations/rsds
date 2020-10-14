@@ -15,6 +15,7 @@ use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
+use crate::common::data::SerializationType;
 
 /// Commonly used types
 pub type Frame = BytesMut;
@@ -990,5 +991,29 @@ mod tests {
         let mut hasher = DefaultHasher::default();
         hasher.write(data);
         hasher.finish()
+    }
+}
+
+pub fn make_dask_payload(serializer: SerializationType, data: BytesMut) -> SerializedMemory {
+    match serializer {
+        SerializationType::None => {
+            todo!()
+            //TODO: Do not use inline but similar thing as pickle
+            //SerializedMemory::Inline(rmpv::Value::Binary(data))
+        },
+        SerializationType::Pickle => make_dask_pickle_payload(data),
+    }
+}
+
+pub fn make_dask_pickle_payload(data: BytesMut) -> SerializedMemory {
+    let size = data.len();
+    SerializedMemory::Indexed {
+        frames: vec![data],
+        header: rmpv::Value::Map(vec![
+            ("serializer".into(), "pickle".into()),
+            ("count".into(), 1.into()),
+            ("lengths".into(), vec![rmpv::Value::Integer(size.into())].into()),
+            ("deserialize".into(), false.into()),
+        ])
     }
 }

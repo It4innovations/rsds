@@ -13,12 +13,13 @@ use crate::server::protocol::daskmessages::client::{
 /*use crate::server::protocol::daskmessages::worker::{
     DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
 };*/
-use crate::server::protocol::dasktransport::DaskPacket;
+use crate::server::protocol::dasktransport::{DaskPacket, make_dask_pickle_payload};
 use crate::server::protocol::dasktransport::MessageBuilder;
 use crate::server::task::TaskRuntimeState;
 use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_send;
 use crate::Error;
+use bytes::BytesMut;
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -49,12 +50,11 @@ impl Comm {
             for task_ref in c_update.error_tasks {
                 let task = task_ref.get();
                 if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.copy_serialized(&error_info.exception);
-                    let traceback = mbuilder.copy_serialized(&error_info.traceback);
+                    let exception = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.exception[..])));
+                    let traceback = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.traceback[..])));
                     mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
                         key: task.key().into(),
-                        exception,
-                        traceback,
+                        exception, traceback,
                     }));
                 } else {
                     panic!("Task is not in error state");
@@ -65,7 +65,7 @@ impl Comm {
                 let task = task_ref.get();
                 mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
                     key: task.key().into(),
-                    r#type: task.data_info().unwrap().r#type.clone(),
+                    r#type: Default::default(), //task.data_info().unwrap().r#type.clone(),
                 }));
             }
 

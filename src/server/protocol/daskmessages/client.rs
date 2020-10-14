@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::common::Map;
 use crate::server::protocol::dasktransport::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport, map_from_transport, ToDaskTransport, map_to_transport, MessageBuilder};
 use crate::server::protocol::key::DaskKey;
-use crate::server::protocol::Priority;
+use crate::server::protocol::PriorityValue;
 use serde::de::Error;
 
 #[cfg_attr(test, derive(Serialize))]
@@ -69,7 +69,7 @@ pub struct UpdateGraphMsg {
     pub priority: Map<DaskKey, i32>,
 
     #[serde(default)]
-    pub user_priority: Priority,
+    pub user_priority: PriorityValue,
 
     pub actors: Option<bool>,
 
