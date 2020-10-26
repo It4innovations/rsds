@@ -187,6 +187,11 @@ async fn worker_message_loop(
                 }
                 state.add_task(task_ref);
             }
+            ToWorkerMessage::DeleteData(msg) => {
+                for key in msg.keys {
+                    state.remove_data(&key);
+                }
+            }
         }
     }
     Ok(())

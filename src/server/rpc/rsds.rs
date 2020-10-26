@@ -107,6 +107,9 @@ pub async fn worker_rpc_loop<
                         exception: msg.exception, traceback: msg.traceback,
                     }, &mut notifications);
                 }
+                FromWorkerMessage::DataDownloaded(msg) => {
+                    core.on_tasks_transferred(&worker_ref, &msg.key, &mut notifications)
+                }
             }
             comm_ref.get_mut().notify(&mut core, notifications).unwrap();
         }

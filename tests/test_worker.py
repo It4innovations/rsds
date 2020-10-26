@@ -60,7 +60,7 @@ def test_worker_smallmerge(rsds_env):
     def f2(*x):
         return x
 
-    f = f2([f1(1), f1(2), f1(3), f1(4)]).compute()
+    f = f2(f2([f1(1), f1(2), f1(3), f1(4)])).compute()
     print(f)
 
 

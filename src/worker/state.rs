@@ -12,6 +12,7 @@ use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData}
 use crate::server::protocol::key::DaskKey;
 use crate::common::data::SerializationType;
 use crate::worker::reactor::choose_subworker;
+use crate::server::protocol::messages::worker::{FromWorkerMessage, DataDownloadedMsg};
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -67,6 +68,11 @@ impl WorkerState {
                 serializer,
                 bytes: data.into(),
             });
+
+            let message = FromWorkerMessage::DataDownloaded(DataDownloadedMsg {
+                key: data_obj.key.clone()
+            });
+            self.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
         }
 
         /* TODO: Inform server about download */
@@ -156,6 +162,30 @@ impl WorkerState {
             if self.free_subworkers.is_empty() {
                 return;
             }
+        }
+    }
+
+    pub fn remove_data(&mut self, key: &DaskKey) {
+        log::info!("Removing data object {}", key);
+        self.data_objects.remove(key).map(|data_ref| {
+            let mut data_obj = data_ref.get_mut();
+            data_obj.state = DataObjectState::Removed;
+            if !data_obj.consumers.is_empty() {
+                todo!(); // What should happen when server removes data but there are tasks that needs it?
+            }
+        });
+    }
+
+    pub fn remove_task(&mut self, task_ref: TaskRef) {
+        {
+            let task = task_ref.get();
+            match task.state {
+                TaskState::Done => { /* Do nothing */ }
+                TaskState::Waiting(0) => { todo!(); }
+                TaskState::Waiting(_) => { todo!(); }
+                TaskState::Running(_) => { todo!(); }
+            }
+            assert!(self.tasks.remove(&task.key).is_some());
         }
     }
 

@@ -106,15 +106,19 @@ fn subworker_task_finished(state_ref: &WorkerStateRef, subworker_ref: &Subworker
     {
         let mut sw = subworker_ref.get_mut();
         log::debug!("Task {} finished in subworker {}", msg.key, sw.id);
-        let task = sw.running_task.take().unwrap();
+        let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
-        assert_eq!(task.get().key, msg.key);
+        assert_eq!(task_ref.get().key, msg.key);
+        task_ref.get_mut().set_done(&task_ref);
+        state.remove_task(task_ref);
 
         let message = FromWorkerMessage::TaskFinished(TaskFinishedMsg {
             key: msg.key.clone(),
             nbytes: msg.result.len() as u64,
         });
         state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
+
+
         let data_ref = DataObjectRef::new(
             msg.key,
             msg.result.len() as u64,
@@ -133,9 +137,11 @@ fn subworker_task_fail(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef,
     {
         let mut sw = subworker_ref.get_mut();
         log::debug!("Task {} failed in subworker {}", msg.key, sw.id);
-        let task = sw.running_task.take().unwrap();
+        let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
-        assert_eq!(task.get().key, msg.key);
+        assert_eq!(task_ref.get().key, msg.key);
+        task_ref.get_mut().set_done(&task_ref);
+        state.remove_task(task_ref);
 
         let message = FromWorkerMessage::TaskFailed(TaskFailedMsg {
             key: msg.key.clone(),
