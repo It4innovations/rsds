@@ -184,7 +184,10 @@ impl Task {
 
         let unpack = |s: &SerializedMemory| match s {
             SerializedMemory::Inline(v) => v.clone(),
-            _ => todo!(),
+            SerializedMemory::Indexed { frames, header: _ } => {
+                assert_eq!(frames.len(), 1);
+                frames[0].to_vec().into()
+            }
         };
 
         let (function, args, kwargs) = match &self.spec {
@@ -197,7 +200,7 @@ impl Task {
                 unpack(args.as_ref().unwrap()),
                 kwargs.as_ref().map(unpack),
             ),
-            _ => todo!(),
+            Some(ClientTaskSpec::Serialized(s)) => (unpack(s), rmpv::Value::Nil, None),
             None => panic!("Task has no specification"),
         };
 

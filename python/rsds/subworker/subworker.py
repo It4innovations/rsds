@@ -34,20 +34,12 @@ class Subworker:
                 raise Exception("Unknown command: {}".format(op))
 
     async def get_uploads(self, uploads):
-        result = {}
-        count = 0
+        result = []
         for upload in uploads:
             key = upload["key"]
             logger.info("Uploading %s from worker", key)
             data = await self.socket.read_raw_message()
-            count += 1
-            try:
-                result[key] = deserialize(data, upload["serializer"])
-            except Exception as e:
-                # Read (and throw away) remaining data
-                for _ in range(count, len(uploads)):
-                    await self.socket.read_raw_message()
-                raise e
+            result.append((key, data, upload["serializer"]))
         return result
 
     async def handle_compute_task(self, message):
@@ -56,12 +48,12 @@ class Subworker:
         uploads = message.get("uploads")
         if uploads:
             logger.info("Need %s uploads", len(uploads))
-            deps = await self.get_uploads(uploads)
+            upload_data = await self.get_uploads(uploads)
         else:
-            deps = {}
+            upload_data = ()
 
         async def inner():
-            state, result = await self.loop.run_in_executor(self.executor, run_task, message, deps)
+            state, result = await self.loop.run_in_executor(self.executor, run_task, message, upload_data)
             if state == "ok":
                 logger.info("Task %s successfully finished", key)
                 serializer, data = serialize(result)
@@ -82,18 +74,47 @@ class Subworker:
                 })
         self.loop.create_task(inner())
 
+def _is_dask_composed_task(obj):
+    return isinstance(obj, tuple) and obj and callable(obj[0])
 
-def run_task(message, deps):
+
+def _run_dask_composed_task(obj):
+    if isinstance(obj, tuple) and obj and callable(obj[0]):
+        function = obj[0]
+        return function(*(_run_dask_composed_task(o) for o in obj[1:]))
+    if isinstance(obj, list):
+        return [_run_dask_composed_task(o) for o in obj]
+    return obj
+
+
+def run_task(message, uploads):
     try:
+        logger.debug("Deserializing function")
         function = deserialize_by_pickle(message["function"])
-        args = deserialize_by_pickle(message["args"])
-        args = [substitude_keys(a, deps) for a in args]
+        args = message["args"]
+        if args is not None:
+            logger.debug("Deserializing args")
+            args = deserialize_by_pickle(args)
+        else:
+            args = ()
         kwargs = message.get("kwargs", None)
         if kwargs:
+            logger.debug("Deserializing kwargs")
             kwargs = deserialize_by_pickle(kwargs)
+        else:
+            kwargs = {}
+        deps = {}
+        for key, data, serializer in uploads:
+            logger.debug("Deserializing upload %s", key)
+            deps[key] = deserialize(data, serializer)
+
+        if callable(function):
+            logger.debug("Starting normal function")
+            args = [substitude_keys(a, deps) for a in args]
             result = function(*args, **kwargs)
         else:
-            result = function(*args)
+            function = substitude_keys(function, deps)
+            result = _run_dask_composed_task(function)
         return "ok", result
     except Exception as e:
         _, _, traceback = sys.exc_info()
