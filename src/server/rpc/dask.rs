@@ -348,6 +348,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use crate::server::notifications::Notifications;
@@ -357,9 +358,6 @@ mod tests {
     use crate::server::protocol::daskmessages::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
-    };
-    use crate::server::protocol::daskmessages::worker::{
-        FromWorkerMessage, RegisterWorkerResponseMsg,
     };
     use crate::server::protocol::dasktransport::{
         serialize_single_packet, Batch, Frames, SerializedTransport,
@@ -416,7 +414,7 @@ mod tests {
                     nthreads: 1,
                 },
             ))?,
-            serialize_single_packet(FromWorkerMessage::<SerializedTransport>::Unregister)?,
+            serialize_single_packet(romWorkerMessage::<SerializedTransport>::Unregister)?,
         ];
         let (stream, msg_rx) = MemoryStream::new(packets_to_bytes(packets)?);
         let (core, comm, _rx) = dummy_ctx();
@@ -482,3 +480,4 @@ mod tests {
         Ok(())
     }
 }
+*/

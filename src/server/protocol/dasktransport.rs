@@ -583,9 +583,6 @@ mod tests {
     use maplit::hashmap;
 
     use crate::common::Map;
-    use crate::server::protocol::daskmessages::worker::{
-        FromWorkerMessage, RegisterWorkerResponseMsg,
-    };
     use crate::server::protocol::dasktransport::IntoInner;
     use crate::server::protocol::key::{to_dask_key, DaskKey};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
@@ -875,7 +872,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    /*#[tokio::test]
     async fn parse_heartbeat_int() -> Result<()> {
         let main = load_bin_test_data("data/register-heartbeat-int.bin");
         let msg: MessageWrapper<RegisterWorkerResponseMsg> =
@@ -888,9 +885,9 @@ mod tests {
         }
 
         Ok(())
-    }
+    }*/
 
-    #[tokio::test]
+    /*#[tokio::test]
     async fn parse_steal_response_state_none() -> Result<()> {
         let main = load_bin_test_data("data/steal-response-state-none.bin");
         let msg: MessageWrapper<FromWorkerMessage<SerializedTransport>> =
@@ -909,7 +906,7 @@ mod tests {
         }
 
         Ok(())
-    }
+    }*/
 
     #[tokio::test]
     async fn serialize_key_in_memory() -> Result<()> {
