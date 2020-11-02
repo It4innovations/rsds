@@ -81,7 +81,12 @@ impl Task {
     }
 
     #[inline]
-    pub fn key(&self) -> &DaskKeyRef {
+    pub fn key_ref(&self) -> &DaskKeyRef {
+        &self.key
+    }
+
+    #[inline]
+    pub fn key(&self) -> &DaskKey {
         &self.key
     }
 

@@ -8,6 +8,7 @@ import os
 import logging
 from .subworker import Subworker
 from .conn import connect_to_unix_socket
+from .globals import _set_global_subworker
 
 
 def get_environ(name, type_=None):
@@ -34,6 +35,7 @@ def main():
 
 async def run(subworker_id, socket_path):
     subworker = Subworker(subworker_id, await connect_to_unix_socket(socket_path))
+    _set_global_subworker(subworker)
     await subworker.run()
 
 

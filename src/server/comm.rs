@@ -54,7 +54,7 @@ impl Comm {
                     let exception = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.exception[..])));
                     let traceback = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.traceback[..])));
                     mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key().into(),
+                        key: task.key_ref().into(),
                         exception, traceback,
                     }));
                 } else {
@@ -65,7 +65,7 @@ impl Comm {
             for task_ref in c_update.in_memory_tasks {
                 let task = task_ref.get();
                 mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key().into(),
+                    key: task.key_ref().into(),
                     r#type: Default::default(), //task.data_info().unwrap().r#type.clone(),
                 }));
             }
@@ -98,6 +98,14 @@ impl Comm {
                     keys: w_update.delete_keys,
                 });
                 worker.send_message(message);
+            }
+
+            for tref in w_update.steal_tasks {
+                let task = tref.get();
+                log::info!("XXX Stealing {}", task.key().as_str());
+                /*mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
+                    key: task.key().into(),
+                }));*/
             }
         }
 

@@ -8,6 +8,12 @@ pub(crate) struct RegisterSubworkerMessage {
     pub(crate) subworker_id: SubworkerId,
 }
 
+
+#[derive(Serialize, Debug)]
+pub(crate) struct RegisterSubworkerResponse {
+    pub(crate) worker: DaskKey,
+}
+
 #[derive(Serialize, Debug)]
 pub struct Upload {
     pub key: DaskKey,

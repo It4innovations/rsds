@@ -145,7 +145,7 @@ impl Core {
     pub fn add_task(&mut self, task_ref: TaskRef) {
         let (task_id, task_key) = {
             let task = task_ref.get();
-            (task.id, task.key().into())
+            (task.id, task.key_ref().into())
         };
         self.tasks_by_id.insert(task_id, task_ref.clone());
         assert!(self.tasks_by_key.insert(task_key, task_ref).is_none());
@@ -156,7 +156,7 @@ impl Core {
         assert!(!task.has_consumers());
         assert!(!task.has_subscribed_clients());
         assert!(self.tasks_by_id.remove(&task.id).is_some());
-        assert!(self.tasks_by_key.remove(task.key()).is_some());
+        assert!(self.tasks_by_key.remove(task.key_ref()).is_some());
     }
 
     pub fn get_tasks(&self) -> impl Iterator<Item = &TaskRef> {
@@ -554,7 +554,7 @@ mod tests {
     fn add_remove() {
         let mut core = Core::default();
         let t = task_add(&mut core, 0);
-        assert_eq!(core.get_task_by_key_or_panic(&t.get().key()), &t);
+        assert_eq!(core.get_task_by_key_or_panic(&t.get().key_ref()), &t);
 
         core.remove_task(&t.get());
         assert_eq!(core.get_task_by_id(0), None);
@@ -578,7 +578,7 @@ mod tests {
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
 
         let mut notifications = Notifications::default();
         let nbytes = 16;
@@ -608,7 +608,7 @@ mod tests {
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
         let r#type = vec![1, 2, 3];
         let nbytes = 16;
 
@@ -635,7 +635,7 @@ mod tests {
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
         let r#type = vec![1, 2, 3];
         let nbytes = 16;
 
@@ -666,7 +666,7 @@ mod tests {
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
         let clients: Vec<Client> = (0..2)
             .map(|c| {
                 let (client, _c_rx) = client(c);
@@ -703,7 +703,7 @@ mod tests {
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
         core.on_task_finished(
             &w,
             TaskFinishedMsg {
@@ -722,7 +722,7 @@ mod tests {
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
-        let key: DaskKey = t.get().key().into();
+        let key: DaskKey = t.get().key_ref().into();
         core.on_task_error(
             &w,
             key,

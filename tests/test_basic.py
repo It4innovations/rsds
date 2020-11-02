@@ -254,6 +254,30 @@ def test_stealing(rsds_env):
     assert rs == (0.1, 0.5) * 4
 
 
+def test_stealing2(rsds_env):
+    client = Client(rsds_env.start([1, 1], scheduler="workstealing"))
+    client.wait_for_workers(2)
+
+    workers = list(client.scheduler_info()["workers"].keys())
+
+    @delayed
+    def fn(w):
+        import rsds.subworker as sw
+        #time.sleep(1.0)
+        slow = w == sw.get_worker_id()
+        if slow:
+            time.sleep(0.5)
+        return slow
+
+    sleeps = []
+    for i in range(20):
+        sleeps.append(fn(workers[0]))
+
+    rs = client.compute(sleeps)
+    print("!!!!!!!!", client.gather(rs))
+
+
+
 def test_resubmit(rsds_env):
     url = rsds_env.start([1])
     import numpy as np

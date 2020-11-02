@@ -20,11 +20,10 @@ class Subworker:
         self.socket = socket
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.loop = asyncio.get_event_loop()
+        self.worker_id = None
 
     async def run(self):
-        await self.socket.send_message({
-            "subworker_id": self.subworker_id,
-        })
+        await self.handshake()
         while True:
             message = await self.socket.receive_message()
             op = message["op"]
@@ -32,6 +31,14 @@ class Subworker:
                 await self.handle_compute_task(message)
             else:
                 raise Exception("Unknown command: {}".format(op))
+
+    async def handshake(self):
+        await self.socket.send_message({
+            "subworker_id": self.subworker_id,
+        })
+        response = await self.socket.receive_message()
+        logger.info("%s", response)
+        self.worker_id = response["worker"]
 
     async def get_uploads(self, uploads):
         result = []

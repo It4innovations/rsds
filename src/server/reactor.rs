@@ -490,7 +490,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     let response: WhoHasMsgResponse = {
         let core = core_ref.get();
         let keys =
-            keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key().into()).collect());
+            keys.unwrap_or_else(|| core.get_tasks().map(|tr| tr.get().key_ref().into()).collect());
         keys.into_iter()
             .map(|key| {
                 let workers = match core.get_task_by_key(&key) {

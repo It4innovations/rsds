@@ -4,7 +4,7 @@ use std::process::Stdio;
 
 use bytes::Bytes;
 use futures::stream::{SplitSink, SplitStream};
-use futures::{Future, FutureExt, StreamExt};
+use futures::{Future, FutureExt, StreamExt, SinkExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::process::Command;
 use tokio::sync::oneshot;
@@ -12,7 +12,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::common::transport::make_protocol_builder;
 use crate::common::{WrappedRcRefCell};
-use crate::worker::messages::{ComputeTaskMsg, ToSubworkerMessage, FromSubworkerMessage, Upload};
+use crate::worker::messages::{ComputeTaskMsg, ToSubworkerMessage, FromSubworkerMessage, Upload, RegisterSubworkerResponse};
 use crate::worker::task::{Task, TaskRef};
 use crate::worker::messages;
 
@@ -72,6 +72,7 @@ impl SubworkerRef {
 }
 
 async fn subworker_handshake(
+    state_ref: WorkerStateRef,
     mut listener: UnixListener,
     subworker_id: SubworkerId,
 ) -> Result<
@@ -94,6 +95,12 @@ async fn subworker_handshake(
         if register_message.subworker_id != subworker_id {
             panic!("Subworker registered with an invalid id");
         }
+        
+        let message = RegisterSubworkerResponse {
+            worker: state_ref.get().listen_address.clone().into(),
+        };
+        framed.send(rmp_serde::to_vec_named(&message).unwrap().into()).await.unwrap();
+        
         Ok(framed.split())
     } else {
         panic!("Listening on subworker socket failed");
@@ -174,7 +181,7 @@ async fn run_subworker_message_loop(
 }
 
 async fn run_subworker(
-    state: WorkerStateRef,
+    state_ref: WorkerStateRef,
     work_dir: PathBuf,
     python_program: String,
     subworker_id: SubworkerId,
@@ -206,7 +213,7 @@ async fn run_subworker(
         result = &mut process_future => {
             panic!("Subworker {} failed without registration: {}, see {}", subworker_id, result?, log_path.display());
         },
-        result = subworker_handshake(listener, subworker_id) => {
+        result = subworker_handshake(state_ref.clone(), listener, subworker_id) => {
             result?
         }
     };
@@ -226,7 +233,7 @@ async fn run_subworker(
         result = crate::common::rpc::forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Sending a message to subworker failed");
         }
-        r = run_subworker_message_loop(state, subworker, reader) => {
+        r = run_subworker_message_loop(state_ref, subworker, reader) => {
             match r {
                 Err(e) => panic!("Subworker {} loop failed: {}, log: {}", subworker_id, e, log_path.display()),
                 Ok(()) => panic!("Subworker {} closed stream, see {}", subworker_id, log_path.display()),

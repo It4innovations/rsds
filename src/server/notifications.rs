@@ -81,7 +81,7 @@ impl Notifications {
             .entry(worker_ref)
             .or_default()
             .delete_keys
-            .push(task.key().into());
+            .push(task.key_ref().into());
     }
 
     pub fn task_placed(&mut self, worker: &Worker, task: &Task) {

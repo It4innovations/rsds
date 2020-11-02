@@ -21,12 +21,12 @@ async def unix_server(tmp_path):
     return srv, path, connect_fut
 
 
-async def create_subworker(tmp_path, id: int = 0):
+async def create_subworker(tmp_path, id: int = 0, worker_id: str = "xxx:1234"):
     server, path, connect_fut = await unix_server(tmp_path)
     client_socket = await connect_to_unix_socket(path)
     control_socket = await connect_fut
     subworker = Subworker(id, client_socket)
-    await init_subworker(subworker, control_socket)
+    await init_subworker(subworker, control_socket, worker_id)
     return subworker, control_socket
 
 
@@ -41,10 +41,12 @@ async def test_send_receive(tmp_path):
     assert await control_socket.receive_message() == message
 
 
-async def init_subworker(subworker: Subworker, control_socket: SocketWrapper):
+async def init_subworker(subworker: Subworker, control_socket: SocketWrapper, worker_id: str):
     asyncio.get_event_loop().create_task(subworker.run())
     response = await control_socket.receive_message()
     assert response == {"subworker_id": subworker.subworker_id}
+    message = {"worker": worker_id}
+    await control_socket.send_message(message)
 
 
 @pytest.mark.asyncio
