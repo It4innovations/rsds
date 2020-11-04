@@ -8,7 +8,7 @@ use crate::worker::data::DataObjectRef;
 pub enum TaskState {
     Waiting(u32),
     Running(SubworkerRef),
-    Done,
+    Removed,
 }
 
 pub struct Task {
@@ -55,7 +55,7 @@ impl Task {
 
     pub fn decrease_waiting_count(&mut self) -> bool {
         match &mut self.state {
-            TaskState::Done | TaskState::Waiting(0) | TaskState::Running(_) => {
+            TaskState::Removed | TaskState::Waiting(0) | TaskState::Running(_) => {
                 unreachable!()
             },
             TaskState::Waiting(ref mut x) => {
@@ -70,7 +70,7 @@ impl Task {
             TaskState::Waiting(ref mut x) => {
                 *x += 1;
             }
-            TaskState::Running(_) | TaskState::Done => {
+            TaskState::Running(_) | TaskState::Removed => {
                 unreachable!()
             }
         }
@@ -79,14 +79,6 @@ impl Task {
     pub fn set_running(&mut self, subworker_ref: SubworkerRef) {
         assert!(self.is_ready());
         self.state = TaskState::Running(subworker_ref);
-    }
-
-    pub fn set_done(&mut self, self_ref: &TaskRef) {
-        assert!(self.is_running());
-        self.state = TaskState::Done;
-        for data_ref in std::mem::take(&mut self.deps) {
-            assert!(data_ref.get_mut().consumers.remove(self_ref));
-        }
     }
 }
 

@@ -20,7 +20,7 @@ use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_send;
 use crate::Error;
 use bytes::BytesMut;
-use crate::server::protocol::messages::worker::{ToWorkerMessage, DeleteDataMsg};
+use crate::server::protocol::messages::worker::{ToWorkerMessage, KeysMsg};
 
 pub type CommRef = WrappedRcRefCell<Comm>;
 
@@ -94,9 +94,15 @@ impl Comm {
                 worker.send_message(msg);
             }
             if !w_update.delete_keys.is_empty() {
-                let message = ToWorkerMessage::DeleteData(DeleteDataMsg {
+                let message = ToWorkerMessage::DeleteData(KeysMsg {
                     keys: w_update.delete_keys,
                 });
+                worker.send_message(message);
+            }
+
+            if !w_update.steal_tasks.is_empty() {
+                let keys : Vec<_> = w_update.steal_tasks.iter().map(|t| t.get().key().clone()).collect();
+                let message = ToWorkerMessage::StealTasks(KeysMsg { keys });
                 worker.send_message(message);
             }
 

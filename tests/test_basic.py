@@ -266,15 +266,16 @@ def test_stealing2(rsds_env):
         #time.sleep(1.0)
         slow = w == sw.get_worker_id()
         if slow:
-            time.sleep(0.5)
+            time.sleep(0.8)
         return slow
 
     sleeps = []
-    for i in range(20):
+    for i in range(100):
         sleeps.append(fn(workers[0]))
 
     rs = client.compute(sleeps)
-    print("!!!!!!!!", client.gather(rs))
+    result = client.gather(rs).count(True)
+    assert result < 10
 
 
 

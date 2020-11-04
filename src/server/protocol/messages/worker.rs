@@ -24,7 +24,7 @@ pub struct ComputeTaskMsg {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DeleteDataMsg {
+pub struct KeysMsg {
     pub keys: Vec<DaskKey>,
 }
 
@@ -32,7 +32,8 @@ pub struct DeleteDataMsg {
 #[serde(tag = "op")]
 pub enum ToWorkerMessage {
     ComputeTask(ComputeTaskMsg),
-    DeleteData(DeleteDataMsg),
+    DeleteData(KeysMsg),
+    StealTasks(KeysMsg),
 }
 
 
@@ -60,12 +61,25 @@ pub struct DataDownloadedMsg {
     pub key: DaskKey,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub enum StealResponse {
+    Ok,
+    NotHere,
+    Running,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct StealResponseMsg {
+    pub responses: Vec<(DaskKey, StealResponse)>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 pub enum FromWorkerMessage {
     TaskFinished(TaskFinishedMsg),
     TaskFailed(TaskFailedMsg),
     DataDownloaded(DataDownloadedMsg),
+    StealResponse(StealResponseMsg),
 }
 
 

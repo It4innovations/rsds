@@ -116,8 +116,7 @@ fn subworker_task_finished(state_ref: &WorkerStateRef, subworker_ref: &Subworker
         let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
         assert_eq!(task_ref.get().key, msg.key);
-        task_ref.get_mut().set_done(&task_ref);
-        state.remove_task(task_ref);
+        state.remove_task(task_ref, true);
 
         let message = FromWorkerMessage::TaskFinished(TaskFinishedMsg {
             key: msg.key.clone(),
@@ -147,8 +146,7 @@ fn subworker_task_fail(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef,
         let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
         assert_eq!(task_ref.get().key, msg.key);
-        task_ref.get_mut().set_done(&task_ref);
-        state.remove_task(task_ref);
+        state.remove_task(task_ref, true);
 
         let message = FromWorkerMessage::TaskFailed(TaskFailedMsg {
             key: msg.key.clone(),

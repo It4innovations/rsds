@@ -12,7 +12,7 @@ use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData}
 use crate::server::protocol::key::DaskKey;
 use crate::common::data::SerializationType;
 use crate::worker::reactor::choose_subworker;
-use crate::server::protocol::messages::worker::{FromWorkerMessage, DataDownloadedMsg};
+use crate::server::protocol::messages::worker::{FromWorkerMessage, DataDownloadedMsg, StealResponse};
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -176,16 +176,64 @@ impl WorkerState {
         });
     }
 
-    pub fn remove_task(&mut self, task_ref: TaskRef) {
-        {
-            let task = task_ref.get();
-            match task.state {
-                TaskState::Done => { /* Do nothing */ }
-                TaskState::Waiting(0) => { todo!(); }
-                TaskState::Waiting(_) => { todo!(); }
-                TaskState::Running(_) => { todo!(); }
+    /*
+    pub fn complete_task(&mut self, task_ref: TaskRef) {
+        assert!(task_ref.get().is_running());
+        //self._remove_task(task_ref);
+    }*/
+
+    pub fn remove_task(&mut self, task_ref: TaskRef, just_finished: bool) {
+        let mut task = task_ref.get_mut();
+        match task.state {
+            TaskState::Waiting(x) => {
+                assert!(!just_finished);
+                if x == 0 {
+                    assert!(self.ready_task_queue.remove(&task_ref).is_some());
+                }
             }
-            assert!(self.tasks.remove(&task.key).is_some());
+            TaskState::Running(_) => {
+                assert!(just_finished);
+            }
+            TaskState::Removed => {
+                unreachable!();
+            }
+        }
+        task.state = TaskState::Removed;
+
+        assert!(self.tasks.remove(&task.key).is_some());
+
+        for data_ref in std::mem::take(&mut task.deps) {
+            let mut data = data_ref.get_mut();
+            assert!(data.consumers.remove(&task_ref));
+            if data.consumers.is_empty() {
+                let mut data = data_ref.get_mut();
+                match data.state {
+                    DataObjectState::Remote(_) => {
+                        assert!(!just_finished);
+                        data.state = DataObjectState::Removed;
+                    }
+                    DataObjectState::Local(_) => { /* Do nothing */ }
+                    DataObjectState::Removed => { /* Do nothing */ }
+                };
+            }
+        }
+    }
+
+    pub fn steal_task(&mut self, key: &DaskKey) -> StealResponse {
+        match self.tasks.get(key).cloned() {
+            None => StealResponse::NotHere,
+            Some(task_ref) => {
+                {
+                    let mut task = task_ref.get_mut();
+                    match task.state {
+                        TaskState::Waiting(_) => { /* Continue */ },
+                        TaskState::Running(_) => return StealResponse::Running,
+                        TaskState::Removed => return StealResponse::NotHere,
+                    }
+                }
+                self.remove_task(task_ref, false);
+                StealResponse::Ok
+            }
         }
     }
 

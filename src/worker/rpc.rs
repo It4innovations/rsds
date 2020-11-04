@@ -24,7 +24,7 @@ use crate::server::protocol::dasktransport::{
 };
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::server::protocol::messages::worker::{ToWorkerMessage, FetchRequest, FetchResponse, FetchResponseData};
+use crate::server::protocol::messages::worker::{ToWorkerMessage, FetchRequest, FetchResponse, FetchResponseData, FromWorkerMessage, KeysMsg, StealResponseMsg};
 use crate::worker::reactor::{try_start_tasks};
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{SubworkerRef, start_subworkers};
@@ -191,6 +191,15 @@ async fn worker_message_loop(
                 for key in msg.keys {
                     state.remove_data(&key);
                 }
+            }
+            ToWorkerMessage::StealTasks(msg) => {
+                let responses : Vec<_> = msg.keys.into_iter().map(|key| {
+                    let response = state.steal_task(&key);
+                    log::debug!("Steal attept: {}, response {:?}", key, response);
+                    (key, response)
+                }).collect();
+                let message = FromWorkerMessage::StealResponse(StealResponseMsg { responses });
+                state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
             }
         }
     }
