@@ -206,7 +206,6 @@ impl WorkerState {
             let mut data = data_ref.get_mut();
             assert!(data.consumers.remove(&task_ref));
             if data.consumers.is_empty() {
-                let mut data = data_ref.get_mut();
                 match data.state {
                     DataObjectState::Remote(_) => {
                         assert!(!just_finished);

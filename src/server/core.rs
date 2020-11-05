@@ -335,14 +335,16 @@ impl Core {
         notifications: &mut Notifications,
     ) {
         for (key, response) in msg.responses {
+            log::debug!("Steal response from {}, key={} response={:?}", worker_ref.get().id, key, response);
             let task_ref = self.get_task_by_key(&key);
             match task_ref {
                 Some(task_ref) => {
                     let new_state = {
                         let task = task_ref.get();
                         if task.is_done() {
+                            log::debug!("Received trace response for finished task {}", task.id);
                             trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
-                            return;
+                            continue;
                         }
                         let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
                             assert!(from_w == worker_ref);
@@ -380,7 +382,10 @@ impl Core {
 
                     task_ref.get_mut().state = new_state;
                 }
-                None => trace_worker_steal_response_missing(key.as_str(), worker_ref.get().id),
+                None => {
+                    log::debug!("Received trace resposne for invalid task {}", key);
+                    trace_worker_steal_response_missing(key.as_str(), worker_ref.get().id)
+                },
                 }
             }
 

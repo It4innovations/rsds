@@ -193,9 +193,10 @@ async fn worker_message_loop(
                 }
             }
             ToWorkerMessage::StealTasks(msg) => {
+                log::debug!("Steal {} attempts", msg.keys.len());
                 let responses : Vec<_> = msg.keys.into_iter().map(|key| {
                     let response = state.steal_task(&key);
-                    log::debug!("Steal attept: {}, response {:?}", key, response);
+                    log::debug!("Steal attempt: {}, response {:?}", key, response);
                     (key, response)
                 }).collect();
                 let message = FromWorkerMessage::StealResponse(StealResponseMsg { responses });

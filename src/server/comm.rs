@@ -106,13 +106,13 @@ impl Comm {
                 worker.send_message(message);
             }
 
-            for tref in w_update.steal_tasks {
+            /*for tref in w_update.steal_tasks {
                 let task = tref.get();
                 log::info!("XXX Stealing {}", task.key().as_str());
                 /*mbuilder.add_message(ToWorkerMessage::StealRequest(StealRequestMsg {
                     key: task.key().into(),
                 }));*/
-            }
+            }*/
         }
 
             /* OLD DASK PROTOCOL
