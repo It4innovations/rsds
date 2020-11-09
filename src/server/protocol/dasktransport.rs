@@ -1,21 +1,22 @@
+use std::fs::File;
+use std::hash::Hash;
+use std::io::Write;
+
+use byteorder::{LittleEndian, ReadBytesExt};
+use bytes::buf::BufMutExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures::sink::WithFlatMap;
+use futures::stream::Map;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
-
-use crate::trace::{trace_packet_receive, trace_packet_send};
-use byteorder::{LittleEndian, ReadBytesExt};
-use bytes::buf::BufMutExt;
-use futures::sink::WithFlatMap;
-use futures::stream::Map;
-use std::fs::File;
-use std::hash::Hash;
-use std::io::Write;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder};
 use tokio_util::codec::{FramedRead, FramedWrite};
+
 use crate::common::data::SerializationType;
+use crate::trace::{trace_packet_receive, trace_packet_send};
 
 /// Commonly used types
 pub type Frame = BytesMut;
@@ -516,6 +517,7 @@ fn parse_packet<T: FromDaskTransport>(
 pub fn asyncread_to_stream<R: AsyncRead>(stream: R) -> FramedRead<R, DaskCodec> {
     FramedRead::new(stream, DaskCodec::default())
 }
+
 pub fn dask_parse_stream<T: FromDaskTransport, R: AsyncRead>(
     stream: FramedRead<R, DaskCodec>,
 ) -> Map<FramedRead<R, DaskCodec>, impl Fn(crate::Result<DaskPacket>) -> crate::Result<Batch<T>>> {
@@ -569,27 +571,28 @@ pub fn deserialize_packet<T: FromDaskTransport>(mut packet: DaskPacket) -> crate
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    use std::io::Cursor;
+
+    use bytes::{Buf, BufMut, BytesMut};
+    use futures::SinkExt;
+    use maplit::hashmap;
+    use tokio_util::codec::{Decoder, Encoder};
+
+    use crate::common::Map;
     use crate::server::protocol::daskmessages::client::{
         task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
         ToClientMessage, UpdateGraphMsg,
     };
+    use crate::server::protocol::dasktransport::IntoInner;
     use crate::server::protocol::dasktransport::{
         asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
-        DaskPacket, DaskPacketPart, Frame, MessageWrapper, SerializedMemory, SerializedTransport,
+        DaskPacket, DaskPacketPart, Frame, SerializedMemory,
     };
-    use crate::Result;
-    use bytes::{Buf, BufMut, BytesMut};
-    use futures::SinkExt;
-    use maplit::hashmap;
-
-    use crate::common::Map;
-    use crate::server::protocol::dasktransport::IntoInner;
     use crate::server::protocol::key::{to_dask_key, DaskKey};
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-    use std::io::Cursor;
-    use tokio_util::codec::{Decoder, Encoder};
+    use crate::Result;
 
     impl Clone for DaskPacket {
         fn clone(&self) -> Self {
@@ -997,7 +1000,7 @@ pub fn make_dask_payload(serializer: SerializationType, data: BytesMut) -> Seria
             todo!()
             //TODO: Do not use inline but similar thing as pickle
             //SerializedMemory::Inline(rmpv::Value::Binary(data))
-        },
+        }
         SerializationType::Pickle => make_dask_pickle_payload(data),
     }
 }
@@ -1009,8 +1012,11 @@ pub fn make_dask_pickle_payload(data: BytesMut) -> SerializedMemory {
         header: rmpv::Value::Map(vec![
             ("serializer".into(), "pickle".into()),
             ("count".into(), 1.into()),
-            ("lengths".into(), vec![rmpv::Value::Integer(size.into())].into()),
+            (
+                "lengths".into(),
+                vec![rmpv::Value::Integer(size.into())].into(),
+            ),
             ("deserialize".into(), false.into()),
-        ])
+        ]),
     }
 }

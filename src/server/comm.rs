@@ -1,3 +1,4 @@
+use bytes::BytesMut;
 use futures::StreamExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -10,18 +11,17 @@ use crate::server::notifications::{ClientNotification, WorkerNotification};
 use crate::server::protocol::daskmessages::client::{
     KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
 };
-/*use crate::server::protocol::daskmessages::worker::{
-    DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
-};*/
-use crate::server::protocol::dasktransport::{DaskPacket, make_dask_pickle_payload};
 use crate::server::protocol::dasktransport::MessageBuilder;
+use crate::server::protocol::dasktransport::{make_dask_pickle_payload, DaskPacket};
+use crate::server::protocol::messages::worker::{KeysMsg, ToWorkerMessage};
 use crate::server::task::TaskRuntimeState;
 use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_send;
 use crate::Error;
-use bytes::BytesMut;
-use crate::server::protocol::messages::worker::{ToWorkerMessage, KeysMsg};
 
+/*use crate::server::protocol::daskmessages::worker::{
+    DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
+};*/
 pub type CommRef = WrappedRcRefCell<Comm>;
 
 pub struct Comm {
@@ -51,11 +51,16 @@ impl Comm {
             for task_ref in c_update.error_tasks {
                 let task = task_ref.get();
                 if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.exception[..])));
-                    let traceback = mbuilder.take_serialized(make_dask_pickle_payload(BytesMut::from(&error_info.traceback[..])));
+                    let exception = mbuilder.take_serialized(make_dask_pickle_payload(
+                        BytesMut::from(&error_info.exception[..]),
+                    ));
+                    let traceback = mbuilder.take_serialized(make_dask_pickle_payload(
+                        BytesMut::from(&error_info.traceback[..]),
+                    ));
                     mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
                         key: task.key_ref().into(),
-                        exception, traceback,
+                        exception,
+                        traceback,
                     }));
                 } else {
                     panic!("Task is not in error state");
@@ -101,7 +106,11 @@ impl Comm {
             }
 
             if !w_update.steal_tasks.is_empty() {
-                let keys : Vec<_> = w_update.steal_tasks.iter().map(|t| t.get().key().clone()).collect();
+                let keys: Vec<_> = w_update
+                    .steal_tasks
+                    .iter()
+                    .map(|t| t.get().key().clone())
+                    .collect();
                 let message = ToWorkerMessage::StealTasks(KeysMsg { keys });
                 worker.send_message(message);
             }
@@ -115,7 +124,7 @@ impl Comm {
             }*/
         }
 
-            /* OLD DASK PROTOCOL
+        /* OLD DASK PROTOCOL
                 match &self.worker_type {
                 WorkerType::Dask => {
                     let mut mbuilder = MessageBuilder::default();
@@ -187,9 +196,7 @@ impl Comm {
 
 impl CommRef {
     pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        Self::wrap(Comm {
-            sender,
-        })
+        Self::wrap(Comm { sender })
     }
 }
 

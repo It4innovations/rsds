@@ -4,21 +4,16 @@ use crate::common::{IdCounter, Identifiable, KeyIdMap, Map, Set, WrappedRcRefCel
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
 use crate::server::client::{Client, ClientId};
 use crate::server::notifications::Notifications;
-/*use crate::server::protocol::daskmessages::worker::{
-    StealResponseMsg, TaskFinishedMsg, WorkerState,
-};*/
-
 use crate::server::protocol::key::{
     dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef,
 };
-
-use crate::server::task::{ErrorInfo, Task, TaskRef, TaskRuntimeState, DataInfo};
+use crate::server::protocol::messages::worker::{StealResponse, StealResponseMsg, TaskFinishedMsg};
+use crate::server::task::{DataInfo, ErrorInfo, Task, TaskRef, TaskRuntimeState};
 use crate::server::worker::WorkerRef;
 use crate::trace::{
     trace_task_assign, trace_task_finish, trace_task_place, trace_task_remove, trace_worker_new,
     trace_worker_steal, trace_worker_steal_response, trace_worker_steal_response_missing,
 };
-use crate::server::protocol::messages::worker::{TaskFinishedMsg, StealResponseMsg, StealResponse};
 
 impl Identifiable for Client {
     type Id = ClientId;
@@ -335,7 +330,12 @@ impl Core {
         notifications: &mut Notifications,
     ) {
         for (key, response) in msg.responses {
-            log::debug!("Steal response from {}, key={} response={:?}", worker_ref.get().id, key, response);
+            log::debug!(
+                "Steal response from {}, key={} response={:?}",
+                worker_ref.get().id,
+                key,
+                response
+            );
             let task_ref = self.get_task_by_key(&key);
             match task_ref {
                 Some(task_ref) => {
@@ -355,7 +355,7 @@ impl Core {
 
                         let success = match response {
                             StealResponse::Ok => true,
-                            StealResponse::NotHere | StealResponse::Running => false
+                            StealResponse::NotHere | StealResponse::Running => false,
                         };
 
                         {
@@ -367,7 +367,12 @@ impl Core {
                                 to_worker.id,
                                 if success { "success" } else { "fail" },
                             );
-                            notifications.task_steal_response(&from_worker, &to_worker, &task, success);
+                            notifications.task_steal_response(
+                                &from_worker,
+                                &to_worker,
+                                &task,
+                                success,
+                            );
                         }
 
                         if success {
@@ -385,9 +390,9 @@ impl Core {
                 None => {
                     log::debug!("Received trace resposne for invalid task {}", key);
                     trace_worker_steal_response_missing(key.as_str(), worker_ref.get().id)
-                },
                 }
             }
+        }
 
         /*OLD DASK PROTOCOL
 
@@ -505,7 +510,12 @@ impl Core {
             {
                 let mut task = task_ref.get_mut();
                 let worker_ref = worker.get();
-                trace_task_finish(task.id, worker_ref.id, msg.nbytes, (0, 0) /* TODO: gather real computation */);
+                trace_task_finish(
+                    task.id,
+                    worker_ref.id,
+                    msg.nbytes,
+                    (0, 0), /* TODO: gather real computation */
+                );
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
                 assert!(task.is_assigned_or_stealed_from(worker));
                 let mut set = Set::new();
@@ -593,18 +603,17 @@ fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::Core;
     use crate::common::Set;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
     use crate::server::client::Client;
     use crate::server::notifications::{ClientNotification, Notifications};
     use crate::server::protocol::key::DaskKey;
-    use crate::server::task::{ErrorInfo, TaskRuntimeState};
-    use crate::test_util::{
-        client, task_add, task_add_deps, task_assign, worker,
-    };
     use crate::server::protocol::messages::worker::TaskFinishedMsg;
+    use crate::server::task::{ErrorInfo, TaskRuntimeState};
+    use crate::test_util::{client, task_add, task_add_deps, task_assign, worker};
+
+    use super::Core;
 
     #[test]
     fn add_remove() {
@@ -638,14 +647,7 @@ mod tests {
 
         let mut notifications = Notifications::default();
         let nbytes = 16;
-        core.on_task_finished(
-            &w,
-            TaskFinishedMsg {
-                key,
-                nbytes,
-            },
-            &mut notifications,
-        );
+        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
         assert_eq!(
             notifications.scheduler_messages[0],
             ToSchedulerMessage::TaskUpdate(TaskUpdate {
@@ -665,18 +667,11 @@ mod tests {
         task_assign(&mut core, &t, &w);
 
         let key: DaskKey = t.get().key_ref().into();
-        let r#type = vec![1, 2, 3];
+        let _type = vec![1, 2, 3];
         let nbytes = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(
-            &w,
-            TaskFinishedMsg {
-                key,
-                nbytes,
-            },
-            &mut notifications,
-        );
+        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Released => {}
             _ => panic!("Wrong task state"),
@@ -692,18 +687,11 @@ mod tests {
         task_assign(&mut core, &t, &w);
 
         let key: DaskKey = t.get().key_ref().into();
-        let r#type = vec![1, 2, 3];
+        let _type = vec![1, 2, 3];
         let nbytes = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(
-            &w,
-            TaskFinishedMsg {
-                key,
-                nbytes,
-            },
-            &mut notifications,
-        );
+        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Finished(data, workers) => {
                 assert_eq!(data.size, nbytes);
@@ -732,14 +720,7 @@ mod tests {
             .collect();
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(
-            &w,
-            TaskFinishedMsg {
-                key,
-                nbytes: 0,
-            },
-            &mut notifications,
-        );
+        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes: 0 }, &mut notifications);
         for client in clients {
             assert_eq!(
                 notifications.clients[&client.id()],
@@ -762,10 +743,7 @@ mod tests {
         let key: DaskKey = t.get().key_ref().into();
         core.on_task_finished(
             &w,
-            TaskFinishedMsg {
-                key,
-                nbytes: 16,
-            },
+            TaskFinishedMsg { key, nbytes: 16 },
             &mut &mut Default::default(),
         );
     }

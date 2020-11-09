@@ -94,11 +94,12 @@ fn assign<M: NodeMetrics>(
 
 #[cfg(test)]
 mod tests {
+    use hashbrown::HashMap;
+
     use crate::scheduler::test_util::{connect_workers, finish_task, new_task};
     use crate::scheduler::{
         BLevelMetric, LevelScheduler, Scheduler, TLevelMetric, TaskAssignment, TaskId,
     };
-    use hashbrown::HashMap;
 
     #[test]
     fn schedule_b_level() {

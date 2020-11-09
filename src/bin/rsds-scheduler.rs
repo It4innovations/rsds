@@ -70,17 +70,6 @@ impl FromStr for SchedulerType {
     }
 }
 
-/*impl FromStr for WorkerTypeCmd {
-    type Err = String;
-    fn from_str(worker: &str) -> Result<WorkerTypeCmd, Self::Err> {
-        match worker {
-            "rsds" => Ok(WorkerTypeCmd::Rsds),
-            "dask" => Ok(WorkerTypeCmd::Dask),
-            _ => Err(format!("Worker type '{}' does not exist", worker)),
-        }
-    }
-}*/
-
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rsds", about = "Rust Dask Scheduler")]
 struct Opt {

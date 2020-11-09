@@ -1,5 +1,3 @@
-
-
 def substitude_keys(obj, data):
     if isinstance(obj, str):
         try:

@@ -1,17 +1,18 @@
+use bytes::{Bytes, BytesMut};
+use futures::FutureExt;
+use futures::{Sink, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
+
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::server::worker::{WorkerRef};
-use bytes::{Bytes, BytesMut};
-use futures::FutureExt;
-use futures::{Sink, SinkExt, Stream, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
 use crate::server::protocol::messages::worker::FromWorkerMessage;
 use crate::server::task::ErrorInfo;
+use crate::server::worker::WorkerRef;
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -84,10 +85,10 @@ pub async fn worker_rpc_loop<
 
     let snd_loop = forward_queue_to_sink(
         queue_receiver,
-        sender/*.with(|msg| match msg {
-            WorkerMessage::Rsds(data) => futures::future::ok::<_, crate::Error>(data),
-            _ => panic!("Received Dask worker packet instead of RSDS worker packet"),
-        })*/,
+        sender, /*.with(|msg| match msg {
+                    WorkerMessage::Rsds(data) => futures::future::ok::<_, crate::Error>(data),
+                    _ => panic!("Received Dask worker packet instead of RSDS worker packet"),
+                })*/
     );
 
     let core_ref2 = core_ref.clone();
@@ -103,13 +104,19 @@ pub async fn worker_rpc_loop<
                     core.on_task_finished(&worker_ref, msg, &mut notifications);
                 }
                 FromWorkerMessage::TaskFailed(msg) => {
-                    core.on_task_error(&worker_ref, msg.key, ErrorInfo {
-                        exception: msg.exception, traceback: msg.traceback,
-                    }, &mut notifications);
+                    core.on_task_error(
+                        &worker_ref,
+                        msg.key,
+                        ErrorInfo {
+                            exception: msg.exception,
+                            traceback: msg.traceback,
+                        },
+                        &mut notifications,
+                    );
                 }
                 FromWorkerMessage::DataDownloaded(msg) => {
                     core.on_tasks_transferred(&worker_ref, &msg.key, &mut notifications)
-                },
+                }
                 FromWorkerMessage::StealResponse(msg) => {
                     core.on_steal_response(&worker_ref, msg, &mut notifications)
                 }

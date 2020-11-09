@@ -1,5 +1,6 @@
-use crate::trace::setup_file_trace;
 use tokio::sync::mpsc::UnboundedReceiver;
+
+use crate::trace::setup_file_trace;
 
 #[macro_export]
 macro_rules! from_dask_transport {

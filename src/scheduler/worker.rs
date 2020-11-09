@@ -1,6 +1,7 @@
+use std::collections::HashSet;
+
 use crate::scheduler::protocol::{WorkerId, WorkerInfo};
 use crate::scheduler::task::TaskRef;
-use std::collections::HashSet;
 
 pub type HostnameId = u64;
 

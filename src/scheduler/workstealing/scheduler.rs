@@ -1,18 +1,18 @@
+use rand::prelude::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+
 use crate::common::{Map, Set};
 use crate::scheduler::graph::{assign_task_to_worker, create_task_assignment, SchedulerGraph};
+use crate::scheduler::metrics::BLevelMetric;
+use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::protocol::{
     SchedulerRegistration, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
-
-use crate::scheduler::metrics::BLevelMetric;
-use crate::scheduler::metrics::NodeMetrics;
 use crate::scheduler::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::utils::task_transfer_cost;
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
-use rand::prelude::SmallRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
 
 type DirtyTaskSet = Set<TaskRef>;
 
@@ -312,10 +312,11 @@ fn choose_worker_for_task(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::common::{Map, Set};
     use crate::scheduler::test_util::{assigned_worker, connect_workers, finish_task, new_task};
     use crate::scheduler::{TaskId, WorkerId};
+
+    use super::*;
 
     fn init() {
         let _ = env_logger::try_init().map_err(|_| {

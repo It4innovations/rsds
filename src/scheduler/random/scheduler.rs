@@ -1,7 +1,8 @@
-use crate::scheduler::protocol::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
-use crate::scheduler::{Scheduler, ToSchedulerMessage};
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
+
+use crate::scheduler::protocol::{SchedulerRegistration, TaskAssignment, TaskId, WorkerId};
+use crate::scheduler::{Scheduler, ToSchedulerMessage};
 
 #[derive(Default, Debug)]
 pub struct RandomScheduler {

@@ -2,8 +2,8 @@ use crate::common::WrappedRcRefCell;
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::worker::ComputeTaskMsg;
 use crate::server::protocol::PriorityValue;
-use crate::worker::subworker::SubworkerRef;
 use crate::worker::data::DataObjectRef;
+use crate::worker::subworker::SubworkerRef;
 
 pub enum TaskState {
     Waiting(u32),
@@ -55,9 +55,7 @@ impl Task {
 
     pub fn decrease_waiting_count(&mut self) -> bool {
         match &mut self.state {
-            TaskState::Removed | TaskState::Waiting(0) | TaskState::Running(_) => {
-                unreachable!()
-            },
+            TaskState::Removed | TaskState::Waiting(0) | TaskState::Running(_) => unreachable!(),
             TaskState::Waiting(ref mut x) => {
                 *x -= 1;
                 *x == 0
@@ -70,9 +68,7 @@ impl Task {
             TaskState::Waiting(ref mut x) => {
                 *x += 1;
             }
-            TaskState::Running(_) | TaskState::Removed => {
-                unreachable!()
-            }
+            TaskState::Running(_) | TaskState::Removed => unreachable!(),
         }
     }
 
@@ -93,7 +89,7 @@ impl TaskRef {
             kwargs: message.kwargs,
             priority: (message.user_priority, message.scheduler_priority),
             state: TaskState::Waiting(0),
-            deps: Default::default()
+            deps: Default::default(),
         });
         task_ref
     }

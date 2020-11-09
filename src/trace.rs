@@ -1,13 +1,15 @@
-use crate::scheduler::TaskId;
-use crate::server::worker::WorkerId;
 use std::fmt;
 use std::fmt::{Arguments, Write};
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::FmtSubscriber;
+
+use crate::scheduler::TaskId;
+use crate::server::worker::WorkerId;
 
 pub struct ScopedTimer<'a> {
     process: &'a str,

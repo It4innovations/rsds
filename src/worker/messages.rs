@@ -1,13 +1,14 @@
-use super::subworker::SubworkerId;
-use crate::server::protocol::key::DaskKey;
 use serde::{Deserialize, Serialize};
+
 use crate::common::data::SerializationType;
+use crate::server::protocol::key::DaskKey;
+
+use super::subworker::SubworkerId;
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct RegisterSubworkerMessage {
     pub(crate) subworker_id: SubworkerId,
 }
-
 
 #[derive(Serialize, Debug)]
 pub(crate) struct RegisterSubworkerResponse {
@@ -40,7 +41,6 @@ pub enum ToSubworkerMessage<'a> {
     ComputeTask(ComputeTaskMsg<'a>),
 }
 
-
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub key: DaskKey,
@@ -55,7 +55,7 @@ pub struct TaskFailedMsg {
     #[serde(with = "serde_bytes")]
     pub exception: Vec<u8>,
     #[serde(with = "serde_bytes")]
-    pub traceback: Vec<u8>
+    pub traceback: Vec<u8>,
 }
 
 #[derive(Deserialize, Debug)]

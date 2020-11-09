@@ -1,10 +1,10 @@
-use crate::common::{WrappedRcRefCell};
-use crate::server::protocol::key::DaskKey;
-use std::rc::Rc;
-use crate::common::data::SerializationType;
 use bytes::Bytes;
-use crate::worker::task::TaskRef;
 use hashbrown::HashSet;
+
+use crate::common::data::SerializationType;
+use crate::common::WrappedRcRefCell;
+use crate::server::protocol::key::DaskKey;
+use crate::worker::task::TaskRef;
 
 #[derive(Debug)]
 pub struct LocalData {
@@ -24,7 +24,6 @@ pub enum DataObjectState {
     Removed,
 }
 
-
 pub struct DataObject {
     pub key: DaskKey,
     pub state: DataObjectState,
@@ -36,7 +35,7 @@ impl DataObject {
     pub fn local_data(&self) -> Option<&LocalData> {
         match &self.state {
             DataObjectState::Local(x) => Some(x),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -46,7 +45,10 @@ pub type DataObjectRef = WrappedRcRefCell<DataObject>;
 impl DataObjectRef {
     pub fn new(key: DaskKey, size: u64, state: DataObjectState) -> Self {
         WrappedRcRefCell::wrap(DataObject {
-            key, size, state, consumers: Default::default(),
+            key,
+            size,
+            state,
+            consumers: Default::default(),
         })
     }
 }

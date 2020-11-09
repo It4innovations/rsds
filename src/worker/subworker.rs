@@ -4,25 +4,28 @@ use std::process::Stdio;
 
 use bytes::Bytes;
 use futures::stream::{SplitSink, SplitStream};
-use futures::{Future, FutureExt, StreamExt, SinkExt};
+use futures::{Future, FutureExt, SinkExt, StreamExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::common::transport::make_protocol_builder;
-use crate::common::{WrappedRcRefCell};
-use crate::worker::messages::{ComputeTaskMsg, ToSubworkerMessage, FromSubworkerMessage, Upload, RegisterSubworkerResponse};
-use crate::worker::task::{Task, TaskRef};
+use crate::common::WrappedRcRefCell;
+
+use crate::server::protocol::messages::worker::{
+    FromWorkerMessage, TaskFailedMsg, TaskFinishedMsg,
+};
+use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
 use crate::worker::messages;
+use crate::worker::messages::{
+    ComputeTaskMsg, FromSubworkerMessage, RegisterSubworkerResponse, ToSubworkerMessage, Upload,
+};
+use crate::worker::reactor::try_start_tasks;
+use crate::worker::state::WorkerStateRef;
+use crate::worker::task::{Task, TaskRef};
 
 use super::messages::RegisterSubworkerMessage;
-use crate::worker::state::WorkerStateRef;
-use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
-use crate::server::protocol::messages::worker::FromWorkerMessage::TaskFinished;
-use crate::server::protocol::messages::worker::{FromWorkerMessage, TaskFinishedMsg, TaskFailedMsg};
-use std::rc::Rc;
-use crate::worker::reactor::try_start_tasks;
 
 pub(crate) type SubworkerId = u32;
 
@@ -36,13 +39,24 @@ pub type SubworkerRef = WrappedRcRefCell<Subworker>;
 
 impl Subworker {
     pub fn start_task(&self, task: &Task) {
-        let uploads : Vec<Upload> = task.deps.iter().map(|data_ref| {
-            let data_obj = data_ref.get();
-            Upload { key: data_obj.key.clone(),
-                     serializer: data_obj.local_data().unwrap().serializer.clone() }
-        }).collect();
+        let uploads: Vec<Upload> = task
+            .deps
+            .iter()
+            .map(|data_ref| {
+                let data_obj = data_ref.get();
+                Upload {
+                    key: data_obj.key.clone(),
+                    serializer: data_obj.local_data().unwrap().serializer.clone(),
+                }
+            })
+            .collect();
 
-        log::debug!("Starting task {} in subworker {} ({} uploads)", task.key, self.id, uploads.len());
+        log::debug!(
+            "Starting task {} in subworker {} ({} uploads)",
+            task.key,
+            self.id,
+            uploads.len()
+        );
         // Send message to subworker
         let message = ToSubworkerMessage::ComputeTask(ComputeTaskMsg {
             key: &task.key,
@@ -56,7 +70,9 @@ impl Subworker {
 
         for data_ref in &task.deps {
             let data_obj = data_ref.get();
-            self.sender.send(data_obj.local_data().unwrap().bytes.clone()).unwrap();
+            self.sender
+                .send(data_obj.local_data().unwrap().bytes.clone())
+                .unwrap();
         }
     }
 }
@@ -95,20 +111,26 @@ async fn subworker_handshake(
         if register_message.subworker_id != subworker_id {
             panic!("Subworker registered with an invalid id");
         }
-        
+
         let message = RegisterSubworkerResponse {
             worker: state_ref.get().listen_address.clone().into(),
         };
-        framed.send(rmp_serde::to_vec_named(&message).unwrap().into()).await.unwrap();
-        
+        framed
+            .send(rmp_serde::to_vec_named(&message).unwrap().into())
+            .await
+            .unwrap();
+
         Ok(framed.split())
     } else {
         panic!("Listening on subworker socket failed");
     }
 }
 
-
-fn subworker_task_finished(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef, msg: messages::TaskFinishedMsg) {
+fn subworker_task_finished(
+    state_ref: &WorkerStateRef,
+    subworker_ref: &SubworkerRef,
+    msg: messages::TaskFinishedMsg,
+) {
     let mut state = state_ref.get_mut();
     {
         let mut sw = subworker_ref.get_mut();
@@ -124,21 +146,24 @@ fn subworker_task_finished(state_ref: &WorkerStateRef, subworker_ref: &Subworker
         });
         state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
 
-
         let data_ref = DataObjectRef::new(
             msg.key,
             msg.result.len() as u64,
             DataObjectState::Local(LocalData {
                 serializer: msg.serializer,
                 bytes: msg.result.into(),
-            }));
+            }),
+        );
         state.add_data_object(data_ref);
     }
     try_start_tasks(&mut state);
 }
 
-
-fn subworker_task_fail(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef, msg: messages::TaskFailedMsg) {
+fn subworker_task_fail(
+    state_ref: &WorkerStateRef,
+    subworker_ref: &SubworkerRef,
+    msg: messages::TaskFailedMsg,
+) {
     let mut state = state_ref.get_mut();
     {
         let mut sw = subworker_ref.get_mut();
@@ -157,7 +182,6 @@ fn subworker_task_fail(state_ref: &WorkerStateRef, subworker_ref: &SubworkerRef,
     }
     try_start_tasks(&mut state);
 }
-
 
 async fn run_subworker_message_loop(
     state_ref: WorkerStateRef,
@@ -228,7 +252,7 @@ async fn run_subworker(
         result = process_future => {
             panic!("Subworker {} failed: {}, see {}", subworker_id, result?, log_path.display());
         },
-        result = crate::common::rpc::forward_queue_to_sink(queue_receiver, writer) => {
+        _result = crate::common::rpc::forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Sending a message to subworker failed");
         }
         r = run_subworker_message_loop(state_ref, subworker, reader) => {
@@ -240,7 +264,7 @@ async fn run_subworker(
         }
     };
 
-    Ok(())
+    //Ok(())
 }
 
 pub async fn start_subworkers(

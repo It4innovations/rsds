@@ -1,3 +1,5 @@
+pub use util::{setup_interrupt, setup_logging};
+
 #[macro_use]
 pub mod trace;
 #[macro_use]
@@ -8,8 +10,6 @@ mod error;
 pub mod scheduler;
 pub mod server;
 pub mod worker;
-
-pub use util::{setup_interrupt, setup_logging};
 
 #[cfg(test)]
 mod test_util;

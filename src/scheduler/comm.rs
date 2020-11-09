@@ -1,10 +1,11 @@
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use std::time::{Duration, Instant};
 
-use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 use futures::future::Either;
 use futures::{future, StreamExt};
-use std::time::{Duration, Instant};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::time::delay_for;
+
+use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSchedulerMessage};
 
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {
@@ -121,17 +122,19 @@ pub async fn drive_scheduler<S: Scheduler>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::vec_deque::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+    use tokio::task::JoinHandle;
+    use tokio::time::delay_for;
+
     use crate::scheduler::protocol::SchedulerRegistration;
     use crate::scheduler::{
         drive_scheduler, prepare_scheduler_comm, FromSchedulerMessage, Scheduler, TaskAssignment,
         ToSchedulerMessage,
     };
-    use std::collections::vec_deque::VecDeque;
-    use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
-    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-    use tokio::task::JoinHandle;
-    use tokio::time::delay_for;
 
     #[tokio::test]
     async fn dont_schedule_without_messages() {

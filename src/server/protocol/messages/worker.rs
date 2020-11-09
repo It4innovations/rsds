@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
+
+use crate::common::data::SerializationType;
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::PriorityValue;
-use serde::{Deserialize, Serialize};
-use crate::common::data::SerializationType;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ComputeTaskMsg {
@@ -36,7 +37,6 @@ pub enum ToWorkerMessage {
     StealTasks(KeysMsg),
 }
 
-
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFinishedMsg {
     pub key: DaskKey,
@@ -44,7 +44,6 @@ pub struct TaskFinishedMsg {
     /*#[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,*/
 }
-
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFailedMsg {
@@ -54,7 +53,6 @@ pub struct TaskFailedMsg {
     #[serde(with = "serde_bytes")]
     pub traceback: Vec<u8>,
 }
-
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataDownloadedMsg {
@@ -82,12 +80,10 @@ pub enum FromWorkerMessage {
     StealResponse(StealResponseMsg),
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FetchRequest {
     pub key: DaskKey,
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FetchResponseData {
@@ -100,5 +96,3 @@ pub enum FetchResponse {
     Data(FetchResponseData),
     NotAvailable,
 }
-
-

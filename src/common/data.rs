@@ -9,9 +9,9 @@ pub enum SerializationType {
 }
 
 /*
-    Default serialization of a simple enum is
-    done in a way that cannot be deserialized in python.
- */
+   Default serialization of a simple enum is
+   done in a way that cannot be deserialized in python.
+*/
 impl Serialize for SerializationType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

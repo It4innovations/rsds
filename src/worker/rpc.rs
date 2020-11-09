@@ -1,43 +1,39 @@
 use std::cmp::Reverse;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::time::Duration;
 
 use bytes::buf::BufMutExt;
 use bytes::{Bytes, BytesMut};
-use futures::Future;
 use futures::{SinkExt, Stream, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite};
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+
 use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::LocalSet;
 use tokio::time::delay_for;
-use std::path::Path;
 
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
-use crate::common::Map;
+
 //use crate::server::protocol::daskmessages::worker::{GetDataResponse, ToWorkerGenericMessage};
-use crate::server::protocol::dasktransport::SerializedMemory::Indexed;
-use crate::server::protocol::dasktransport::{
-    asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, deserialize_packet,
-    serialize_single_packet, Batch,
-};
+
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
-use crate::server::protocol::messages::worker::{ToWorkerMessage, FetchRequest, FetchResponse, FetchResponseData, FromWorkerMessage, KeysMsg, StealResponseMsg};
-use crate::worker::reactor::{try_start_tasks};
-use crate::worker::state::WorkerStateRef;
-use crate::worker::subworker::{SubworkerRef, start_subworkers};
-use crate::worker::task::TaskRef;
-use crate::worker::data::{DataObjectRef, DataObjectState, RemoteData};
-use crate::server::protocol::PriorityValue;
+use crate::server::protocol::messages::worker::{
+    FetchRequest, FetchResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,
+    ToWorkerMessage,
+};
 use crate::server::protocol::Priority;
-use tracing_subscriber::registry::Data;
-use rand::rngs::SmallRng;
-use rand::SeedableRng;
-use rand::seq::SliceRandom;
+use crate::server::protocol::PriorityValue;
 use crate::server::reactor::fetch_data;
+use crate::worker::data::{DataObjectRef, DataObjectState};
 
+use crate::worker::state::WorkerStateRef;
+use crate::worker::subworker::start_subworkers;
+use crate::worker::task::TaskRef;
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -79,15 +75,12 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
     ))
 }
 
-pub async fn run_worker(
-    scheduler_address: &str,
-    ncpus: u32,
-    work_dir: &Path
-) -> crate::Result<()> {
+pub async fn run_worker(scheduler_address: &str, ncpus: u32, work_dir: &Path) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
-    let (download_sender, download_reader) = tokio::sync::mpsc::unbounded_channel::<(DataObjectRef, (PriorityValue, PriorityValue))>();
+    let (download_sender, download_reader) =
+        tokio::sync::mpsc::unbounded_channel::<(DataObjectRef, (PriorityValue, PriorityValue))>();
 
     let taskset = LocalSet::default();
     {
@@ -116,7 +109,7 @@ pub async fn run_worker(
         _ = forward_queue_to_sink(queue_receiver, writer) => {
             panic!("Cannot send a message to server");
         }
-        result = taskset.run_until(connection_initiator(listener, state.clone())) => {
+        _result = taskset.run_until(connection_initiator(listener, state.clone())) => {
             panic!("Taskset failed");
         }
         idx = sw_processes => {
@@ -126,37 +119,40 @@ pub async fn run_worker(
             unreachable!()
         }
     }
-    Ok(())
+    //Ok(())
 }
 
-
-async fn worker_data_downloader(state_ref: WorkerStateRef, mut stream: tokio::sync::mpsc::UnboundedReceiver<(DataObjectRef, Priority)>) {
+async fn worker_data_downloader(
+    state_ref: WorkerStateRef,
+    mut stream: tokio::sync::mpsc::UnboundedReceiver<(DataObjectRef, Priority)>,
+) {
     // TODO: Limit downloads, more parallel downloads, respect priorities
     // TODO: Reuse connections
-    let queue : priority_queue::PriorityQueue<DataObjectRef, Reverse<Priority>> = Default::default();
+    let _queue: priority_queue::PriorityQueue<DataObjectRef, Reverse<Priority>> =
+        Default::default();
     let mut random = SmallRng::from_entropy();
     loop {
-        let (data_ref, priority) = stream.next().await.unwrap();
+        let (data_ref, _priority) = stream.next().await.unwrap();
 
         let (worker_address, key) = {
             let data_obj = data_ref.get();
             let workers = match &data_obj.state {
-                DataObjectState::Remote(rs) => {
-                    &rs.workers
-                },
+                DataObjectState::Remote(rs) => &rs.workers,
                 DataObjectState::Local(_) | DataObjectState::Removed => {
                     /* It is already finished */
                     continue;
-                },
+                }
             };
             let worker_address = workers.choose(&mut random).cloned().unwrap();
             (worker_address, data_obj.key.clone())
         };
 
-        let mut connection = connect_to_worker(worker_address).await.unwrap();
-        let mut stream  = make_protocol_builder().new_framed(connection);
+        let connection = connect_to_worker(worker_address).await.unwrap();
+        let mut stream = make_protocol_builder().new_framed(connection);
         let (data, serializer) = fetch_data(&mut stream, key).await.unwrap();
-        state_ref.get_mut().on_data_downloaded(data_ref, data, serializer);
+        state_ref
+            .get_mut()
+            .on_data_downloaded(data_ref, data, serializer);
     }
 }
 
@@ -194,11 +190,15 @@ async fn worker_message_loop(
             }
             ToWorkerMessage::StealTasks(msg) => {
                 log::debug!("Steal {} attempts", msg.keys.len());
-                let responses : Vec<_> = msg.keys.into_iter().map(|key| {
-                    let response = state.steal_task(&key);
-                    log::debug!("Steal attempt: {}, response {:?}", key, response);
-                    (key, response)
-                }).collect();
+                let responses: Vec<_> = msg
+                    .keys
+                    .into_iter()
+                    .map(|key| {
+                        let response = state.steal_task(&key);
+                        log::debug!("Steal attempt: {}, response {:?}", key, response);
+                        (key, response)
+                    })
+                    .collect();
                 let message = FromWorkerMessage::StealResponse(StealResponseMsg { responses });
                 state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
             }
@@ -235,7 +235,7 @@ async fn connection_rpc_loop(
     loop {
         let data = match stream.next().await {
             None => return Ok(()),
-            Some(data) => data?
+            Some(data) => data?,
         };
         let request: FetchRequest = rmp_serde::from_slice(&data)?;
         log::debug!("Object {} request from {} started", request.key, address);
@@ -248,13 +248,13 @@ async fn connection_rpc_loop(
                     stream.send(data.into()).await?;
                     continue;
                 }
-                Some(x) => x.get()
+                Some(x) => x.get(),
             };
             let data = data_obj.local_data().unwrap();
             (data.bytes.clone(), data.serializer.clone())
         };
         let response = FetchResponse::Data(FetchResponseData {
-                serializer: serializer,
+            serializer: serializer,
         });
         let data = rmp_serde::to_vec_named(&response).unwrap();
         stream.send(data.into()).await?;

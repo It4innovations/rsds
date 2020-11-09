@@ -8,7 +8,12 @@ import cloudpickle
 import logging
 
 from .conn import SocketWrapper
-from .serialize import serialize, serialize_by_pickle, deserialize_by_pickle, deserialize
+from .serialize import (
+    serialize,
+    serialize_by_pickle,
+    deserialize_by_pickle,
+    deserialize,
+)
 from .utils import substitude_keys
 
 logger = logging.getLogger(__name__)
@@ -33,9 +38,11 @@ class Subworker:
                 raise Exception("Unknown command: {}".format(op))
 
     async def handshake(self):
-        await self.socket.send_message({
-            "subworker_id": self.subworker_id,
-        })
+        await self.socket.send_message(
+            {
+                "subworker_id": self.subworker_id,
+            }
+        )
         response = await self.socket.receive_message()
         logger.info("%s", response)
         self.worker_id = response["worker"]
@@ -60,26 +67,34 @@ class Subworker:
             upload_data = ()
 
         async def inner():
-            state, result = await self.loop.run_in_executor(self.executor, run_task, message, upload_data)
+            state, result = await self.loop.run_in_executor(
+                self.executor, run_task, message, upload_data
+            )
             if state == "ok":
                 logger.info("Task %s successfully finished", key)
                 serializer, data = serialize(result)
-                await self.socket.send_message({
-                    "op": "TaskFinished",
-                    "serializer": serializer,
-                    "key": key,
-                    "result": data
-                })
+                await self.socket.send_message(
+                    {
+                        "op": "TaskFinished",
+                        "serializer": serializer,
+                        "key": key,
+                        "result": data,
+                    }
+                )
             else:
                 exception, traceback = result
                 logger.error("Task %s failed: %s", key, result)
-                await self.socket.send_message({
-                    "op": "TaskFailed",
-                    "key": key,
-                    "exception": serialize_by_pickle(exception),
-                    "traceback": serialize_by_pickle(traceback),
-                })
+                await self.socket.send_message(
+                    {
+                        "op": "TaskFailed",
+                        "key": key,
+                        "exception": serialize_by_pickle(exception),
+                        "traceback": serialize_by_pickle(traceback),
+                    }
+                )
+
         self.loop.create_task(inner())
+
 
 def _is_dask_composed_task(obj):
     return isinstance(obj, tuple) and obj and callable(obj[0])

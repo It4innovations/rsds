@@ -1,10 +1,17 @@
+use futures::{FutureExt, Sink, SinkExt, StreamExt};
+use smallvec::smallvec;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
+use tokio::stream::Stream;
+
+use crate::common::rpc::forward_queue_to_sink;
 use crate::server::client::Client;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
-use crate::server::notifications::Notifications;
+
 use crate::server::protocol::daskmessages::client::FromClientMessage;
 use crate::server::protocol::daskmessages::generic::{
-    GenericMessage, IdentityResponse, RegisterWorkerMsg, SimpleMessage, WorkerInfo,
+    GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo,
 };
 //use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
 //use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
@@ -18,17 +25,6 @@ use crate::server::reactor::{
     gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
     who_has,
 };
-
-use crate::server::task::ErrorInfo;
-use crate::server::worker::{create_worker};
-
-use crate::common::rpc::forward_queue_to_sink;
-use futures::{FutureExt, Sink, SinkExt, StreamExt};
-use smallvec::smallvec;
-use std::time::SystemTime;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
-use tokio::stream::Stream;
 
 /*
 pub async fn worker_rpc_loop<
@@ -238,7 +234,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 GenericMessage::HeartbeatWorker(_) => {
                     log::debug!("Heartbeat from worker");
                 }
-                GenericMessage::RegisterWorker(msg) => {
+                GenericMessage::RegisterWorker(_msg) => {
                     log::error!("Original dask worker is not supported by this server");
                     /* OLD DASK PROTOCOL
                     log::debug!("Worker registration from {}", address);

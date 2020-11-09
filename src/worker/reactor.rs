@@ -1,8 +1,5 @@
 use crate::worker::state::WorkerState;
 use crate::worker::subworker::SubworkerRef;
-use crate::worker::data::DataObjectRef;
-use bytes::BytesMut;
-use crate::common::data::SerializationType;
 
 pub fn choose_subworker(state: &mut WorkerState) -> SubworkerRef {
     // TODO: Real implementation

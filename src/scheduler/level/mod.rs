@@ -1,3 +1,3 @@
-mod scheduler;
-
 pub use scheduler::LevelScheduler;
+
+mod scheduler;

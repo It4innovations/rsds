@@ -1,10 +1,13 @@
+use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
-use crate::server::protocol::dasktransport::{Frames, FromDaskTransport, SerializedMemory, SerializedTransport, map_from_transport, ToDaskTransport, map_to_transport, MessageBuilder};
+use crate::server::protocol::dasktransport::{
+    map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
+    SerializedMemory, SerializedTransport, ToDaskTransport,
+};
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::PriorityValue;
-use serde::de::Error;
 
 #[cfg_attr(test, derive(Serialize))]
 #[derive(Deserialize, Debug)]
@@ -152,7 +155,6 @@ pub enum ToClientMessage {
     TaskErred(TaskErredMsg),
 }
 from_dask_transport!(test, ToClientMessage);
-
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct GetDataResponse<T = SerializedMemory> {

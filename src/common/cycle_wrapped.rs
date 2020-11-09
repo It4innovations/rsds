@@ -1,5 +1,6 @@
-use crate::common::WrappedRcRefCell;
 use std::ops::Deref;
+
+use crate::common::WrappedRcRefCell;
 
 pub trait HasCycle {
     fn clear_cycle(&mut self);

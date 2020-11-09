@@ -3,21 +3,20 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::common::{Set, WrappedRcRefCell};
+use crate::scheduler::protocol::TaskId;
 use crate::server::client::ClientId;
 use crate::server::core::Core;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
-use crate::server::protocol::dasktransport::{MessageBuilder, SerializedMemory};
+use crate::server::protocol::dasktransport::SerializedMemory;
+use crate::server::protocol::key::{DaskKey, DaskKeyRef};
+use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
+use crate::server::worker::WorkerRef;
 
-use crate::scheduler::protocol::TaskId;
 /*use crate::server::protocol::daskmessages::worker::{
     ComputeTaskMsg as DaskComputeTaskMsg, ToWorkerMessage as DaskToWorkerMessage,
 };*/
-use crate::server::protocol::key::{DaskKey, DaskKeyRef};
-use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
-use crate::server::worker::WorkerRef;
-
 #[derive(Debug)]
 pub struct DataInfo {
     pub size: u64,
@@ -388,8 +387,9 @@ impl TaskRef {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{task, task_deps};
     use std::default::Default;
+
+    use crate::test_util::{task, task_deps};
 
     #[test]
     fn task_consumers_empty() {

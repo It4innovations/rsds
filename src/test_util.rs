@@ -1,30 +1,29 @@
 #![cfg(test)]
 
-use crate::common::WrappedRcRefCell;
-use crate::scheduler::protocol::{TaskAssignment, TaskId};
-use crate::scheduler::ToSchedulerMessage;
-use crate::server::client::{Client, ClientId};
-use crate::server::core::{Core, CoreRef};
-use crate::server::protocol::daskmessages::client::ClientTaskSpec;
-use crate::server::protocol::dasktransport::{
-    deserialize_packet, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
-    DaskPacket, Frame, FromDaskTransport, SerializedMemory, ToDaskTransport,
-};
-use crate::server::protocol::key::to_dask_key;
-use crate::server::task::TaskRef;
-use crate::server::worker::{create_worker, WorkerRef};
-use crate::server::{comm::CommRef, notifications::Notifications};
-use bytes::{BytesMut, Bytes};
-use futures::{Stream, StreamExt};
 use std::io::Cursor;
-use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use bytes::{Bytes, BytesMut};
+use futures::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio_util::codec::Decoder;
+
+use crate::common::WrappedRcRefCell;
+use crate::scheduler::protocol::{TaskAssignment, TaskId};
+use crate::server::client::{Client, ClientId};
+use crate::server::core::Core;
+use crate::server::notifications::Notifications;
+use crate::server::protocol::daskmessages::client::ClientTaskSpec;
+use crate::server::protocol::dasktransport::{
+    deserialize_packet, Batch, DaskCodec, DaskPacket, FromDaskTransport, SerializedMemory,
+};
+use crate::server::protocol::key::{to_dask_key, DaskKey};
+use crate::server::task::TaskRef;
+use crate::server::worker::WorkerRef;
 
 /// Memory stream for reading and writing at the same time.
 pub struct MemoryStream {
@@ -32,7 +31,7 @@ pub struct MemoryStream {
     pub output: WrappedRcRefCell<Vec<u8>>,
 }
 
-impl MemoryStream {
+/*impl MemoryStream {
     pub fn new(input: Vec<u8>) -> (Self, WrappedRcRefCell<Vec<u8>>) {
         let output = WrappedRcRefCell::wrap(Default::default());
         (
@@ -43,7 +42,7 @@ impl MemoryStream {
             output,
         )
     }
-}
+}*/
 
 impl AsyncRead for MemoryStream {
     fn poll_read(
@@ -75,7 +74,18 @@ impl AsyncWrite for MemoryStream {
     }
 }
 
-pub fn dummy_ctx() -> (
+pub(crate) fn create_worker(
+    core: &mut Core,
+    sender: UnboundedSender<Bytes>,
+    address: DaskKey,
+    ncpus: u32,
+) -> WorkerRef {
+    let worker_ref = WorkerRef::new(core.new_worker_id(), ncpus, sender, address);
+    core.register_worker(worker_ref.clone());
+    worker_ref
+}
+
+/*pub fn dummy_ctx() -> (
     CoreRef,
     CommRef,
     tokio::sync::mpsc::UnboundedReceiver<Vec<ToSchedulerMessage>>,
@@ -83,9 +93,10 @@ pub fn dummy_ctx() -> (
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     (CoreRef::default(), CommRef::new(tx), rx)
 }
+
 pub fn dummy_address() -> SocketAddr {
     "127.0.0.1:8080".parse().unwrap()
-}
+}*/
 /*pub fn dummy_serialized() -> SerializedMemory {
     SerializedMemory::Inline(rmpv::Value::Nil)
 }*/
@@ -114,10 +125,7 @@ pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
 pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, impl Stream<Item = Bytes>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let worker = create_worker(core, tx, to_dask_key(address), 1);
-    (
-        worker,
-        rx,
-    )
+    (worker, rx)
 }
 
 pub fn client(id: ClientId) -> (Client, UnboundedReceiver<DaskPacket>) {
@@ -149,7 +157,7 @@ pub(crate) fn task_assign(core: &mut Core, task: &TaskRef, worker: &WorkerRef) -
     notifications
 }
 
-pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {
+/*pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {
     let mut data = BytesMut::new();
     let mut codec = DaskCodec::default();
     for packet in packets {
@@ -159,8 +167,9 @@ pub fn packets_to_bytes(packets: Vec<DaskPacket>) -> crate::Result<Vec<u8>> {
         }
     }
     Ok(data.to_vec())
-}
-pub fn msg_to_bytes<T: ToDaskTransport>(item: T) -> crate::Result<Vec<u8>> {
+}*/
+
+/*pub fn msg_to_bytes<T: ToDaskTransport>(item: T) -> crate::Result<Vec<u8>> {
     let packet = serialize_single_packet(item)?;
     let mut data = BytesMut::new();
 
@@ -171,18 +180,19 @@ pub fn msg_to_bytes<T: ToDaskTransport>(item: T) -> crate::Result<Vec<u8>> {
     }
 
     Ok(data.to_vec())
-}
+}*/
 pub fn bytes_to_msg<T: FromDaskTransport>(data: &[u8]) -> crate::Result<Batch<T>> {
     let mut bytes = BytesMut::from(data);
     let packet = DaskCodec::default().decode(&mut bytes)?.unwrap();
     deserialize_packet(packet)
 }
-pub fn packet_to_msg<T: FromDaskTransport>(packet: DaskPacket) -> crate::Result<Batch<T>> {
+/*pub fn packet_to_msg<T: FromDaskTransport>(packet: DaskPacket) -> crate::Result<Batch<T>> {
     deserialize_packet(packet)
-}
-pub fn frame(data: &[u8]) -> Frame {
+}*/
+
+/*pub fn frame(data: &[u8]) -> Frame {
     BytesMut::from(data)
-}
+}*/
 
 pub fn load_bin_test_data(path: &str) -> Vec<u8> {
     let path = get_test_path(path);

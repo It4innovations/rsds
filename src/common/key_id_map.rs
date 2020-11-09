@@ -1,7 +1,9 @@
-use crate::common::Map;
-use hashbrown::hash_map::Values;
 use std::borrow::Borrow;
 use std::hash::Hash;
+
+use hashbrown::hash_map::Values;
+
+use crate::common::Map;
 
 #[derive(Debug, Default)]
 pub struct KeyIdMap<Id, Type, Key = String> {

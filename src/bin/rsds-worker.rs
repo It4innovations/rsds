@@ -8,7 +8,6 @@ use structopt::StructOpt;
 
 use rsds::setup_logging;
 use rsds::worker::rpc::run_worker;
-use rsds::worker::subworker::start_subworkers;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
