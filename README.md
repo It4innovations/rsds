@@ -17,19 +17,20 @@ If your pipeline cannot be run by `rsds`, feel free to send us an issue.
 To compile and use `rsds`, you must have Rust toolchain installed. You can install it using e.g. [Rustup](https://rustup.rs/).
 
 1) Build `rsds`:
-```bash
-$ RUSTFLAGS="-C target-cpu=native" cargo build --release
-```
+    ```bash
+    $ RUSTFLAGS="-C target-cpu=native" cargo build --release
+    ```
 2) Install our modified version of Dask:
-```bash
-$ pip install git+https://github.com/Kobzol/distributed@simplified-encoding
-```
-The modifications that we had to perform to make it manageable to implement the Dask
-protocol in Rust are described [here](https://github.com/dask/distributed/pull/3809).
+    ```bash
+    $ pip install git+https://github.com/Kobzol/distributed@simplified-encoding
+    ```
+    The modifications that we had to perform to make it manageable to implement the Dask
+    protocol in Rust are described [here](https://github.com/dask/distributed/pull/3809).
+
 3) Use `rsds-scheduler` instead of `dask-scheduler` when starting a Dask cluster:
-```bash
-$ ./target/release/rsds-scheduler
-```
+    ```bash
+    $ ./target/release/rsds-scheduler
+    ```
 
 After that just use `target/release/rsds-scheduler` as you would use `dask-scheduler`.
 Be wary that most of the command line options from `dask-scheduler` are not supported though.
@@ -39,17 +40,17 @@ Be wary that most of the command line options from `dask-scheduler` are not supp
     ```bash
     # run server
     $ ./target/release/rsds-scheduler
-    # run worker
+    # run worker (in another shell)
     $ dask-worker localhost:8786
     ```
 
-2) Run a simple example that uses Dask dataframe:
+2) Run a simple example that uses a Dask dataframe:
     ```python
     import dask
     from dask.distributed import Client
-    
+
     client = Client("tcp://localhost:8786")
-    
+
     df = dask.datasets.timeseries(start="2020-01-01", end="2020-01-03")
     result = df.groupby("name")["x"].mean().compute()
     print(result)
@@ -64,5 +65,4 @@ on 1 and 7 node clusters with 24 workers per node.
 ![image](resources/speedup-rsds-ws-7.png)
 
 ## Reports
-
 * https://github.com/dask/distributed/issues/3139
