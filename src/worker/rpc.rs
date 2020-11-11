@@ -23,13 +23,13 @@ use crate::common::transport::make_protocol_builder;
 use crate::server::protocol::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::{
-    FetchRequest, FetchResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,
-    ToWorkerMessage,
+    DataRequest, DataResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,
+    ToWorkerMessage, UploadResponseMsg,
 };
 use crate::server::protocol::Priority;
 use crate::server::protocol::PriorityValue;
 use crate::server::reactor::fetch_data;
-use crate::worker::data::{DataObjectRef, DataObjectState};
+use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
 
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::start_subworkers;
@@ -237,28 +237,87 @@ async fn connection_rpc_loop(
             None => return Ok(()),
             Some(data) => data?,
         };
-        let request: FetchRequest = rmp_serde::from_slice(&data)?;
-        log::debug!("Object {} request from {} started", request.key, address);
-        let state = state_ref.get();
-        let (bytes, serializer) = {
-            let data_obj = match state.data_objects.get(&request.key) {
-                None => {
-                    let response = FetchResponse::NotAvailable;
-                    let data = rmp_serde::to_vec_named(&response).unwrap();
-                    stream.send(data.into()).await?;
-                    continue;
-                }
-                Some(x) => x.get(),
-            };
-            let data = data_obj.local_data().unwrap();
-            (data.bytes.clone(), data.serializer.clone())
-        };
-        let response = FetchResponse::Data(FetchResponseData {
-            serializer: serializer,
-        });
-        let data = rmp_serde::to_vec_named(&response).unwrap();
-        stream.send(data.into()).await?;
-        stream.send(bytes).await?;
-        log::debug!("Object {} request from {} finished", request.key, address);
+        let request: DataRequest = rmp_serde::from_slice(&data)?;
+        match request {
+            DataRequest::FetchRequest(msg) => {
+                log::debug!("Object {} request from {} started", msg.key, address);
+                let state = state_ref.get();
+                let (bytes, serializer) = {
+                    let data_obj = match state.data_objects.get(&msg.key) {
+                        None => {
+                            let response = DataResponse::NotAvailable;
+                            let data = rmp_serde::to_vec_named(&response).unwrap();
+                            stream.send(data.into()).await?;
+                            continue;
+                        }
+                        Some(x) => x.get(),
+                    };
+                    let data = data_obj.local_data().unwrap();
+                    (data.bytes.clone(), data.serializer.clone())
+                };
+                let response = DataResponse::Data(FetchResponseData {
+                    serializer: serializer,
+                });
+                let data = rmp_serde::to_vec_named(&response).unwrap();
+                stream.send(data.into()).await?;
+                stream.send(bytes).await?;
+                log::debug!("Object {} request from {} finished", msg.key, address);
+            }
+            DataRequest::UploadData(msg) => {
+                log::debug!("Object {} upload from {} started", msg.key, address);
+                let data = match stream.next().await {
+                    None => {
+                        log::error!(
+                            "Object {} started to upload but data did not arrived",
+                            msg.key
+                        );
+                        return Ok(());
+                    }
+                    Some(data) => data?,
+                };
+                let mut state = state_ref.get_mut();
+                let mut error = None;
+                match state.data_objects.get(&msg.key) {
+                    None => {
+                        let data_ref = DataObjectRef::new(
+                            msg.key.clone(),
+                            data.len() as u64,
+                            DataObjectState::Local(LocalData {
+                                serializer: msg.serializer,
+                                bytes: data.into(),
+                            }),
+                        );
+                        state.add_data_object(data_ref);
+                    }
+                    Some(data_ref) => {
+                        let data_obj = data_ref.get();
+                        match &data_obj.state {
+                            DataObjectState::Remote(_) => {
+                                /* set the data and check waiting tasks */
+                                todo!()
+                            }
+                            DataObjectState::Local(local) => {
+                                log::debug!("Uploaded data {} is already in worker", &msg.key);
+                                if local.serializer != msg.serializer
+                                    || local.bytes.len() != data.len()
+                                {
+                                    log::error!("Incompatible data {} was data uploaded", &msg.key);
+                                    error = Some("Incompatible data was uploaded".into());
+                                }
+                            }
+                            DataObjectState::Removed => unreachable!(),
+                        }
+                    }
+                };
+
+                log::debug!("Object {} upload from {} finished", &msg.key, address);
+                let response = DataResponse::DataUploaded(UploadResponseMsg {
+                    key: msg.key,
+                    error,
+                });
+                let data = rmp_serde::to_vec_named(&response).unwrap();
+                stream.send(data.into()).await?;
+            }
+        }
     }
 }

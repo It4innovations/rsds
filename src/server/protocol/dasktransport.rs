@@ -17,6 +17,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::common::data::SerializationType;
 use crate::trace::{trace_packet_receive, trace_packet_send};
+use rmpv::Value;
 
 /// Commonly used types
 pub type Frame = BytesMut;
@@ -303,6 +304,32 @@ impl SerializedMemory {
         message_builder: &mut MessageBuilder<T>,
     ) -> SerializedTransport {
         message_builder.take_serialized(self)
+    }
+
+    #[inline]
+    pub fn to_msgpack_value(&self) -> Value {
+        match self {
+            SerializedMemory::Inline(v) => v.clone(),
+            SerializedMemory::Indexed { frames, header: _ } => {
+                assert_eq!(frames.len(), 1);
+                frames[0].to_vec().into()
+            }
+        }
+    }
+
+    #[inline]
+    pub fn into_bytesmut(self) -> Option<BytesMut> {
+        match self {
+            SerializedMemory::Inline(Value::Binary(v)) => Some(BytesMut::from(v.as_slice())),
+            SerializedMemory::Indexed {
+                mut frames,
+                header: _,
+            } => {
+                assert_eq!(frames.len(), 1);
+                Some(std::mem::take(&mut frames[0]))
+            }
+            SerializedMemory::Inline(_) => None,
+        }
     }
 }
 

@@ -81,8 +81,21 @@ pub enum FromWorkerMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FetchRequest {
+pub struct FetchRequestMsg {
     pub key: DaskKey,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UploadDataMsg {
+    pub key: DaskKey,
+    pub serializer: SerializationType,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "op")]
+pub enum DataRequest {
+    FetchRequest(FetchRequestMsg),
+    UploadData(UploadDataMsg),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -91,8 +104,15 @@ pub struct FetchResponseData {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct UploadResponseMsg {
+    pub key: DaskKey,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
-pub enum FetchResponse {
+pub enum DataResponse {
     Data(FetchResponseData),
     NotAvailable,
+    DataUploaded(UploadResponseMsg),
 }

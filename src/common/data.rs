@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub enum SerializationType {
     #[serde(rename = "none")]
     None,

@@ -8,7 +8,6 @@ use crate::server::client::ClientId;
 use crate::server::core::Core;
 use crate::server::notifications::Notifications;
 use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
-use crate::server::protocol::dasktransport::SerializedMemory;
 use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
@@ -186,13 +185,13 @@ impl Task {
             })
             .collect();
 
-        let unpack = |s: &SerializedMemory| match s {
+        /*let unpack = |s: &SerializedMemory| match s {
             SerializedMemory::Inline(v) => v.clone(),
             SerializedMemory::Indexed { frames, header: _ } => {
                 assert_eq!(frames.len(), 1);
                 frames[0].to_vec().into()
             }
-        };
+        };*/
 
         let (function, args, kwargs) = match &self.spec {
             Some(ClientTaskSpec::Direct(DirectTaskSpec {
@@ -200,11 +199,11 @@ impl Task {
                 args,
                 kwargs,
             })) => (
-                unpack(function.as_ref().unwrap()),
-                unpack(args.as_ref().unwrap()),
-                kwargs.as_ref().map(unpack),
+                function.as_ref().unwrap().to_msgpack_value(),
+                args.as_ref().unwrap().to_msgpack_value(),
+                kwargs.as_ref().map(|x| x.to_msgpack_value()),
             ),
-            Some(ClientTaskSpec::Serialized(s)) => (unpack(s), rmpv::Value::Nil, None),
+            Some(ClientTaskSpec::Serialized(s)) => (s.to_msgpack_value(), rmpv::Value::Nil, None),
             None => panic!("Task has no specification"),
         };
 

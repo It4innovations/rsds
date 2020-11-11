@@ -93,6 +93,7 @@ def test_xarray(rsds_env, scheduler):
     assert x.values.flatten()[0] == 2239958.0
 
 
+@pytest.mark.skip(reason="Actors not yet supported in RSDS worker")
 def test_actor(rsds_env):
     url = rsds_env.start([2])
     client = Client(url)
