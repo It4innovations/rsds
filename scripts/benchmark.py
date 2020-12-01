@@ -208,14 +208,20 @@ python {RUN_BENCHMARK_SCRIPT}
         binary = normalize_binary(binary)
         start_all = workers.get("spawn-all", False)
         processes_per_node = processes if start_all else 1
+        is_rust = workers.get("rust", False)
 
         def get_args():
-            return [binary, scheduler_address,
-                    "--nthreads", str(threads),
-                    "--nprocs", str(processes),
-                    "--local-directory", "/tmp",
-                    "--preload", USECASES_SCRIPT,
-                    "--no-dashboard"] + worker_args
+            args = [binary, scheduler_address]
+            if is_rust:
+                assert threads == 1
+                return [*args, "--ncpus", str(processes)] + worker_args
+            else:
+                return [*args,
+                        "--nthreads", str(threads),
+                        "--nprocs", str(processes),
+                        "--local-directory", "/tmp",
+                        "--preload", USECASES_SCRIPT,
+                        "--no-dashboard"] + worker_args
 
         env = {
             "OMP_NUM_THREADS": "1",  # TODO
