@@ -184,7 +184,7 @@ impl WorkerState {
     }
 
     pub fn remove_data(&mut self, key: &DaskKey) {
-        log::info!("Removing data object {}", key);
+        log::debug!("Removing data object {}", key);
         self.data_objects.remove(key).map(|data_ref| {
             let mut data_obj = data_ref.get_mut();
             data_obj.state = DataObjectState::Removed;
