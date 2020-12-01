@@ -5,121 +5,26 @@ use tokio::net::TcpListener;
 use tokio::stream::Stream;
 
 use crate::common::rpc::forward_queue_to_sink;
-use crate::server::client::Client;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
+use crate::server::dask::client::Client;
 
-use crate::server::protocol::daskmessages::client::FromClientMessage;
-use crate::server::protocol::daskmessages::generic::{
+use crate::server::dask::messages::client::FromClientMessage;
+use crate::server::dask::messages::generic::{
     GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo,
 };
-//use crate::server::protocol::daskmessages::worker::FromWorkerMessage;
-//use crate::server::protocol::daskmessages::worker::RegisterWorkerResponseMsg;
-//use crate::server::protocol::daskmessages::worker::Status;
-use crate::server::protocol::dasktransport::{
+
+use crate::server::dask::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, Batch, DaskPacket,
 };
-use crate::server::protocol::key::{to_dask_key, DaskKey};
-use crate::server::reactor::{
-    gather, get_ncores, proxy_to_worker, release_keys, scatter, subscribe_keys, update_graph,
-    who_has,
+use crate::server::dask::key::{to_dask_key, DaskKey};
+use crate::server::dask::reactor::{
+    gather, get_ncores, release_keys, scatter, subscribe_keys, update_graph, who_has,
 };
 
-/*
-pub async fn worker_rpc_loop<
-    Reader: Stream<Item = crate::Result<Batch<FromWorkerMessage>>> + Unpin,
-    Writer: Sink<DaskPacket, Error = crate::Error> + Unpin,
->(
-    core_ref: &CoreRef,
-    comm_ref: &CommRef,
-    address: std::net::SocketAddr,
-    mut receiver: Reader,
-    sender: Writer,
-    msg: RegisterWorkerMsg,
-) -> crate::Result<()> {
-    let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<WorkerMessage>();
-
-    let worker_ref = create_worker(
-        &mut core_ref.get_mut(),
-        queue_sender,
-        msg.address,
-        msg.nthreads,
-    );
-    let worker_id = worker_ref.get().id;
-    let mut notifications = Notifications::default();
-    notifications.new_worker(&worker_ref.get());
-    comm_ref
-        .get_mut()
-        .notify(&mut core_ref.get_mut(), notifications)?;
-
-    log::info!("Worker {} registered from {}", worker_id, address);
-
-    let snd_loop = forward_queue_to_sink(
-        queue_receiver,
-        sender.with(|msg| match msg {
-            WorkerMessage::Dask(data) => futures::future::ok::<_, crate::Error>(data),
-            _ => panic!("Received RSDS worker packet instead of Dask worker packet"),
-        }),
-    );
-
-    let core_ref2 = core_ref.clone();
-    let recv_loop = async move {
-        'outer: while let Some(messages) = receiver.next().await {
-            let mut notifications = Notifications::default();
-
-            let messages = messages?;
-            let mut core = core_ref.get_mut();
-            for message in messages {
-                log::debug!("Worker recv message {:?}", message);
-                match message {
-                    FromWorkerMessage::TaskFinished(msg) => {
-                        assert_eq!(msg.status, Status::Ok); // TODO: handle other cases ??
-                        core.on_task_finished(&worker_ref, msg, &mut notifications);
-                    }
-                    FromWorkerMessage::AddKeys(msg) => {
-                        core.on_tasks_transferred(&worker_ref, msg.keys, &mut notifications);
-                    }
-                    FromWorkerMessage::TaskErred(msg) => {
-                        assert_eq!(msg.status, Status::Error); // TODO: handle other cases ??
-                        let error_info = ErrorInfo {
-                            exception: msg.exception,
-                            traceback: msg.traceback,
-                        };
-                        core.on_task_error(&worker_ref, msg.key, error_info, &mut notifications);
-                        // TODO: Inform scheduler
-                    }
-                    FromWorkerMessage::StealResponse(msg) => {
-                        core.on_steal_response(&worker_ref, msg, &mut notifications);
-                    }
-                    FromWorkerMessage::KeepAlive => { /* Do nothing by design */ }
-                    FromWorkerMessage::Release(_) => { /* Do nothing TODO */ }
-                    FromWorkerMessage::Unregister | FromWorkerMessage::CloseStream => break 'outer,
-                }
-            }
-            comm_ref.get_mut().notify(&mut core, notifications).unwrap();
-        }
-        Ok(())
-    };
-
-    let result = futures::future::select(recv_loop.boxed_local(), snd_loop.boxed_local()).await;
-    if let Err(e) = result.factor_first().0 {
-        log::error!(
-            "Error in worker connection (id={}, connection={}): {}",
-            worker_id,
-            address,
-            e
-        );
-    }
-    log::info!(
-        "Worker {} connection closed (connection: {})",
-        worker_id,
-        address
-    );
-    let mut core = core_ref2.get_mut();
-    core.unregister_worker(worker_id);
-    Ok(())
-}*/
+use crate::server::dask::state::DaskStateRef;
+use std::rc::Rc;
 
 pub async fn client_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
@@ -131,17 +36,17 @@ pub async fn client_rpc_loop<
     mut receiver: Reader,
     sender: Writer,
     client_key: DaskKey,
+    dask_state_ref: DaskStateRef,
 ) -> crate::Result<()> {
     let core_ref = core_ref.clone();
-    let core_ref2 = core_ref.clone();
+    let state_ref2 = dask_state_ref.clone();
 
     let (snd_sender, snd_receiver) = tokio::sync::mpsc::unbounded_channel::<DaskPacket>();
 
     let client_id = {
-        let mut core = core_ref.get_mut();
-        let client_id = core.new_client_id();
+        let client_id = dask_state_ref.get_mut().new_client_id();
         let client = Client::new(client_id, client_key, snd_sender);
-        core.register_client(client);
+        dask_state_ref.get_mut().register_client(client);
         client_id
     };
 
@@ -156,14 +61,21 @@ pub async fn client_rpc_loop<
                 match message {
                     FromClientMessage::HeartbeatClient => { /* TODO, ignore heartbeat now */ }
                     FromClientMessage::ClientReleasesKeys(msg) => {
-                        release_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
+                        let client_id = dask_state_ref
+                            .get()
+                            .get_client_by_key(&msg.client)
+                            .unwrap()
+                            .id();
+                        release_keys(&core_ref, &comm_ref, &dask_state_ref, client_id, msg.keys)?;
                     }
                     FromClientMessage::ClientDesiresKeys(msg) => {
-                        subscribe_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
+                        todo!()
+                        //subscribe_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
                     }
                     FromClientMessage::UpdateGraph(update) => {
+                        let mut state = dask_state_ref.get_mut();
                         trace_time!("client", "update_graph", {
-                            update_graph(&core_ref, &comm_ref, client_id, update)?;
+                            update_graph(&core_ref, &comm_ref, &mut state, client_id, update)?;
                         });
                     }
                     FromClientMessage::CloseClient => {
@@ -191,8 +103,7 @@ pub async fn client_rpc_loop<
         client_id,
         address
     );
-    let mut core = core_ref2.get_mut();
-    core.unregister_client(client_id);
+    state_ref2.get_mut().unregister_client(client_id);
     Ok(())
 }
 
@@ -201,15 +112,17 @@ pub async fn connection_initiator(
     mut listener: TcpListener,
     core_ref: CoreRef,
     comm_ref: CommRef,
+    gateway_ref: DaskStateRef,
 ) -> crate::Result<()> {
     loop {
         let (socket, address) = listener.accept().await?;
         socket.set_nodelay(true)?;
         let core_ref = core_ref.clone();
         let comm_ref = comm_ref.clone();
+        let gateway_ref = gateway_ref.clone();
         tokio::task::spawn_local(async move {
             log::debug!("New connection: {}", address);
-            generic_rpc_loop(core_ref, comm_ref, socket, address)
+            generic_rpc_loop(core_ref, comm_ref, gateway_ref, socket, address)
                 .await
                 .expect("Connection failed");
             log::debug!("Connection ended: {}", address);
@@ -220,6 +133,7 @@ pub async fn connection_initiator(
 pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
     comm_ref: CommRef,
+    dask_state_ref: DaskStateRef,
     stream: T,
     address: std::net::SocketAddr,
 ) -> crate::Result<()> {
@@ -236,24 +150,6 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::RegisterWorker(_msg) => {
                     log::error!("Original dask worker is not supported by this server");
-                    /* OLD DASK PROTOCOL
-                    log::debug!("Worker registration from {}", address);
-                    let hb = RegisterWorkerResponseMsg {
-                        status: to_dask_key("OK"),
-                        time: SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
-                        heartbeat_interval: 1.0.into(),
-                        worker_plugins: Vec::new(),
-                    };
-                    writer.send(serialize_single_packet(hb)?).await?;
-                    worker_rpc_loop(
-                        &core_ref,
-                        &comm_ref,
-                        address,
-                        dask_parse_stream(reader.into_inner()),
-                        writer,
-                        msg,
-                    )
-                    .await?;*/
                     break 'outer;
                 }
                 GenericMessage::RegisterClient(msg) => {
@@ -272,6 +168,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                         dask_parse_stream(reader.into_inner()),
                         writer,
                         msg.client,
+                        dask_state_ref,
                     )
                     .await?;
                     break 'outer;
@@ -281,11 +178,10 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                     // TODO: get actual values
                     let rsp = IdentityResponse {
                         r#type: to_dask_key("Scheduler"),
-                        id: core_ref.get().uid().into(),
+                        id: dask_state_ref.get().uid().clone(),
                         workers: core_ref
                             .get()
                             .get_workers()
-                            .iter()
                             .map(|w| {
                                 let worker = w.get();
                                 let address = worker.listen_address.clone();
@@ -318,21 +214,29 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
                     trace_time!(address_str, "gather", {
-                        gather(&core_ref, &comm_ref, address, &mut writer, msg.keys).await?;
+                        gather(
+                            &core_ref,
+                            &comm_ref,
+                            &dask_state_ref,
+                            address,
+                            &mut writer,
+                            msg.keys,
+                        )
+                        .await?;
                     });
                 }
                 GenericMessage::Scatter(msg) => {
                     log::debug!("Scatter request from {}", &address);
-                    scatter(&core_ref, &comm_ref, &mut writer, msg).await?;
+                    scatter(&core_ref, &comm_ref, &dask_state_ref, &mut writer, msg).await?;
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
                     get_ncores(&core_ref, &comm_ref, &mut writer).await?;
                 }
-                GenericMessage::Proxy(msg) => {
+                /*GenericMessage::Proxy(msg) => {
                     log::debug!("Proxy request from {}", &address);
-                    proxy_to_worker(&core_ref, &comm_ref, &mut writer, msg).await?;
-                }
+                    //proxy_to_worker(&core_ref, &comm_ref, &mut writer, msg).await?;
+                }*/
                 GenericMessage::Unregister => {
                     // TODO: remove worker
                     writer.send(serialize_single_packet("OK")?).await?;
@@ -348,10 +252,10 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
 #[cfg(test)]
 mod tests {
     use crate::server::notifications::Notifications;
-    use crate::server::protocol::daskmessages::client::{
+    use crate::server::protocol::messages::client::{
         ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg, ToClientMessage,
     };
-    use crate::server::protocol::daskmessages::generic::{
+    use crate::server::protocol::messages::generic::{
         GenericMessage, IdentityMsg, IdentityResponse, RegisterClientMsg, RegisterWorkerMsg,
         SimpleMessage,
     };

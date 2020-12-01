@@ -2,11 +2,11 @@ use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::Map;
-use crate::server::protocol::dasktransport::{
+use crate::server::dask::dasktransport::{
     map_from_transport, map_to_transport, Frames, FromDaskTransport, MessageBuilder,
     SerializedMemory, SerializedTransport, ToDaskTransport,
 };
-use crate::server::protocol::key::DaskKey;
+use crate::server::dask::key::DaskKey;
 use crate::server::protocol::PriorityValue;
 
 #[cfg_attr(test, derive(Serialize))]
@@ -40,7 +40,7 @@ pub enum ClientTaskSpec<T = SerializedMemory> {
     Serialized(T),
 }
 
-pub fn task_spec_to_memory(
+pub fn client_task_spec_to_memory(
     spec: ClientTaskSpec<SerializedTransport>,
     frames: &mut Frames,
 ) -> ClientTaskSpec<SerializedMemory> {

@@ -15,6 +15,7 @@ use rsds::scheduler::{
 use rsds::server::comm::observe_scheduler;
 use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
+use rsds::server::dask::DaskStateRef;
 use rsds::{setup_interrupt, setup_logging};
 
 #[global_allocator]
@@ -121,14 +122,16 @@ async fn main() -> rsds::Result<()> {
     {
         let task_set = tokio::task::LocalSet::default();
         let comm_ref = CommRef::new(sender);
-        let core_ref = CoreRef::default();
+        let dask_state_ref = DaskStateRef::new();
+        let core_ref = CoreRef::new(dask_state_ref.get_gateway());
         task_set
             .run_until(async move {
                 let scheduler = observe_scheduler(core_ref.clone(), comm_ref.clone(), receiver);
-                let dask_connection = rsds::server::rpc::dask::connection_initiator(
+                let dask_connection = rsds::server::dask::rpc::connection_initiator(
                     dask_listener,
                     core_ref.clone(),
                     comm_ref.clone(),
+                    dask_state_ref,
                 );
                 let rsds_connection = rsds::server::rpc::rsds::connection_initiator(
                     rsds_listener,

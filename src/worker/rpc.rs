@@ -17,13 +17,13 @@ use tokio::time::delay_for;
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
 
-//use crate::server::protocol::daskmessages::worker::{GetDataResponse, ToWorkerGenericMessage};
+//use crate::server::protocol::messages::worker::{GetDataResponse, ToWorkerGenericMessage};
 
-use crate::server::protocol::key::DaskKey;
+use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::{
     DataRequest, DataResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,
-    ToWorkerMessage, UploadResponseMsg,
+    ToWorkerMessage, UploadResponseMsg, WorkerRegistrationResponse,
 };
 use crate::server::protocol::Priority;
 use crate::server::protocol::PriorityValue;
@@ -80,26 +80,42 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: Su
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
     let (download_sender, download_reader) =
         tokio::sync::mpsc::unbounded_channel::<(DataObjectRef, (PriorityValue, PriorityValue))>();
+    let (mut writer, mut reader) = make_protocol_builder().new_framed(stream).split();
 
     let taskset = LocalSet::default();
     {
         let message = GenericMessage::RegisterWorker(RegisterWorkerMsg {
-            address: address.clone().into(),
+            address: address.clone(),
             ncpus,
         });
         let mut frame = BytesMut::default().writer();
         rmp_serde::encode::write_named(&mut frame, &message)?;
-        queue_sender.send(frame.into_inner().into()).unwrap();
+        writer.send(frame.into_inner().into()).await.unwrap();
     }
 
-    let state = WorkerStateRef::new(queue_sender, ncpus, address, download_sender);
+    let state = {
+        match reader.next().await {
+            Some(data) => {
+                let message: WorkerRegistrationResponse =
+                    rmp_serde::from_slice(&data.unwrap()).unwrap();
+                WorkerStateRef::new(
+                    message.worker_id,
+                    queue_sender,
+                    ncpus,
+                    address,
+                    download_sender,
+                    message.worker_addresses,
+                )
+            }
+            None => panic!("Connection closed without receiving registration response"),
+        }
+    };
 
     log::info!("Starting {} subworkers", ncpus);
     let (subworkers, sw_processes) = start_subworkers(&state, subworker_paths, "python3", ncpus).await?;
     log::debug!("Subworkers started");
 
     state.get_mut().set_subworkers(subworkers);
-    let (writer, reader) = make_protocol_builder().new_framed(stream).split();
 
     tokio::select! {
         _ = worker_message_loop(state.clone(), reader) => {
@@ -133,7 +149,7 @@ async fn worker_data_downloader(
     loop {
         let (data_ref, _priority) = stream.next().await.unwrap();
 
-        let (worker_address, key) = {
+        let (worker_id, task_id) = {
             let data_obj = data_ref.get();
             let workers = match &data_obj.state {
                 DataObjectState::Remote(rs) => &rs.workers,
@@ -142,13 +158,18 @@ async fn worker_data_downloader(
                     continue;
                 }
             };
-            let worker_address = workers.choose(&mut random).cloned().unwrap();
-            (worker_address, data_obj.key.clone())
+            let worker_id = workers.choose(&mut random).cloned().unwrap();
+            (worker_id, data_obj.id)
         };
-
-        let connection = connect_to_worker(worker_address).await.unwrap();
+        let address = state_ref
+            .get()
+            .worker_addresses
+            .get(&worker_id)
+            .unwrap()
+            .clone();
+        let connection = connect_to_worker(address).await.unwrap();
         let mut stream = make_protocol_builder().new_framed(connection);
-        let (data, serializer) = fetch_data(&mut stream, key).await.unwrap();
+        let (data, serializer) = fetch_data(&mut stream, task_id).await.unwrap();
         state_ref
             .get_mut()
             .on_data_downloaded(data_ref, data, serializer);
@@ -156,8 +177,7 @@ async fn worker_data_downloader(
 }
 
 /* TODO: Refactor this! the same function is in the server */
-async fn connect_to_worker(address: DaskKey) -> crate::Result<tokio::net::TcpStream> {
-    let address = address.to_string();
+async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
     let address = address.trim_start_matches("tcp://");
     let stream = TcpStream::connect(address).await?;
     stream.set_nodelay(true)?;
@@ -174,32 +194,39 @@ async fn worker_message_loop(
         let mut state = state_ref.get_mut();
         match message {
             ToWorkerMessage::ComputeTask(mut msg) => {
-                log::debug!("Task assigned: {}", msg.key);
+                log::debug!("Task assigned: {}", msg.id);
                 let dep_info = std::mem::take(&mut msg.dep_info);
                 let task_ref = TaskRef::new(msg);
-                for (key, size, workers) in dep_info {
-                    state.add_dependancy(&task_ref, key.clone(), size, workers);
+                for (task_id, size, workers) in dep_info {
+                    state.add_dependancy(&task_ref, task_id, size, workers);
                 }
                 state.add_task(task_ref);
             }
             ToWorkerMessage::DeleteData(msg) => {
-                for key in msg.keys {
-                    state.remove_data(&key);
+                for id in msg.ids {
+                    state.remove_data(id);
                 }
             }
             ToWorkerMessage::StealTasks(msg) => {
-                log::debug!("Steal {} attempts", msg.keys.len());
+                log::debug!("Steal {} attempts", msg.ids.len());
                 let responses: Vec<_> = msg
-                    .keys
-                    .into_iter()
-                    .map(|key| {
-                        let response = state.steal_task(&key);
-                        log::debug!("Steal attempt: {}, response {:?}", key, response);
-                        (key, response)
+                    .ids
+                    .iter()
+                    .map(|task_id| {
+                        let response = state.steal_task(*task_id);
+                        log::debug!("Steal attempt: {}, response {:?}", task_id, response);
+                        (*task_id, response)
                     })
                     .collect();
                 let message = FromWorkerMessage::StealResponse(StealResponseMsg { responses });
                 state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
+            }
+            ToWorkerMessage::NewWorker(msg) => {
+                log::debug!("New worker={} announced at {}", msg.worker_id, &msg.address);
+                assert!(state
+                    .worker_addresses
+                    .insert(msg.worker_id, msg.address)
+                    .is_none())
             }
         }
     }
@@ -239,10 +266,10 @@ async fn connection_rpc_loop(
         let request: DataRequest = rmp_serde::from_slice(&data)?;
         match request {
             DataRequest::FetchRequest(msg) => {
-                log::debug!("Object {} request from {} started", msg.key, address);
+                log::debug!("Object {} request from {} started", msg.task_id, address);
                 let state = state_ref.get();
                 let (bytes, serializer) = {
-                    let data_obj = match state.data_objects.get(&msg.key) {
+                    let data_obj = match state.data_objects.get(&msg.task_id) {
                         None => {
                             let response = DataResponse::NotAvailable;
                             let data = rmp_serde::to_vec_named(&response).unwrap();
@@ -260,15 +287,15 @@ async fn connection_rpc_loop(
                 let data = rmp_serde::to_vec_named(&response).unwrap();
                 stream.send(data.into()).await?;
                 stream.send(bytes).await?;
-                log::debug!("Object {} request from {} finished", msg.key, address);
+                log::debug!("Object {} request from {} finished", msg.task_id, address);
             }
             DataRequest::UploadData(msg) => {
-                log::debug!("Object {} upload from {} started", msg.key, address);
+                log::debug!("Object {} upload from {} started", msg.task_id, address);
                 let data = match stream.next().await {
                     None => {
                         log::error!(
                             "Object {} started to upload but data did not arrived",
-                            msg.key
+                            msg.task_id
                         );
                         return Ok(());
                     }
@@ -276,10 +303,10 @@ async fn connection_rpc_loop(
                 };
                 let mut state = state_ref.get_mut();
                 let mut error = None;
-                match state.data_objects.get(&msg.key) {
+                match state.data_objects.get(&msg.task_id) {
                     None => {
                         let data_ref = DataObjectRef::new(
-                            msg.key.clone(),
+                            msg.task_id,
                             data.len() as u64,
                             DataObjectState::Local(LocalData {
                                 serializer: msg.serializer,
@@ -296,11 +323,14 @@ async fn connection_rpc_loop(
                                 todo!()
                             }
                             DataObjectState::Local(local) => {
-                                log::debug!("Uploaded data {} is already in worker", &msg.key);
+                                log::debug!("Uploaded data {} is already in worker", &msg.task_id);
                                 if local.serializer != msg.serializer
                                     || local.bytes.len() != data.len()
                                 {
-                                    log::error!("Incompatible data {} was data uploaded", &msg.key);
+                                    log::error!(
+                                        "Incompatible data {} was data uploaded",
+                                        &msg.task_id
+                                    );
                                     error = Some("Incompatible data was uploaded".into());
                                 }
                             }
@@ -309,9 +339,9 @@ async fn connection_rpc_loop(
                     }
                 };
 
-                log::debug!("Object {} upload from {} finished", &msg.key, address);
+                log::debug!("Object {} upload from {} finished", &msg.task_id, address);
                 let response = DataResponse::DataUploaded(UploadResponseMsg {
-                    key: msg.key,
+                    task_id: msg.task_id,
                     error,
                 });
                 let data = rmp_serde::to_vec_named(&response).unwrap();

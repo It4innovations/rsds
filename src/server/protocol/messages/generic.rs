@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::server::protocol::key::DaskKey;
+use crate::server::dask::key::DaskKey;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterWorkerMsg {
-    pub address: DaskKey,
+    pub address: String,
     pub ncpus: u32,
 }
 

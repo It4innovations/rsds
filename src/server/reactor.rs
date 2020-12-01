@@ -3,7 +3,7 @@ use std::iter::FromIterator;
 use bytes::BytesMut;
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
-use futures::{Sink, SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use rand::seq::SliceRandom;
 
 use tokio::net::TcpStream;
@@ -13,22 +13,22 @@ use crate::common::transport::make_protocol_builder;
 use crate::common::{Map, Set};
 use crate::error::DsError::GenericError;
 use crate::scheduler::protocol::TaskId;
-use crate::server::client::ClientId;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::notifications::Notifications;
+use futures::future::FutureExt;
 
-use crate::server::protocol::daskmessages::client::{
-    task_spec_to_memory, GetDataResponse, UpdateGraphMsg,
-};
-use crate::server::protocol::daskmessages::generic::{
-    ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse,
-};
-use crate::server::protocol::dasktransport::{
+use crate::server::dask::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, make_dask_payload, serialize_single_packet,
     DaskPacket, MessageWrapper, SerializedMemory,
 };
-use crate::server::protocol::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::dask::key::{dask_key_ref_to_str, to_dask_key, DaskKey};
+use crate::server::dask::messages::client::{
+    client_task_spec_to_memory, GetDataResponse, UpdateGraphMsg,
+};
+use crate::server::dask::messages::generic::{
+    ProxyMsg, ScatterMsg, ScatterResponse, WhoHasMsgResponse,
+};
 use crate::server::protocol::messages::worker::{
     DataRequest, DataResponse, FetchRequestMsg, UploadDataMsg,
 };
@@ -36,9 +36,11 @@ use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
 use crate::server::worker::WorkerRef;
 use crate::trace::{trace_task_new, trace_task_new_finished};
 
+/*
 pub fn update_graph(
     core_ref: &CoreRef,
     comm_ref: &CommRef,
+    gateway: &DaskGateway,
     client_id: ClientId,
     mut update: UpdateGraphMsg,
 ) -> crate::Result<()> {
@@ -72,7 +74,7 @@ pub fn update_graph(
                     new_task_ids
                         .get(key)
                         .copied()
-                        .unwrap_or_else(|| core.get_task_by_key_or_panic(key).get().id)
+                        .unwrap_or_else(|| gateway.get_task_by_key(key).unwrap().get().id)
                 })
                 .collect();
             inputs.sort();
@@ -100,7 +102,6 @@ pub fn update_graph(
         let client_priority = update.priority.get(&task_key).copied().unwrap_or_default();
         let task_ref = TaskRef::new(
             task_id,
-            task_key,
             Some(task_spec),
             inputs,
             unfinished_deps,
@@ -158,260 +159,54 @@ pub fn update_graph(
         task.subscribe_client(client_id);
     }
     Ok(())
-}
+}*/
 
-pub fn release_keys(
+// TODO: Convert this to returning Stream instead of vector,
+//   so data could be sent as they are received
+pub async fn gather(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
-    client_key: DaskKey,
-    task_keys: Vec<DaskKey>,
-) -> crate::Result<()> {
-    let mut core = core_ref.get_mut();
-    let client_id = core.get_client_id_by_key(&client_key);
-    let mut notifications = Notifications::default();
-    for key in task_keys {
-        let task_ref = core.get_task_by_key_or_panic(&key).clone();
-        let mut task = task_ref.get_mut();
-
-        log::debug!("Unsubscribing task id={}, client={}", task.id, client_key);
-        task.unsubscribe_client(client_id);
-
-        task.remove_data_if_possible(&mut core, &mut notifications);
-    }
-    comm_ref.get_mut().notify(&mut core, notifications)
-}
-
-pub fn subscribe_keys(
-    core_ref: &CoreRef,
-    comm_ref: &CommRef,
-    client_key: DaskKey,
-    task_keys: Vec<DaskKey>,
-) -> crate::Result<()> {
-    let mut core = core_ref.get_mut();
-    let client_id = core.get_client_id_by_key(&client_key);
-    let mut notifications = Notifications::default();
-    for key in task_keys {
-        let task_ref = core.get_task_by_key_or_panic(&key).clone();
-        {
-            let mut task = task_ref.get_mut();
-            task.subscribe_client(client_id);
-        }
-
-        let task = task_ref.get();
-        match task.state {
-            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Error(_) => {
-                core.notify_key_in_memory(&task_ref, &mut notifications);
-            }
-            _ => {}
-        }
-    }
-    comm_ref.get_mut().notify(&mut core, notifications)
-}
-
-pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
-    address: std::net::SocketAddr,
-    sink: &mut W,
-    keys: Vec<DaskKey>,
-) -> crate::Result<()> {
-    let mut worker_map: Map<DaskKey, Vec<DaskKey>> = Default::default();
+    task_ids: &[TaskId],
+) -> crate::Result<Vec<(TaskId, BytesMut, SerializationType)>> {
+    let mut worker_map: Map<String, Vec<TaskId>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
-        for key in &keys {
-            let task_ref = core.get_task_by_key_or_panic(key);
+        for task_id in task_ids {
+            let task_ref = core.get_task_by_id_or_panic(*task_id);
             let task = task_ref.get();
-            //let data_info = task.data_info().unwrap();
             task.get_workers().map(|ws| {
                 let ws = Vec::from_iter(ws.into_iter());
                 ws.choose(&mut rng).map(|w| {
                     worker_map
-                        .entry(w.get().address().into())
+                        .entry(w.get().address().to_string())
                         .or_default()
-                        .push(key.clone());
+                        .push(*task_id);
                 })
             });
         }
     }
 
-    let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
+    //let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
             .into_iter()
             .map(|(worker, keys)| get_data_from_worker(worker, keys)),
     );
 
-    while let Some(result) = worker_futures.next().await {
-        result?.into_iter().for_each(|(k, v, s)| {
-            result_map.insert(k, make_dask_payload(s, v));
-        });
+    let mut result = Vec::with_capacity(task_ids.len());
+
+    while let Some(r) = worker_futures.next().await {
+        result.append(&mut r?);
     }
 
-    log::debug!("Sending gathered data {}", address);
-
-    let msg = GetDataResponse {
-        status: to_dask_key("OK"),
-        data: result_map,
-    };
-    sink.send(serialize_single_packet(msg)?).await?;
-    Ok(())
-}
-
-pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
-    writer: &mut W,
-) -> crate::Result<()> {
-    let cores = core_ref.get().get_worker_cores();
-    writer.send(serialize_single_packet(cores)?).await?;
-    Ok(())
-}
-
-fn scatter_tasks<T>(
-    data: Vec<(DaskKey, T)>,
-    workers: &[WorkerRef],
-    counter: usize,
-) -> Vec<(WorkerRef, Vec<(DaskKey, T)>)> {
-    let total_cpus: usize = workers.iter().map(|wr| wr.get().ncpus as usize).sum();
-    let mut counter = counter % total_cpus;
-
-    let mut cpu = 0;
-    let mut index = 0;
-    for (i, wr) in workers.iter().enumerate() {
-        let ncpus = wr.get().ncpus as usize;
-        if counter >= ncpus {
-            counter -= ncpus;
-        } else {
-            cpu = counter;
-            index = i;
-            break;
-        }
-    }
-
-    let mut worker_ref = &workers[index];
-    let mut ncpus = worker_ref.get().ncpus as usize;
-
-    let mut result: Map<WorkerRef, Vec<(DaskKey, T)>> = Map::new();
-
-    for (key, keydata) in data {
-        result
-            .entry(worker_ref.clone())
-            .or_default()
-            .push((key, keydata));
-        cpu += 1;
-        if cpu >= ncpus {
-            cpu = 0;
-            index += 1;
-            index %= workers.len();
-            worker_ref = &workers[index];
-            ncpus = worker_ref.get().ncpus as usize;
-        }
-    }
-    result.into_iter().collect()
-}
-
-pub async fn scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    comm_ref: &CommRef,
-    writer: &mut W,
-    mut message: ScatterMsg,
-) -> crate::Result<()> {
-    assert!(!message.broadcast); // TODO: implement broadcast
-
-    let (workers, counter) = {
-        let mut core = core_ref.get_mut();
-        if !core.has_workers() {
-            todo!(); // TODO: Implement timeout
-        }
-        let workers = match message.workers.take() {
-            Some(workers) => {
-                if workers.is_empty() {
-                    return Ok(());
-                }
-                workers
-                    .into_iter()
-                    .map(|worker_key| core.get_worker_by_key_or_panic(&worker_key).clone())
-                    .collect()
-            }
-            None => core.get_workers(),
-        };
-        let counter = core.get_and_move_scatter_counter(message.data.len());
-        (workers, counter)
-    };
-
-    let response: ScatterResponse = message.data.keys().cloned().collect();
-    let data: Vec<(DaskKey, BytesMut)> = message
-        .data
-        .into_iter()
-        .map(|(key, value)| (key, value.into_bytesmut().unwrap()))
-        .collect();
-    let who_what: Vec<(WorkerRef, Vec<(DaskKey, BytesMut)>)> =
-        scatter_tasks(data, &workers, counter);
-    let placement: Vec<(WorkerRef, Vec<(DaskKey, u64)>)> = who_what
-        .iter()
-        .map(|(wr, data)| {
-            (
-                wr.clone(),
-                data.iter()
-                    .map(|(key, d)| (key.clone(), d.len() as u64))
-                    .collect(),
-            )
-        })
-        .collect();
-
-    let worker_futures = join_all(
-        who_what
-            .into_iter()
-            .map(|(worker, data)| update_data_on_worker(worker.get().address().into(), data)),
-    );
-    worker_futures.await.iter().for_each(|x| assert!(x.is_ok()));
-
-    let mut notifications: Notifications = Default::default();
-    {
-        let mut core = core_ref.get_mut();
-        let client_id = core.get_client_id_by_key(&message.client);
-        for (wr, key_size) in placement.into_iter() {
-            for (key, size) in key_size.into_iter() {
-                let mut set = Set::new();
-                set.insert(wr.clone());
-                let task_ref = TaskRef::new(
-                    core.new_task_id(),
-                    key,
-                    None,
-                    Default::default(),
-                    0,
-                    Default::default(),
-                    Default::default(),
-                );
-                {
-                    let mut task = task_ref.get_mut();
-                    task.state = TaskRuntimeState::Finished(DataInfo { size }, set);
-                    task.subscribe_client(client_id);
-                    notifications.new_finished_task(&task);
-                    trace_task_new_finished(
-                        task.id,
-                        dask_key_ref_to_str(&task.key()),
-                        size,
-                        wr.get().id,
-                    );
-                }
-
-                core.add_task(task_ref.clone());
-                notifications.notify_client_key_in_memory(client_id, task_ref)
-            }
-        }
-        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
-    }
-    writer.send(serialize_single_packet(response)?).await?;
-    Ok(())
+    Ok(result)
 }
 
 pub async fn fetch_data(
     stream: &mut tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
-    key: DaskKey,
+    task_id: TaskId,
 ) -> crate::Result<(BytesMut, SerializationType)> {
-    let message = DataRequest::FetchRequest(FetchRequestMsg { key });
+    let message = DataRequest::FetchRequest(FetchRequestMsg { task_id });
     let data = rmp_serde::to_vec_named(&message).unwrap();
     stream.send(data.into()).await?;
 
@@ -438,54 +233,54 @@ pub async fn fetch_data(
 }
 
 pub async fn get_data_from_worker(
-    worker_address: DaskKey,
-    key: Vec<DaskKey>,
-) -> crate::Result<Vec<(DaskKey, BytesMut, SerializationType)>> {
+    worker_address: String,
+    task_ids: Vec<TaskId>,
+) -> crate::Result<Vec<(TaskId, BytesMut, SerializationType)>> {
     // TODO: Storing worker connection?
     // Directly resend to client?
 
     let connection = connect_to_worker(worker_address.clone()).await?;
     let mut stream = make_protocol_builder().new_framed(connection);
 
-    let mut result = Vec::with_capacity(key.len());
-    for key in key {
-        log::debug!("Fetching {} from {}", &key, worker_address);
-        let (data, serializer) = fetch_data(&mut stream, key.clone()).await?;
+    let mut result = Vec::with_capacity(task_ids.len());
+    for task_id in task_ids {
+        log::debug!("Fetching {} from {}", &task_id, worker_address);
+        let (data, serializer) = fetch_data(&mut stream, task_id).await?;
         log::debug!(
             "Fetched {} from {} ({} bytes)",
-            &key,
+            &task_id,
             worker_address,
             data.len()
         );
-        result.push((key, data, serializer));
+        result.push((task_id, data, serializer));
     }
     Ok(result)
 }
 
 pub async fn update_data_on_worker(
-    worker_address: DaskKey,
-    data: Vec<(DaskKey, BytesMut)>,
+    worker_ref: WorkerRef,
+    data: Vec<(TaskId, BytesMut)>,
 ) -> crate::Result<()> {
-    let connection = connect_to_worker(worker_address).await?;
+    let connection = connect_to_worker(worker_ref.get().listen_address.clone()).await?;
     let mut stream = make_protocol_builder().new_framed(connection);
 
-    for (key, data_for_key) in data {
+    for (task_id, data_for_id) in data {
         let message = DataRequest::UploadData(UploadDataMsg {
-            key: key.clone(),
+            task_id,
             serializer: SerializationType::Pickle,
         });
         let data = rmp_serde::to_vec_named(&message).unwrap();
         stream.send(data.into()).await?;
-        stream.send(data_for_key.into()).await?;
+        stream.send(data_for_id.into()).await?;
         let data = stream.next().await.unwrap().unwrap();
         let message: DataResponse = rmp_serde::from_slice(&data).unwrap();
         match message {
             DataResponse::DataUploaded(msg) => {
-                if msg.key != key {
+                if msg.task_id != task_id {
                     panic!("Upload sanity check failed, different key returned");
                 }
                 if let Some(error) = msg.error {
-                    panic!("Upload of {} failed: {}", &msg.key, error);
+                    panic!("Upload of {} failed: {}", &msg.task_id, error);
                 }
                 /* Ok */
             }
@@ -498,65 +293,7 @@ pub async fn update_data_on_worker(
     Ok(())
 }
 
-pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
-    sink: &mut W,
-    keys: Option<Vec<DaskKey>>,
-) -> crate::Result<()> {
-    let response: WhoHasMsgResponse = {
-        let core = core_ref.get();
-        let keys = keys.unwrap_or_else(|| {
-            core.get_tasks()
-                .map(|tr| tr.get().key_ref().into())
-                .collect()
-        });
-        keys.into_iter()
-            .map(|key| {
-                let workers = match core.get_task_by_key(&key) {
-                    Some(task) => match task.get().get_workers() {
-                        Some(ws) => ws.iter().map(|w| w.get().key().into()).collect(),
-                        None => vec![],
-                    },
-                    None => vec![],
-                };
-                (key, workers)
-            })
-            .collect()
-    };
-
-    sink.send(serialize_single_packet(response)?).await
-}
-
-pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
-    sink: &mut W,
-    msg: ProxyMsg,
-) -> crate::Result<()> {
-    let worker_address: DaskKey = {
-        core_ref
-            .get()
-            .get_worker_by_key_or_panic(&msg.worker)
-            .get()
-            .address()
-            .into()
-    };
-    let mut connection = connect_to_worker(worker_address).await?;
-    let (reader, writer) = connection.split();
-    let mut writer = asyncwrite_to_sink(writer);
-    let packet = DaskPacket::from_wrapper(MessageWrapper::Message(msg.msg), msg.frames)?;
-    writer.send(packet).await?;
-
-    let mut reader = asyncread_to_stream(reader);
-    if let Some(packet) = reader.next().await {
-        sink.send(packet?).await?;
-    }
-    Ok(())
-}
-
-async fn connect_to_worker(address: DaskKey) -> crate::Result<tokio::net::TcpStream> {
-    let address = address.to_string();
+async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
     let address = address.trim_start_matches("tcp://");
     let stream = TcpStream::connect(address).await?;
     stream.set_nodelay(true)?;

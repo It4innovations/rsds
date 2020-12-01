@@ -47,7 +47,7 @@ macro_rules! trace_time {
 }
 
 #[inline(always)]
-pub fn trace_task_new(task_id: TaskId, key: &str, inputs: &[u64]) {
+pub fn trace_task_new(task_id: TaskId, inputs: &[u64]) {
     let make_inputs = || {
         let mut input_str = String::with_capacity(2 * inputs.len());
         for input in inputs {
@@ -60,7 +60,6 @@ pub fn trace_task_new(task_id: TaskId, key: &str, inputs: &[u64]) {
         action = "task",
         event = "create",
         task = task_id,
-        key = key,
         inputs = make_inputs().as_str()
     );
 }
@@ -142,10 +141,10 @@ pub fn trace_worker_steal_response(task_id: TaskId, from: WorkerId, to: WorkerId
     );
 }
 #[inline(always)]
-pub fn trace_worker_steal_response_missing(task_key: &str, from: WorkerId) {
+pub fn trace_worker_steal_response_missing(task_id: TaskId, from: WorkerId) {
     tracing::info!(
         action = "steal-response",
-        task = task_key,
+        task = task_id,
         from = from,
         to = 0,
         result = "missing"

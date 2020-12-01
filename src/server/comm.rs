@@ -4,22 +4,19 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::common::{Map, WrappedRcRefCell};
 use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use crate::server::client::{Client, ClientId};
 use crate::server::core::{Core, CoreRef};
+use crate::server::dask::dasktransport::MessageBuilder;
+use crate::server::dask::dasktransport::{make_dask_pickle_payload, DaskPacket};
+use crate::server::dask::messages::client::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
 use crate::server::notifications::Notifications;
-use crate::server::notifications::{ClientNotification, WorkerNotification};
-use crate::server::protocol::daskmessages::client::{
-    KeyInMemoryMsg, TaskErredMsg, ToClientMessage,
-};
-use crate::server::protocol::dasktransport::MessageBuilder;
-use crate::server::protocol::dasktransport::{make_dask_pickle_payload, DaskPacket};
-use crate::server::protocol::messages::worker::{KeysMsg, ToWorkerMessage};
+use crate::server::notifications::{ClientNotifications, WorkerNotification};
+use crate::server::protocol::messages::worker::{TaskIdsMsg, ToWorkerMessage};
 use crate::server::task::TaskRuntimeState;
 use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_send;
 use crate::Error;
 
-/*use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::messages::worker::{
     DeleteDataMsg, StealRequestMsg, ToWorkerMessage,
 };*/
 pub type CommRef = WrappedRcRefCell<Comm>;
@@ -34,56 +31,25 @@ impl Comm {
             self.sender.send(notifications.scheduler_messages).unwrap();
         }
         self.notify_workers(&core, notifications.workers)?;
-        self.notify_clients(core, notifications.clients)?;
-
-        Ok(())
-    }
-
-    fn notify_clients(
-        &mut self,
-        core: &mut Core,
-        notifications: Map<ClientId, ClientNotification>,
-    ) -> crate::Result<()> {
-        for (client_id, c_update) in notifications {
-            let mut mbuilder = MessageBuilder::<ToClientMessage>::with_capacity(
-                c_update.error_tasks.len() + c_update.in_memory_tasks.len(),
-            );
-            for task_ref in c_update.error_tasks {
-                let task = task_ref.get();
-                if let TaskRuntimeState::Error(error_info) = &task.state {
-                    let exception = mbuilder.take_serialized(make_dask_pickle_payload(
-                        BytesMut::from(&error_info.exception[..]),
-                    ));
-                    let traceback = mbuilder.take_serialized(make_dask_pickle_payload(
-                        BytesMut::from(&error_info.traceback[..]),
-                    ));
-                    mbuilder.add_message(ToClientMessage::TaskErred(TaskErredMsg {
-                        key: task.key_ref().into(),
-                        exception,
-                        traceback,
-                    }));
-                } else {
-                    panic!("Task is not in error state");
-                };
-            }
-
-            for task_ref in c_update.in_memory_tasks {
-                let task = task_ref.get();
-                mbuilder.add_message(ToClientMessage::KeyInMemory(KeyInMemoryMsg {
-                    key: task.key_ref().into(),
-                    r#type: Default::default(), //task.data_info().unwrap().r#type.clone(),
-                }));
-            }
-
-            if !mbuilder.is_empty() {
-                self.send_client_packet(
-                    core.get_client_by_id_or_panic(client_id),
-                    mbuilder.build_batch()?,
-                )?;
-            }
+        //self.notify_clients(core)?;
+        if (!notifications.client_notifications.is_empty()) {
+            core.gateway
+                .send_notifications(notifications.client_notifications);
         }
         Ok(())
     }
+
+    /*fn notify_clients(
+        &mut self,
+        core: &mut Core,
+    ) -> crate::Result<()> {
+        /*for (client_id, c_update) in notifications {
+            let client_ref = core.get_client_by_id_or_panic(client_id);
+            client_ref.send(c_update);
+        }*/
+
+        Ok(())
+    }*/
 
     fn notify_workers(
         &mut self,
@@ -99,19 +65,15 @@ impl Comm {
                 worker.send_message(msg);
             }
             if !w_update.delete_keys.is_empty() {
-                let message = ToWorkerMessage::DeleteData(KeysMsg {
-                    keys: w_update.delete_keys,
+                let message = ToWorkerMessage::DeleteData(TaskIdsMsg {
+                    ids: w_update.delete_keys,
                 });
                 worker.send_message(message);
             }
 
             if !w_update.steal_tasks.is_empty() {
-                let keys: Vec<_> = w_update
-                    .steal_tasks
-                    .iter()
-                    .map(|t| t.get().key().clone())
-                    .collect();
-                let message = ToWorkerMessage::StealTasks(KeysMsg { keys });
+                let ids: Vec<_> = w_update.steal_tasks.iter().map(|t| t.get().id()).collect();
+                let message = ToWorkerMessage::StealTasks(TaskIdsMsg { ids });
                 worker.send_message(message);
             }
 
@@ -188,10 +150,10 @@ impl Comm {
         Ok(())
     }*/
 
-    #[inline]
-    fn send_client_packet(&mut self, client: &mut Client, packet: DaskPacket) -> crate::Result<()> {
+    /*#[inline]
+    fn send_client_packet(&mut self, client: &mut ClientRef, packet: DaskPacket) -> crate::Result<()> {
         client.send_dask_packet(packet)
-    }
+    }*/
 }
 
 impl CommRef {

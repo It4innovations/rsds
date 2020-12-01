@@ -1,5 +1,6 @@
 use crate::common::WrappedRcRefCell;
-use crate::server::protocol::key::DaskKey;
+use crate::scheduler::TaskId;
+use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::worker::ComputeTaskMsg;
 use crate::server::protocol::PriorityValue;
 use crate::worker::data::DataObjectRef;
@@ -12,13 +13,11 @@ pub enum TaskState {
 }
 
 pub struct Task {
-    pub key: DaskKey,
+    pub id: TaskId,
     pub state: TaskState,
     pub priority: (PriorityValue, PriorityValue),
     pub deps: Vec<DataObjectRef>,
-    pub function: rmpv::Value,
-    pub args: rmpv::Value,
-    pub kwargs: Option<rmpv::Value>,
+    pub spec: Vec<u8>,
 }
 
 impl Task {
@@ -83,10 +82,8 @@ pub type TaskRef = WrappedRcRefCell<Task>;
 impl TaskRef {
     pub fn new(message: ComputeTaskMsg) -> Self {
         let task_ref = TaskRef::wrap(Task {
-            key: message.key,
-            function: message.function,
-            args: message.args,
-            kwargs: message.kwargs,
+            id: message.id,
+            spec: message.spec,
             priority: (message.user_priority, message.scheduler_priority),
             state: TaskState::Waiting(0),
             deps: Default::default(),

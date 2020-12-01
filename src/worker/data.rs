@@ -3,7 +3,8 @@ use hashbrown::HashSet;
 
 use crate::common::data::SerializationType;
 use crate::common::WrappedRcRefCell;
-use crate::server::protocol::key::DaskKey;
+use crate::scheduler::{TaskId, WorkerId};
+use crate::server::dask::key::DaskKey;
 use crate::worker::task::TaskRef;
 
 #[derive(Debug)]
@@ -14,7 +15,7 @@ pub struct LocalData {
 
 #[derive(Debug)]
 pub struct RemoteData {
-    pub workers: Vec<DaskKey>,
+    pub workers: Vec<WorkerId>,
 }
 
 #[derive(Debug)]
@@ -25,7 +26,7 @@ pub enum DataObjectState {
 }
 
 pub struct DataObject {
-    pub key: DaskKey,
+    pub id: TaskId,
     pub state: DataObjectState,
     pub consumers: HashSet<TaskRef>,
     pub size: u64,
@@ -43,9 +44,9 @@ impl DataObject {
 pub type DataObjectRef = WrappedRcRefCell<DataObject>;
 
 impl DataObjectRef {
-    pub fn new(key: DaskKey, size: u64, state: DataObjectState) -> Self {
+    pub fn new(id: TaskId, size: u64, state: DataObjectState) -> Self {
         WrappedRcRefCell::wrap(DataObject {
-            key,
+            id,
             size,
             state,
             consumers: Default::default(),

@@ -62,7 +62,7 @@ impl Subworker {
             .map(|data_ref| {
                 let data_obj = data_ref.get();
                 Upload {
-                    key: data_obj.key.clone(),
+                    id: data_obj.id,
                     serializer: data_obj.local_data().unwrap().serializer.clone(),
                 }
             })
@@ -70,16 +70,14 @@ impl Subworker {
 
         log::debug!(
             "Starting task {} in subworker {} ({} uploads)",
-            task.key,
+            task.id,
             self.id,
             uploads.len()
         );
         // Send message to subworker
         let message = ToSubworkerMessage::ComputeTask(ComputeTaskMsg {
-            key: &task.key,
-            function: &task.function,
-            args: &task.args,
-            kwargs: &task.kwargs,
+            id: task.id,
+            spec: &task.spec,
             uploads,
         });
         let data = rmp_serde::to_vec_named(&message).unwrap();
@@ -151,20 +149,20 @@ fn subworker_task_finished(
     let mut state = state_ref.get_mut();
     {
         let mut sw = subworker_ref.get_mut();
-        log::debug!("Task {} finished in subworker {}", msg.key, sw.id);
+        log::debug!("Task {} finished in subworker {}", msg.id, sw.id);
         let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
-        assert_eq!(task_ref.get().key, msg.key);
+        assert_eq!(task_ref.get().id, msg.id);
         state.remove_task(task_ref, true);
 
         let message = FromWorkerMessage::TaskFinished(TaskFinishedMsg {
-            key: msg.key.clone(),
+            id: msg.id,
             nbytes: msg.result.len() as u64,
         });
         state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
 
         let data_ref = DataObjectRef::new(
-            msg.key,
+            msg.id,
             msg.result.len() as u64,
             DataObjectState::Local(LocalData {
                 serializer: msg.serializer,
@@ -184,14 +182,14 @@ fn subworker_task_fail(
     let mut state = state_ref.get_mut();
     {
         let mut sw = subworker_ref.get_mut();
-        log::debug!("Task {} failed in subworker {}", msg.key, sw.id);
+        log::debug!("Task {} failed in subworker {}", msg.id, sw.id);
         let task_ref = sw.running_task.take().unwrap();
         state.free_subworkers.push(subworker_ref.clone());
-        assert_eq!(task_ref.get().key, msg.key);
+        assert_eq!(task_ref.get().id, msg.id);
         state.remove_task(task_ref, true);
 
         let message = FromWorkerMessage::TaskFailed(TaskFailedMsg {
-            key: msg.key.clone(),
+            id: msg.id,
             exception: msg.exception,
             traceback: msg.traceback,
         });

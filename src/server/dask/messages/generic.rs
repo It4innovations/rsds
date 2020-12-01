@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::Map;
-use crate::server::protocol::dasktransport::{
+use crate::server::dask::dasktransport::{
     map_from_transport, Frames, FromDaskTransport, SerializedMemory, SerializedTransport,
 };
-use crate::server::protocol::key::DaskKey;
+use crate::server::dask::key::DaskKey;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IdentityMsg {
@@ -34,7 +34,7 @@ pub struct WorkerMetrics {
 
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct WorkerInfo {
-    pub host: DaskKey,
+    pub host: String,
     pub id: DaskKey,
     pub last_seen: f64,
     pub local_directory: DaskKey,
@@ -54,7 +54,7 @@ pub struct IdentityResponse {
     #[serde(rename = "type")]
     pub r#type: DaskKey,
     pub id: DaskKey,
-    pub workers: Map<DaskKey, WorkerInfo>,
+    pub workers: Map<String, WorkerInfo>,
 }
 
 from_dask_transport!(test, IdentityResponse);
@@ -180,10 +180,10 @@ from_dask_transport!(test, SimpleMessage);
 
 #[cfg(test)]
 mod tests {
-    use crate::server::protocol::daskmessages::generic::{GenericMessage, ScatterMsg};
-    use crate::server::protocol::dasktransport::{
+    use crate::server::dask::dasktransport::{
         map_to_transport, MessageBuilder, SerializedMemory, SerializedTransport, ToDaskTransport,
     };
+    use crate::server::dask::messages::generic::{GenericMessage, ScatterMsg};
 
     impl ToDaskTransport for GenericMessage<SerializedMemory> {
         type Transport = GenericMessage<SerializedTransport>;
