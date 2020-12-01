@@ -6,7 +6,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::WorkerInfo;
 
-use crate::server::protocol::key::{DaskKey, DaskKeyRef};
+use crate::server::dask::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::ToWorkerMessage;
 
 pub type WorkerId = u64;
@@ -16,7 +16,7 @@ pub struct Worker {
     pub id: WorkerId,
     pub sender: UnboundedSender<Bytes>,
     pub ncpus: u32,
-    pub listen_address: DaskKey,
+    pub listen_address: String,
 }
 
 impl Worker {
@@ -26,12 +26,7 @@ impl Worker {
     }
 
     #[inline]
-    pub fn key(&self) -> &DaskKeyRef {
-        &self.listen_address
-    }
-
-    #[inline]
-    pub fn address(&self) -> &DaskKeyRef {
+    pub fn address(&self) -> &str {
         &self.listen_address
     }
 
@@ -72,7 +67,7 @@ impl WorkerRef {
         id: WorkerId,
         ncpus: u32,
         sender: UnboundedSender<Bytes>,
-        listen_address: DaskKey,
+        listen_address: String,
     ) -> Self {
         Self::wrap(Worker {
             id,

@@ -5,12 +5,14 @@ use hashbrown::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::common::data::SerializationType;
-use crate::common::WrappedRcRefCell;
-use crate::server::protocol::key::DaskKey;
+use crate::common::{Map, WrappedRcRefCell};
+use crate::scheduler::TaskId;
+use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::worker::{
     DataDownloadedMsg, FromWorkerMessage, StealResponse,
 };
 use crate::server::protocol::{Priority, PriorityValue};
+use crate::server::worker::WorkerId;
 use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData};
 use crate::worker::reactor::choose_subworker;
 use crate::worker::subworker::{SubworkerId, SubworkerRef};
@@ -24,11 +26,13 @@ pub struct WorkerState {
     pub listen_address: String,
     pub subworkers: HashMap<SubworkerId, SubworkerRef>,
     pub free_subworkers: Vec<SubworkerRef>,
-    pub tasks: HashMap<DaskKey, TaskRef>,
+    pub tasks: HashMap<TaskId, TaskRef>,
     pub ready_task_queue:
         priority_queue::PriorityQueue<TaskRef, Reverse<(PriorityValue, PriorityValue)>>,
-    pub data_objects: HashMap<DaskKey, DataObjectRef>,
+    pub data_objects: HashMap<TaskId, DataObjectRef>,
     pub download_sender: tokio::sync::mpsc::UnboundedSender<(DataObjectRef, Priority)>,
+    pub worker_id: WorkerId,
+    pub worker_addresses: Map<WorkerId, String>,
 }
 
 impl WorkerState {
@@ -45,8 +49,8 @@ impl WorkerState {
     }
 
     pub fn add_data_object(&mut self, data_ref: DataObjectRef) {
-        let key = data_ref.get().key.clone();
-        self.data_objects.insert(key, data_ref);
+        let id = data_ref.get().id;
+        self.data_objects.insert(id, data_ref);
     }
 
     pub fn send_message_to_server(&self, data: Vec<u8>) {
@@ -61,7 +65,7 @@ impl WorkerState {
     ) {
         {
             let mut data_obj = data_ref.get_mut();
-            log::debug!("Data {} downloaded ({} bytes)", data_obj.key, data.len());
+            log::debug!("Data {} downloaded ({} bytes)", data_obj.id, data.len());
             match data_obj.state {
                 DataObjectState::Remote(_) => { /* This is ok */ }
                 DataObjectState::Removed => {
@@ -76,9 +80,7 @@ impl WorkerState {
                 bytes: data.into(),
             });
 
-            let message = FromWorkerMessage::DataDownloaded(DataDownloadedMsg {
-                key: data_obj.key.clone(),
-            });
+            let message = FromWorkerMessage::DataDownloaded(DataDownloadedMsg { id: data_obj.id });
             self.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
         }
 
@@ -90,7 +92,7 @@ impl WorkerState {
         for task_ref in &data_ref.get().consumers {
             let is_ready = task_ref.get_mut().decrease_waiting_count();
             if is_ready {
-                log::debug!("Task {} becomes ready", task_ref.get().key);
+                log::debug!("Task {} becomes ready", task_ref.get().id);
                 self.add_ready_task(task_ref.clone());
             }
         }
@@ -105,20 +107,20 @@ impl WorkerState {
     pub fn add_dependancy(
         &mut self,
         task_ref: &TaskRef,
-        key: DaskKey,
+        task_id: TaskId,
         size: u64,
-        workers: Vec<DaskKey>,
+        workers: Vec<WorkerId>,
     ) {
         let mut task = task_ref.get_mut();
         let mut is_remote = false;
-        let data_ref = match self.data_objects.get(&key).cloned() {
+        let data_ref = match self.data_objects.get(&task_id).cloned() {
             None => {
                 let data_ref = DataObjectRef::new(
-                    key.clone(),
+                    task_id,
                     size,
                     DataObjectState::Remote(RemoteData { workers }),
                 );
-                self.data_objects.insert(key, data_ref.clone());
+                self.data_objects.insert(task_id, data_ref.clone());
                 is_remote = true;
                 data_ref
             }
@@ -148,19 +150,19 @@ impl WorkerState {
     }
 
     pub fn add_task(&mut self, task_ref: TaskRef) {
-        let key = task_ref.get().key.clone();
+        let id = task_ref.get().id;
         if task_ref.get().is_ready() {
-            log::debug!("Task {} is directly ready", task_ref.get().key);
+            log::debug!("Task {} is directly ready", id);
             self.add_ready_task(task_ref.clone());
         } else {
             let task = task_ref.get();
             log::debug!(
                 "Task {} is blocked by {} remote objects",
-                task.key,
+                id,
                 task.get_waiting()
             );
         }
-        self.tasks.insert(key, task_ref);
+        self.tasks.insert(id, task_ref);
     }
 
     pub fn try_start_tasks(&mut self) {
@@ -183,9 +185,9 @@ impl WorkerState {
         }
     }
 
-    pub fn remove_data(&mut self, key: &DaskKey) {
-        log::debug!("Removing data object {}", key);
-        self.data_objects.remove(key).map(|data_ref| {
+    pub fn remove_data(&mut self, task_id: TaskId) {
+        log::info!("Removing data object {}", task_id);
+        self.data_objects.remove(&task_id).map(|data_ref| {
             let mut data_obj = data_ref.get_mut();
             data_obj.state = DataObjectState::Removed;
             if !data_obj.consumers.is_empty() {
@@ -212,7 +214,7 @@ impl WorkerState {
         }
         task.state = TaskState::Removed;
 
-        assert!(self.tasks.remove(&task.key).is_some());
+        assert!(self.tasks.remove(&task.id).is_some());
 
         for data_ref in std::mem::take(&mut task.deps) {
             let mut data = data_ref.get_mut();
@@ -230,8 +232,8 @@ impl WorkerState {
         }
     }
 
-    pub fn steal_task(&mut self, key: &DaskKey) -> StealResponse {
-        match self.tasks.get(key).cloned() {
+    pub fn steal_task(&mut self, task_id: TaskId) -> StealResponse {
+        match self.tasks.get(&task_id).cloned() {
             None => StealResponse::NotHere,
             Some(task_ref) => {
                 {
@@ -251,12 +253,16 @@ impl WorkerState {
 
 impl WorkerStateRef {
     pub fn new(
+        worker_id: WorkerId,
         sender: UnboundedSender<Bytes>,
         ncpus: u32,
         listen_address: String,
         download_sender: tokio::sync::mpsc::UnboundedSender<(DataObjectRef, Priority)>,
+        worker_addresses: Map<WorkerId, String>,
     ) -> Self {
         Self::wrap(WorkerState {
+            worker_id,
+            worker_addresses,
             sender,
             ncpus,
             listen_address,

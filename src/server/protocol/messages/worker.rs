@@ -1,45 +1,55 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::data::SerializationType;
-use crate::server::protocol::key::DaskKey;
+use crate::common::Map;
+use crate::scheduler::{TaskId, WorkerId};
+use crate::server::dask::key::DaskKey;
 use crate::server::protocol::PriorityValue;
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct WorkerRegistrationResponse {
+    pub worker_id: WorkerId,
+    pub worker_addresses: Map<WorkerId, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ComputeTaskMsg {
-    pub key: DaskKey,
+    pub id: TaskId,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    pub dep_info: Vec<(DaskKey, u64, Vec<DaskKey>)>,
+    pub dep_info: Vec<(TaskId, u64, Vec<WorkerId>)>,
 
-    pub function: rmpv::Value,
-
-    pub args: rmpv::Value,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub kwargs: Option<rmpv::Value>,
+    #[serde(with = "serde_bytes")]
+    pub spec: Vec<u8>,
 
     pub user_priority: PriorityValue,
     pub scheduler_priority: PriorityValue,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct KeysMsg {
-    pub keys: Vec<DaskKey>,
+pub struct TaskIdsMsg {
+    pub ids: Vec<TaskId>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NewWorkerMsg {
+    pub worker_id: WorkerId,
+    pub address: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "op")]
 pub enum ToWorkerMessage {
     ComputeTask(ComputeTaskMsg),
-    DeleteData(KeysMsg),
-    StealTasks(KeysMsg),
+    DeleteData(TaskIdsMsg),
+    StealTasks(TaskIdsMsg),
+    NewWorker(NewWorkerMsg),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFinishedMsg {
-    pub key: DaskKey,
+    pub id: TaskId,
     pub nbytes: u64,
     /*#[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,*/
@@ -47,7 +57,7 @@ pub struct TaskFinishedMsg {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFailedMsg {
-    pub key: DaskKey,
+    pub id: TaskId,
     #[serde(with = "serde_bytes")]
     pub exception: Vec<u8>,
     #[serde(with = "serde_bytes")]
@@ -56,7 +66,7 @@ pub struct TaskFailedMsg {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataDownloadedMsg {
-    pub key: DaskKey,
+    pub id: TaskId,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -68,7 +78,7 @@ pub enum StealResponse {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct StealResponseMsg {
-    pub responses: Vec<(DaskKey, StealResponse)>,
+    pub responses: Vec<(TaskId, StealResponse)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -82,12 +92,12 @@ pub enum FromWorkerMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FetchRequestMsg {
-    pub key: DaskKey,
+    pub task_id: TaskId,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UploadDataMsg {
-    pub key: DaskKey,
+    pub task_id: TaskId,
     pub serializer: SerializationType,
 }
 
@@ -105,7 +115,7 @@ pub struct FetchResponseData {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UploadResponseMsg {
-    pub key: DaskKey,
+    pub task_id: TaskId,
     pub error: Option<String>,
 }
 

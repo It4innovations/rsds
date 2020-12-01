@@ -1,6 +1,7 @@
 import asyncio
 import concurrent
 import pickle
+import msgpack
 import sys
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -50,15 +51,15 @@ class Subworker:
     async def get_uploads(self, uploads):
         result = []
         for upload in uploads:
-            key = upload["key"]
-            logger.info("Uploading %s from worker", key)
+            data_id = upload["id"]
+            logger.info("Uploading %s from worker", data_id)
             data = await self.socket.read_raw_message()
-            result.append((key, data, upload["serializer"]))
+            result.append((data_id, data, upload["serializer"]))
         return result
 
     async def handle_compute_task(self, message):
-        key = message.get("key")
-        logger.info("Starting task %s", key)
+        task_id = message["id"]
+        logger.info("Starting task %s", task_id)
         uploads = message.get("uploads")
         if uploads:
             logger.info("Need %s uploads", len(uploads))
@@ -71,23 +72,23 @@ class Subworker:
                 self.executor, run_task, message, upload_data
             )
             if state == "ok":
-                logger.info("Task %s successfully finished", key)
+                logger.info("Task %s successfully finished", task_id)
                 serializer, data = serialize(result)
                 await self.socket.send_message(
                     {
                         "op": "TaskFinished",
                         "serializer": serializer,
-                        "key": key,
+                        "id": task_id,
                         "result": data,
                     }
                 )
             else:
                 exception, traceback = result
-                logger.error("Task %s failed: %s", key, result)
+                logger.error("Task %s failed: %s", task_id, result)
                 await self.socket.send_message(
                     {
                         "op": "TaskFailed",
-                        "key": key,
+                        "id": task_id,
                         "exception": serialize_by_pickle(exception),
                         "traceback": serialize_by_pickle(traceback),
                     }
@@ -111,31 +112,41 @@ def _run_dask_composed_task(obj):
 
 def run_task(message, uploads):
     try:
+        logger.debug("Deserializing spec")
+        spec = msgpack.loads(message["spec"])
+        del message["spec"]  # Remove serialized spec
         logger.debug("Deserializing function")
-        function = deserialize_by_pickle(message["function"])
-        args = message["args"]
+        function = deserialize_by_pickle(spec["function"])
+        args = spec.get("args")
         if args is not None:
             logger.debug("Deserializing args")
             args = deserialize_by_pickle(args)
         else:
             args = ()
-        kwargs = message.get("kwargs", None)
+        kwargs = spec.get("kwargs", None)
         if kwargs:
             logger.debug("Deserializing kwargs")
             kwargs = deserialize_by_pickle(kwargs)
         else:
             kwargs = {}
+
+        id_key_map = spec.get("id_key_map")
+        if id_key_map is not None:
+            id_key_map = dict(id_key_map)
         deps = {}
-        for key, data, serializer in uploads:
-            logger.debug("Deserializing upload %s", key)
-            deps[key] = deserialize(data, serializer)
+        for data_id, data, serializer in uploads:
+            logger.debug("Deserializing upload %s", data_id)
+            deps[id_key_map[data_id]] = deserialize(data, serializer)
+        del id_key_map
 
         if callable(function):
             logger.debug("Starting normal function")
             args = [substitude_keys(a, deps) for a in args]
+            del deps
             result = function(*args, **kwargs)
         else:
             function = substitude_keys(function, deps)
+            del deps
             result = _run_dask_composed_task(function)
         return "ok", result
     except Exception as e:

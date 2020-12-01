@@ -16,12 +16,12 @@ use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::{TaskAssignment, TaskId};
 use crate::server::client::{Client, ClientId};
 use crate::server::core::Core;
-use crate::server::notifications::Notifications;
-use crate::server::protocol::daskmessages::client::ClientTaskSpec;
-use crate::server::protocol::dasktransport::{
+use crate::server::dask::dasktransport::{
     deserialize_packet, Batch, DaskCodec, DaskPacket, FromDaskTransport, SerializedMemory,
 };
-use crate::server::protocol::key::{to_dask_key, DaskKey};
+use crate::server::dask::key::{to_dask_key, DaskKey};
+use crate::server::dask::messages::client::ClientTaskSpec;
+use crate::server::notifications::Notifications;
 use crate::server::task::TaskRef;
 use crate::server::worker::WorkerRef;
 

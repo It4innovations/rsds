@@ -608,16 +608,16 @@ mod tests {
     use tokio_util::codec::{Decoder, Encoder};
 
     use crate::common::Map;
-    use crate::server::protocol::daskmessages::client::{
-        task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage, KeyInMemoryMsg,
-        ToClientMessage, UpdateGraphMsg,
-    };
-    use crate::server::protocol::dasktransport::IntoInner;
-    use crate::server::protocol::dasktransport::{
+    use crate::server::dask::dasktransport::IntoInner;
+    use crate::server::dask::dasktransport::{
         asyncwrite_to_sink, serialize_single_packet, split_packet_into_parts, Batch, DaskCodec,
         DaskPacket, DaskPacketPart, Frame, SerializedMemory,
     };
-    use crate::server::protocol::key::{to_dask_key, DaskKey};
+    use crate::server::dask::key::{to_dask_key, DaskKey};
+    use crate::server::dask::messages::client::{
+        client_task_spec_to_memory, ClientTaskSpec, DirectTaskSpec, FromClientMessage,
+        KeyInMemoryMsg, ToClientMessage, UpdateGraphMsg,
+    };
     use crate::test_util::{bytes_to_msg, load_bin_test_data};
     use crate::Result;
 
@@ -966,7 +966,7 @@ mod tests {
     fn parse_tasks(msg: &mut UpdateGraphMsg) -> Map<DaskKey, ClientTaskSpec<SerializedMemory>> {
         std::mem::take(&mut msg.tasks)
             .into_iter()
-            .map(|(k, v)| (k, task_spec_to_memory(v, &mut msg.frames)))
+            .map(|(k, v)| (k, client_task_spec_to_memory(v, &mut msg.frames)))
             .collect()
     }
 

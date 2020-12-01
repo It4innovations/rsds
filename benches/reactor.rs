@@ -5,9 +5,9 @@ use rsds::scheduler::ToSchedulerMessage;
 use rsds::server::client::{Client, ClientId};
 use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
-use rsds::server::protocol::daskmessages::client::{ClientTaskSpec, UpdateGraphMsg};
-use rsds::server::protocol::dasktransport::{DaskPacket, SerializedTransport};
-use rsds::server::protocol::key::DaskKey;
+use rsds::server::dask::dasktransport::{DaskPacket, SerializedTransport};
+use rsds::server::dask::key::DaskKey;
+use rsds::server::dask::messages::client::{ClientTaskSpec, UpdateGraphMsg};
 use rsds::server::reactor::update_graph;
 
 struct Context {

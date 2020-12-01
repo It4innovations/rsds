@@ -7,18 +7,6 @@ use serde::de::Visitor;
 use serde::export::Formatter;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/*pub type DaskKey = String;
-pub type DaskKeyRef = str;
-
-#[inline]
-pub fn to_dask_key(string: &str) -> DaskKey {
-    string.to_owned()
-}
-#[inline]
-pub fn dask_key_ref_to_string(key: &DaskKeyRef) -> String {
-    key.to_owned()
-}*/
-
 pub type DaskKeyRef = [u8];
 
 #[derive(Hash, PartialEq, Eq, Clone, Default)]

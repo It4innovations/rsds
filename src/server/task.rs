@@ -4,16 +4,15 @@ use std::rc::Rc;
 
 use crate::common::{Set, WrappedRcRefCell};
 use crate::scheduler::protocol::TaskId;
-use crate::server::client::ClientId;
 use crate::server::core::Core;
+use crate::server::dask::key::{DaskKey, DaskKeyRef};
+use crate::server::dask::messages::client::{ClientTaskSpec, DirectTaskSpec};
 use crate::server::notifications::Notifications;
-use crate::server::protocol::daskmessages::client::{ClientTaskSpec, DirectTaskSpec};
-use crate::server::protocol::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
 use crate::server::worker::WorkerRef;
 
-/*use crate::server::protocol::daskmessages::worker::{
+/*use crate::server::protocol::messages::worker::{
     ComputeTaskMsg as DaskComputeTaskMsg, ToWorkerMessage as DaskToWorkerMessage,
 };*/
 #[derive(Debug)]
@@ -47,6 +46,7 @@ impl fmt::Debug for TaskRuntimeState {
     }
 }
 
+#[derive(Debug)]
 pub struct ErrorInfo {
     pub exception: Vec<u8>,
     pub traceback: Vec<u8>,
@@ -57,17 +57,15 @@ pub struct Task {
     pub id: TaskId,
     pub state: TaskRuntimeState,
     pub unfinished_inputs: u32,
-    pub actor: bool,
     consumers: Set<TaskRef>,
-    key: DaskKey,
     pub dependencies: Vec<TaskId>,
 
-    pub spec: Option<ClientTaskSpec>,
+    //pub spec: Option<ClientTaskSpec>,
+    pub spec: Vec<u8>, // Serialized TaskSpec
 
     pub user_priority: i32,
     pub scheduler_priority: i32,
     pub client_priority: i32,
-    subscribed_clients: Vec<ClientId>,
 }
 
 pub type TaskRef = WrappedRcRefCell<Task>;
@@ -79,13 +77,8 @@ impl Task {
     }
 
     #[inline]
-    pub fn key_ref(&self) -> &DaskKeyRef {
-        &self.key
-    }
-
-    #[inline]
-    pub fn key(&self) -> &DaskKey {
-        &self.key
+    pub fn id(&self) -> TaskId {
+        self.id
     }
 
     #[inline]
@@ -105,27 +98,11 @@ impl Task {
         &self.consumers
     }
 
-    pub fn subscribe_client(&mut self, client_id: ClientId) {
+    /*pub fn subscribe_client(&mut self, client_id: ClientId) {
         if !self.subscribed_clients.contains(&client_id) {
             self.subscribed_clients.push(client_id);
         }
-    }
-
-    #[inline]
-    pub fn has_subscribed_clients(&self) -> bool {
-        !self.consumers.is_empty()
-    }
-
-    pub fn unsubscribe_client(&mut self, client_id: ClientId) {
-        self.subscribed_clients
-            .iter()
-            .position(|x| *x == client_id)
-            .map(|i| self.subscribed_clients.remove(i));
-    }
-
-    pub fn subscribed_clients(&self) -> &Vec<ClientId> {
-        &self.subscribed_clients
-    }
+    }*/
 
     pub fn make_sched_info(&self) -> crate::scheduler::protocol::TaskInfo {
         crate::scheduler::protocol::TaskInfo {
@@ -135,8 +112,8 @@ impl Task {
     }
 
     pub fn remove_data_if_possible(&mut self, core: &mut Core, notifications: &mut Notifications) {
-        if self.consumers.is_empty() && self.subscribed_clients().is_empty() && self.is_finished() {
-            let ws = match std::mem::replace(&mut self.state, TaskRuntimeState::Released) {
+        if self.consumers.is_empty() && self.is_finished() && !core.gateway.is_kept(self.id) {
+            let ws = match core.remove_task(self) {
                 TaskRuntimeState::Finished(_, ws) => ws,
                 _ => unreachable!(),
             };
@@ -146,10 +123,9 @@ impl Task {
                     self.id,
                     worker_ref.get().id
                 );
-                notifications.delete_key_from_worker(worker_ref, &self);
+                notifications.delete_data_from_worker(worker_ref, &self);
             }
             notifications.remove_task(&self);
-            core.remove_task(&self);
         }
     }
 
@@ -179,9 +155,9 @@ impl Task {
                     .get_workers()
                     .unwrap()
                     .iter()
-                    .map(|w| w.get().listen_address.clone())
+                    .map(|w| w.get().id())
                     .collect();
-                (task.key.clone(), task.data_info().unwrap().size, addresses)
+                (task.id, task.data_info().unwrap().size, addresses)
             })
             .collect();
 
@@ -193,7 +169,7 @@ impl Task {
             }
         };*/
 
-        let (function, args, kwargs) = match &self.spec {
+        /*let (function, args, kwargs) = match &self.spec {
             Some(ClientTaskSpec::Direct(DirectTaskSpec {
                 function,
                 args,
@@ -205,90 +181,16 @@ impl Task {
             ),
             Some(ClientTaskSpec::Serialized(s)) => (s.to_msgpack_value(), rmpv::Value::Nil, None),
             None => panic!("Task has no specification"),
-        };
+        };*/
 
         ToWorkerMessage::ComputeTask(ComputeTaskMsg {
-            key: self.key.clone(),
+            id: self.id,
             dep_info,
-            function,
-            args,
-            kwargs,
+            spec: self.spec.clone(),
             user_priority: self.user_priority,
             scheduler_priority: self.scheduler_priority,
         })
     }
-
-    /*pub fn make_compute_task_msg_dask(
-        &self,
-        core: &Core,
-        mbuilder: &mut MessageBuilder<DaskToWorkerMessage>,
-    ) {
-        let task_refs: Vec<_> = self
-            .dependencies
-            .iter()
-            .map(|task_id| core.get_task_by_id_or_panic(*task_id).clone())
-            .collect();
-        let who_has: Vec<_> = task_refs
-            .iter()
-            .map(|task_ref| {
-                let task = task_ref.get();
-                let addresses: Vec<_> = task
-                    .get_workers()
-                    .unwrap()
-                    .iter()
-                    .map(|w| w.get().listen_address.clone())
-                    .collect();
-                (task.key.clone(), addresses)
-            })
-            .collect();
-
-        let nbytes: Vec<_> = task_refs
-            .iter()
-            .map(|task_ref| {
-                let task = task_ref.get();
-                (task.key.clone(), task.data_info().unwrap().size)
-            })
-            .collect();
-
-        let mut msg_function = None;
-        let mut msg_args = None;
-        let mut msg_kwargs = None;
-        let mut msg_task = None;
-
-        match &self.spec {
-            Some(ClientTaskSpec::Direct(DirectTaskSpec {
-                function,
-                args,
-                kwargs,
-            })) => {
-                msg_function = function.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_args = args.as_ref().map(|v| v.to_transport_clone(mbuilder));
-                msg_kwargs = kwargs.as_ref().map(|v| v.to_transport_clone(mbuilder));
-            }
-            Some(ClientTaskSpec::Serialized(v)) => {
-                msg_task = Some(v.to_transport_clone(mbuilder));
-            }
-            None => panic!("Task has no specification"),
-        };
-
-        let msg = DaskToWorkerMessage::ComputeTask(DaskComputeTaskMsg {
-            key: self.key.clone(),
-            duration: 0.5, // TODO
-            actor: self.actor,
-            who_has,
-            nbytes,
-            task: msg_task,
-            function: msg_function,
-            kwargs: msg_kwargs,
-            args: msg_args,
-            priority: [
-                self.user_priority,
-                self.scheduler_priority,
-                self.client_priority,
-            ],
-        });
-        mbuilder.add_message(msg);
-    }*/
 
     #[inline]
     pub fn is_waiting(&self) -> bool {
@@ -360,8 +262,7 @@ impl Task {
 impl TaskRef {
     pub fn new(
         id: TaskId,
-        key: DaskKey,
-        spec: Option<ClientTaskSpec>,
+        spec: Vec<u8>,
         dependencies: Vec<TaskId>,
         unfinished_inputs: u32,
         user_priority: PriorityValue,
@@ -369,8 +270,6 @@ impl TaskRef {
     ) -> Self {
         Self::wrap(Task {
             id,
-            key,
-            actor: false,
             dependencies,
             unfinished_inputs,
             spec,
@@ -379,7 +278,6 @@ impl TaskRef {
             scheduler_priority: Default::default(),
             state: TaskRuntimeState::Waiting,
             consumers: Default::default(),
-            subscribed_clients: Default::default(),
         })
     }
 }
