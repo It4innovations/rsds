@@ -49,9 +49,9 @@ def start_process_pool(args):
     return start_process(args, host=host, workdir=workdir, name=name, env=env, init_cmd=init_cmd)
 
 
-def kill_fn(scheduler_sigint, node, process):
+def kill_fn(use_sigint, node, process):
     signal = "TERM"
-    if (process["key"].startswith("scheduler") and scheduler_sigint) or "monitor" in process["key"]:
+    if (use_sigint and ("scheduler" in process["key"] or "worker" in process["key"])) or "monitor" in process["key"]:
         signal = "INT"
 
     if not kill_process(node, process["pid"], signal=signal):
@@ -122,8 +122,8 @@ class DaskCluster:
     def kill(self):
         start = time.time()
 
-        scheduler_sigint = self._profile_flamegraph() or self._trace_scheduler()
-        fn = functools.partial(kill_fn, scheduler_sigint)
+        use_sigint = self._profile_flamegraph() or self._trace_scheduler()
+        fn = functools.partial(kill_fn, use_sigint)
         self.cluster.kill(fn)
         logging.info(f"Cluster killed in {time.time() - start} seconds")
 
