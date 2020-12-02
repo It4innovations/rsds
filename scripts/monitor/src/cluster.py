@@ -92,7 +92,7 @@ def start_process(commands, host=None, workdir=None, modules=(), name=None, env=
     if env:
         args += ["env"]
         for (key, val) in env.items():
-            args += [f"{key}={val}"]
+            args += [f"{key}=\"{val}\""]
 
     args += [str(cmd) for cmd in commands]
 
