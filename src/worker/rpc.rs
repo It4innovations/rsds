@@ -1,6 +1,5 @@
 use std::cmp::Reverse;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
 use std::time::Duration;
 
 use bytes::buf::BufMutExt;
@@ -32,7 +31,7 @@ use crate::server::reactor::fetch_data;
 use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
 
 use crate::worker::state::WorkerStateRef;
-use crate::worker::subworker::start_subworkers;
+use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
@@ -75,7 +74,7 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
     ))
 }
 
-pub async fn run_worker(scheduler_address: &str, ncpus: u32, work_dir: &Path) -> crate::Result<()> {
+pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: SubworkerPaths) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
@@ -96,7 +95,7 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, work_dir: &Path) ->
     let state = WorkerStateRef::new(queue_sender, ncpus, address, download_sender);
 
     log::info!("Starting {} subworkers", ncpus);
-    let (subworkers, sw_processes) = start_subworkers(&state, &work_dir, "python3", ncpus).await?;
+    let (subworkers, sw_processes) = start_subworkers(&state, subworker_paths, "python3", ncpus).await?;
     log::debug!("Subworkers started");
 
     state.get_mut().set_subworkers(subworkers);

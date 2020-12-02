@@ -211,11 +211,17 @@ python {RUN_BENCHMARK_SCRIPT}
         is_rust = workers.get("rust", False)
 
         def get_args():
-            args = [binary, scheduler_address]
             if is_rust:
                 assert threads == 1
-                return [*args, "--ncpus", str(processes)] + worker_args
+                host, port = scheduler_address.rsplit(":", 1)
+                address = f"{host}:{int(port) + 1}"
+                args = [binary, address]
+                return [*args,
+                        "--ncpus", str(processes),
+                        "--work-dir", self.workdir,
+                        "--local-directory", "/tmp"] + worker_args
             else:
+                args = [binary, scheduler_address]
                 return [*args,
                         "--nthreads", str(threads),
                         "--nprocs", str(processes),
@@ -228,6 +234,10 @@ python {RUN_BENCHMARK_SCRIPT}
             "PYTHONDONTWRITEBYTECODE": "1",
             "RUST_BACKTRACE": "full",
         }
+
+        if is_rust:
+            if self._profile_flamegraph():
+                env["RSDS_SUBWORKER_PREFIX"] = "py-spy record --rate=200 --function --subprocesses --output=subworker-<I>.svg"
 
         if node_count == "local":
             for i in range(processes_per_node):

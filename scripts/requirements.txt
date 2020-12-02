@@ -18,3 +18,4 @@ networkx==2.4
 git+https://github.com/Kobzol/Wordbatch@master
 cython==0.29.15
 nltk==3.4.5
+py-spy==0.3.3

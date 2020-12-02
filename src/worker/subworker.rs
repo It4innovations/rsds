@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use bytes::Bytes;
@@ -26,6 +26,23 @@ use crate::worker::state::WorkerStateRef;
 use crate::worker::task::{Task, TaskRef};
 
 use super::messages::RegisterSubworkerMessage;
+
+#[derive(Debug, Clone)]
+pub struct SubworkerPaths {
+    /// Used for storing trace/profiling/log information.
+    work_dir: PathBuf,
+    /// Used for local communication (unix socket).
+    local_dir: PathBuf
+}
+
+impl SubworkerPaths {
+    pub fn new(work_dir: PathBuf, local_dir: PathBuf) -> Self {
+        Self {
+            work_dir,
+            local_dir
+        }
+    }
+}
 
 pub(crate) type SubworkerId = u32;
 
@@ -204,28 +221,42 @@ async fn run_subworker_message_loop(
 
 async fn run_subworker(
     state_ref: WorkerStateRef,
-    work_dir: PathBuf,
+    paths: SubworkerPaths,
     python_program: String,
     subworker_id: SubworkerId,
     ready_shot: oneshot::Sender<SubworkerRef>,
 ) -> Result<(), crate::Error> {
-    let mut socket_path = work_dir.clone();
+    let mut socket_path = paths.local_dir.clone();
     socket_path.push(format!("subworker-{}.sock", subworker_id));
 
     let listener = UnixListener::bind(&socket_path)?;
 
-    let mut log_path = work_dir;
+    let mut log_path = paths.work_dir.clone();
     log_path.push(format!("subworker-{}.log", subworker_id));
     let mut process_future = {
         let log_stdout = File::create(&log_path)?;
         let log_stderr = log_stdout.try_clone()?;
 
-        Command::new(python_program)
+        let mut args = vec!(
+            "-m".to_string(),
+            "rsds.subworker".to_string()
+        );
+        let mut program = python_program;
+
+        if let Ok(cmd) = std::env::var("RSDS_SUBWORKER_PREFIX") {
+            let cmd = cmd.replace("<I>", &subworker_id.to_string());
+            let splitted: Vec<_> = cmd.split(" ").map(|i| i.to_string()).collect();
+            args = [&splitted[1..], &["--".to_string()], &[program], &args[..]].concat();
+            program = splitted[0].clone();
+        }
+
+        Command::new(program)
             .stdout(Stdio::from(log_stdout))
             .stderr(Stdio::from(log_stderr))
             .env("RSDS_SUBWORKER_SOCKET", &socket_path)
             .env("RSDS_SUBWORKER_ID", format!("{}", subworker_id))
-            .args(&["-m", "rsds.subworker"])
+            .args(&args)
+            .current_dir(paths.work_dir)
             .spawn()?
     };
 
@@ -269,7 +300,7 @@ async fn run_subworker(
 
 pub async fn start_subworkers(
     state: &WorkerStateRef,
-    work_dir: &Path,
+    paths: SubworkerPaths,
     python_program: &str,
     count: u32,
 ) -> Result<(Vec<SubworkerRef>, impl Future<Output = usize>), crate::Error> {
@@ -280,7 +311,7 @@ pub async fn start_subworkers(
             ready.push(rx);
             run_subworker(
                 state.clone(),
-                work_dir.to_path_buf(),
+                paths.clone(),
                 python_program.to_string(),
                 i as SubworkerId,
                 sx,
@@ -288,14 +319,14 @@ pub async fn start_subworkers(
             .boxed_local()
         })
         .collect();
-    let mut all_processes = futures::future::select_all(processes).map(|(_, idx, _)| idx);
+    let mut all_processes = futures::future::select_all(processes).map(|(result, idx, _)| (result, idx));
 
     tokio::select! {
-        idx = &mut all_processes => {
-            panic!("Subworker {} terminated", idx);
+        (result, idx) = &mut all_processes => {
+            panic!("Subworker {} terminated: {:?}", idx, result);
         }
         subworkers = futures::future::join_all(ready) => {
-            Ok((subworkers.into_iter().map(|sw| sw.unwrap()).collect(), all_processes))
+            Ok((subworkers.into_iter().map(|sw| sw.unwrap()).collect(), all_processes.map(|(_, idx)| idx)))
         }
     }
 }
