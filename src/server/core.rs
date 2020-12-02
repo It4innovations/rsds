@@ -29,6 +29,7 @@ impl Identifiable for Client {
         self.key().into()
     }
 }
+
 impl Identifiable for WorkerRef {
     type Id = WorkerId;
     type Key = DaskKey;
@@ -596,8 +597,13 @@ impl Core {
 fn get_task_duration(msg: &TaskFinishedMsg) -> (u64, u64) {
     msg.startstops
         .iter()
-        .find(|(key, _, _)| key.as_bytes() == b"compute")
-        .map(|(_, start, stop)| ((start * 1_000_000f64) as u64, (stop * 1_000_000f64) as u64))
+        .find(|map| map[b"action" as &[u8]].as_str().unwrap() == "compute")
+        .map(|map| {
+            (
+                (map[b"start" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64,
+                (map[b"stop" as &[u8]].as_f64().unwrap() * 1_000_000f64) as u64,
+            )
+        })
         .unwrap_or((0, 0))
 }*/
 
@@ -654,7 +660,7 @@ mod tests {
                 id: t.get().id,
                 state: TaskUpdateType::Finished,
                 worker: w.get().id,
-                size: Some(nbytes)
+                size: Some(nbytes),
             })
         );
     }
@@ -726,7 +732,7 @@ mod tests {
                 notifications.clients[&client.id()],
                 ClientNotification {
                     in_memory_tasks: vec![t.clone()],
-                    error_tasks: vec![]
+                    error_tasks: vec![],
                 }
             );
         }
@@ -774,10 +780,11 @@ mod tests {
             get_task_duration(&TaskFinishedMsg {
                 key: "null".into(),
                 nbytes: 16,
-                /*startstops: vec!(
-                    ("send".into(), 100.0, 200.0),
-                    ("compute".into(), 200.134, 300.456)
-                )*/
+                r#type: vec![1, 2, 3],
+                startstops: vec!(
+                    startstop_item("send", 100.0, 200.0),
+                    startstop_item("compute", 200.134, 300.456)
+                ),
             }),
             (200134000, 300456000)
         );*/
@@ -789,6 +796,8 @@ mod tests {
             get_task_duration(&TaskFinishedMsg {
                 key: "null".into(),
                 nbytes: 16,
+                r#type: vec![1, 2, 3],
+                startstops: vec!(),
             }),
             (0, 0)
         );*/

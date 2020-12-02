@@ -44,6 +44,10 @@ type WorkerTaskState =
     | "constrained"
     | "long-running";
 
+type CloseStreamMsg = {
+    "op": "close-stream"
+};
+
 /**
  * UNINITIATED MESSAGES
  *
@@ -255,9 +259,7 @@ type ClientDesiresKeysMsg = {
 type CloseClientMsg = {
     "op": "close-client"
 };
-type CloseStreamMsg = {
-    "op": "close-stream"
-};
+type ClientCloseStreamMsg = CloseStreamMsg;
 
 
 //---------------------//
@@ -339,3 +341,4 @@ type ReleaseMsg = {
     "key": string,
     "cause": null
 };
+type WorkerCloseStreamMsg = CloseStreamMsg;

@@ -161,7 +161,7 @@ pub struct TaskFinishedMsg {
     pub nbytes: u64,
     #[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,
-    pub startstops: Vec<(DaskKey, f64, f64)>,
+    pub startstops: Vec<Map<DaskKey, rmpv::Value>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -213,6 +213,7 @@ pub enum FromWorkerMessage<T = SerializedMemory> {
     Unregister,
     StealResponse(StealResponseMsg),
     Release(ReleaseMsg),
+    CloseStream,
 }
 
 impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
@@ -233,6 +234,7 @@ impl FromDaskTransport for FromWorkerMessage<SerializedMemory> {
             Self::Transport::Unregister => Self::Unregister,
             Self::Transport::StealResponse(msg) => Self::StealResponse(msg),
             Self::Transport::Release(msg) => Self::Release(msg),
+            Self::Transport::CloseStream => Self::CloseStream,
         }
     }
 }

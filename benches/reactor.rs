@@ -9,7 +9,6 @@ use rsds::server::protocol::daskmessages::client::{ClientTaskSpec, UpdateGraphMs
 use rsds::server::protocol::dasktransport::{DaskPacket, SerializedTransport};
 use rsds::server::protocol::key::DaskKey;
 use rsds::server::reactor::update_graph;
-use rsds::server::WorkerType;
 
 struct Context {
     core: CoreRef,
@@ -37,7 +36,7 @@ pub fn update_graph_bench(c: &mut Criterion) {
                         id
                     };
                     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-                    let comm = CommRef::new(tx, WorkerType::Dask);
+                    let comm = CommRef::new(tx);
 
                     let mut tasks: Vec<(DaskKey, ClientTaskSpec<SerializedTransport>)> = vec![];
                     for i in 0..task_count {
