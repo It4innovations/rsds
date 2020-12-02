@@ -2,7 +2,7 @@ import asyncio
 import os
 import struct
 from asyncio import StreamReader, StreamWriter
-from asyncio.exceptions import IncompleteReadError
+from asyncio import IncompleteReadError
 
 import msgpack
 import logging
