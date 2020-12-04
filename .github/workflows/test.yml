@@ -4,7 +4,11 @@
 # for simplicity we are compiling and testing everything on the Ubuntu environment only.
 # For multi-OS testing see the `cross.yml` workflow.
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
 
 name: Test
 
@@ -24,6 +28,8 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - uses: Swatinem/rust-cache@v1
+
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -33,18 +39,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-
-      #- name: Lint
-      #  uses: actions-rs/cargo@v1
-      #  with:
-      #    command: clippy
-      #    args: -- -D warnings
-
-      - name: Formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
 
       - name: Setup Python
         uses: actions/setup-python@v1
@@ -59,3 +53,15 @@ jobs:
 
       - name: Test Python
         run: python -m pytest tests
+
+      - name: Lint
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+      - name: Formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check

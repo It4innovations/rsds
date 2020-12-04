@@ -11,7 +11,7 @@ REPOSITORY = git.Repo(ROOT_DIR)
 def send_github_event(workflow_name: str, token: str, inputs=()):
     if inputs is None:
         inputs = {}
-    payload = {"ref": "ci", "inputs": inputs}
+    payload = {"ref": "master", "inputs": inputs}
     headers = {"Authorization": f"token {token}",
                "Accept": "application/vnd.github.v3+json"}
     response = requests.post(
