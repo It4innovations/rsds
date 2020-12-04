@@ -9,6 +9,9 @@ on:
       tag:
         description: "Tag of the release"
         required: true
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   create-release:
@@ -17,7 +20,19 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
         with:
-          ref: ${{ github.event.inputs.sha }}
+          ref: ${{ github.event.inputs.sha || env.GITHUB_SHA }}
+
+      - name: Set env on push
+        if: github.event_name == 'push'
+        run: |
+          echo "INPUT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "INPUT_TAG=$(git tag --points-at HEAD)" >> $GITHUB_ENV
+
+      - name: Set env on trigger
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "INPUT_SHA=${{ github.event.inputs.sha }}" >> $GITHUB_ENV
+          echo "INPUT_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -40,10 +55,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          release_name: ${{ github.event.inputs.tag }}
-          body: RSDS release ${{ github.event.inputs.tag }}
-          commitish: ${{ github.event.inputs.sha }}
+          tag_name: ${{ env.INPUT_TAG }}
+          release_name: ${{ env.INPUT_TAG }}
+          body: RSDS release ${{ env.INPUT_TAG }}
+          commitish: ${{ env.INPUT_SHA }}
           draft: false
           prerelease: false
 
