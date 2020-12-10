@@ -1,9 +1,9 @@
-use crate::common::Map;
+use serde::Serialize;
+
 use crate::scheduler::TaskId;
-use crate::server::dask::dasktransport::{Frames, SerializedMemory, SerializedTransport};
+use crate::server::dask::dasktransport::{Frames, SerializedTransport};
 use crate::server::dask::key::DaskKey;
 use crate::server::dask::messages::client::{ClientTaskSpec, DirectTaskSpec};
-use serde::{Deserialize, Serialize, Serializer};
 
 #[derive(Serialize, Debug)]
 pub struct DaskTaskSpec<'a> {

@@ -8,23 +8,19 @@ use crate::common::rpc::forward_queue_to_sink;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::dask::client::Client;
-
-use crate::server::dask::messages::client::FromClientMessage;
-use crate::server::dask::messages::generic::{
-    GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo,
-};
-
 use crate::server::dask::dasktransport::{
     asyncread_to_stream, asyncwrite_to_sink, dask_parse_stream, serialize_batch_packet,
     serialize_single_packet, Batch, DaskPacket,
 };
 use crate::server::dask::key::{to_dask_key, DaskKey};
+use crate::server::dask::messages::client::FromClientMessage;
+use crate::server::dask::messages::generic::{
+    GenericMessage, IdentityResponse, SimpleMessage, WorkerInfo,
+};
 use crate::server::dask::reactor::{
     dask_scatter, gather, get_ncores, release_keys, subscribe_keys, update_graph, who_has,
 };
-
 use crate::server::dask::state::DaskStateRef;
-use std::rc::Rc;
 
 pub async fn client_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
@@ -69,8 +65,13 @@ pub async fn client_rpc_loop<
                         release_keys(&core_ref, &comm_ref, &dask_state_ref, client_id, msg.keys)?;
                     }
                     FromClientMessage::ClientDesiresKeys(msg) => {
-                        todo!()
-                        //subscribe_keys(&core_ref, &comm_ref, msg.client, msg.keys)?;
+                        subscribe_keys(
+                            &core_ref,
+                            &comm_ref,
+                            &dask_state_ref,
+                            &msg.client,
+                            msg.keys,
+                        )?;
                     }
                     FromClientMessage::UpdateGraph(update) => {
                         let mut state = dask_state_ref.get_mut();

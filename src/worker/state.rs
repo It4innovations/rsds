@@ -7,7 +7,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::common::data::SerializationType;
 use crate::common::{Map, WrappedRcRefCell};
 use crate::scheduler::TaskId;
-use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::worker::{
     DataDownloadedMsg, FromWorkerMessage, StealResponse,
 };

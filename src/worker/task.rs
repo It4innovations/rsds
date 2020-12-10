@@ -1,6 +1,5 @@
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::TaskId;
-use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::worker::ComputeTaskMsg;
 use crate::server::protocol::PriorityValue;
 use crate::worker::data::DataObjectRef;

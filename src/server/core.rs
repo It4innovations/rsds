@@ -1,8 +1,5 @@
-use std::rc::Rc;
-
 use crate::common::{IdCounter, Map, Set, WrappedRcRefCell};
 use crate::scheduler::{TaskAssignment, TaskId, WorkerId};
-use crate::server::dask::key::{dask_key_ref_to_str, dask_key_ref_to_string, DaskKey, DaskKeyRef};
 use crate::server::gateway::Gateway;
 use crate::server::notifications::{ErrorNotification, Notifications};
 use crate::server::protocol::messages::worker::ToWorkerMessage;
@@ -115,11 +112,6 @@ impl Core {
         self.tasks.values()
     }
 
-    /*#[inline]
-    pub fn get_task_by_key_or_panic(&self, key: &DaskKeyRef) -> &TaskRef {
-        self.tasks_by_key.get(key).unwrap()
-    }*/
-
     #[inline]
     pub fn get_task_by_id_or_panic(&self, id: TaskId) -> &TaskRef {
         self.tasks.get(&id).unwrap_or_else(|| {
@@ -142,39 +134,12 @@ impl Core {
             .collect()
     }
 
-    /*#[inline]
-    pub fn get_client_id_by_key(&self, key: &DaskKeyRef) -> ClientId {
-        self.clients.get_id_by_key(key).unwrap_or_else(|| {
-            panic!("Asking for invalid client key={:?}", key);
-        })
-    }*/
-
     #[inline]
     pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &WorkerRef {
         self.workers.get(&id).unwrap_or_else(|| {
             panic!("Asking for invalid worker id={}", id);
         })
     }
-
-    /*#[inline]
-    pub fn get_worker_by_key_or_panic(&self, key: &DaskKeyRef) -> &WorkerRef {
-        self.workers.get_by_key(key).unwrap_or_else(|| {
-            panic!(
-                "Asking for invalid worker key={}",
-                dask_key_ref_to_string(key)
-            );
-        })
-    }
-
-    #[inline]
-    pub fn get_worker_id_by_key(&self, key: &DaskKeyRef) -> WorkerId {
-        self.workers.get_id_by_key(key).unwrap_or_else(|| {
-            panic!(
-                "Asking for invalid worker key={}",
-                dask_key_ref_to_string(key)
-            );
-        })
-    }*/
 
     #[inline]
     pub fn get_workers(&self) -> impl Iterator<Item = &WorkerRef> {
@@ -185,17 +150,6 @@ impl Core {
     pub fn has_workers(&self) -> bool {
         !self.workers.is_empty()
     }
-
-    /*
-    pub fn get_worker_cores(&self) -> Map<DaskKey, u64> {
-        self.workers
-            .values()
-            .map(|w| {
-                let w = w.get();
-                (w.id, w.ncpus as u64)
-            })
-            .collect()
-    }*/
 
     fn compute_task(
         &self,
@@ -267,9 +221,7 @@ impl Core {
                         );
                         TaskRuntimeState::Stealing(wref1.clone(), worker_ref)
                     }
-                    TaskRuntimeState::Finished(_, _)
-                    | TaskRuntimeState::Released
-                    | TaskRuntimeState::Error(_) => {
+                    TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released => {
                         log::debug!("Rescheduling non-active task={}", assignment.task);
                         continue;
                     }
@@ -352,58 +304,6 @@ impl Core {
                 }
             }
         }
-
-        /*OLD DASK PROTOCOL
-
-         let task_ref = self.get_task_by_key(&msg.key);
-
-        match task_ref {
-            Some(task_ref) => {
-                let new_state = {
-                    let task = task_ref.get();
-                    if task.is_done() {
-                        trace_worker_steal_response(task.id, worker_ref.get().id, 0, "done");
-                        return;
-                    }
-                    let to_w = if let TaskRuntimeState::Stealing(from_w, to_w) = &task.state {
-                        assert!(from_w == worker_ref);
-                        to_w.clone()
-                    } else {
-                        panic!("Invalid state of task when steal response occured");
-                    };
-
-                    // This needs to correspond with behavior in worker!
-                    let success = match msg.state.unwrap_or(WorkerState::Error) {
-                        WorkerState::Waiting | WorkerState::Ready => true,
-                        _ => false,
-                    };
-
-                    {
-                        let from_worker = worker_ref.get();
-                        let to_worker = to_w.get();
-                        trace_worker_steal_response(
-                            task.id,
-                            from_worker.id,
-                            to_worker.id,
-                            if success { "success" } else { "fail" },
-                        );
-                        notifications.task_steal_response(&from_worker, &to_worker, &task, success);
-                    }
-
-                    if success {
-                        log::debug!("Task stealing was successful task={}", task.id);
-                        self.compute_task(to_w.clone(), task_ref.clone(), notifications);
-                        TaskRuntimeState::Assigned(to_w)
-                    } else {
-                        log::debug!("Task stealing was not successful task={}", task.id);
-                        TaskRuntimeState::Assigned(worker_ref.clone())
-                    }
-                };
-
-                task_ref.get_mut().state = new_state;
-            }
-            None => trace_worker_steal_response_missing(msg.key.as_str(), worker_ref.get().id),
-        }*/
     }
 
     pub fn on_task_error(
@@ -431,9 +331,14 @@ impl Core {
             self.unregister_as_consumer(&task_ref, &mut notifications);
         }
 
-        self.remove_task(&mut task_ref.get_mut());
+        assert!(match self.remove_task(&mut task_ref.get_mut()) {
+            TaskRuntimeState::Assigned(_) => true,
+            _ => false,
+        });
+
         for task_ref in &task_refs {
-            self.remove_task(&mut task_ref.get_mut());
+            // We can drop the resulting state as checks was done earlier
+            let _ = self.remove_task(&mut task_ref.get_mut());
         }
 
         notifications.notify_client_about_task_error(ErrorNotification {
@@ -458,7 +363,6 @@ impl Core {
                 ws.insert(worker_ref.clone());
             }
             TaskRuntimeState::Released
-            | TaskRuntimeState::Error(_)
             | TaskRuntimeState::Waiting
             | TaskRuntimeState::Scheduled(_)
             | TaskRuntimeState::Assigned(_)
@@ -539,18 +443,10 @@ impl Core {
         }
     }
 
-    /*
-    pub fn notify_key_in_memory(&mut self, task_ref: &TaskRef, notifications: &mut Notifications) {
-        let task = task_ref.get();
-        for &client_id in task.subscribed_clients() {
-            notifications.notify_client_key_in_memory(client_id, task_ref.clone());
-        }
-    }*/
-
     pub fn new_tasks(
         &mut self,
         new_tasks: Vec<TaskRef>,
-        mut notifications: &mut Notifications,
+        notifications: &mut Notifications,
         lowest_id: TaskId,
     ) {
         for task_ref in &new_tasks {

@@ -2,11 +2,9 @@ use bytes::BytesMut;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::server::dask::dasktransport::{make_dask_pickle_payload, DaskPacket, MessageBuilder};
-use crate::server::dask::key::{DaskKey, DaskKeyRef};
+use crate::server::dask::key::DaskKey;
 use crate::server::dask::messages::client::{KeyInMemoryMsg, TaskErredMsg, ToClientMessage};
-use crate::server::notifications::ClientNotifications;
-use crate::server::task::{ErrorInfo, TaskRuntimeState};
-use std::rc::Rc;
+use crate::server::task::ErrorInfo;
 
 pub type ClientId = u64;
 

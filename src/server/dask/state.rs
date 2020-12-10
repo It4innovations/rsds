@@ -1,10 +1,11 @@
+use smallvec::SmallVec;
+
 use crate::common::{IdCounter, Map, WrappedRcRefCell};
 use crate::scheduler::TaskId;
 use crate::server::dask::client::{Client, ClientId};
 use crate::server::dask::gateway::DaskGateway;
 use crate::server::dask::key::DaskKey;
 use crate::server::gateway::Gateway;
-use smallvec::SmallVec;
 
 pub struct DaskState {
     uid: DaskKey,

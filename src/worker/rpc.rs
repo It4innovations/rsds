@@ -19,7 +19,6 @@ use crate::common::transport::make_protocol_builder;
 
 //use crate::server::protocol::messages::worker::{GetDataResponse, ToWorkerGenericMessage};
 
-use crate::server::dask::key::DaskKey;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::{
     DataRequest, DataResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,

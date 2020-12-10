@@ -1,4 +1,7 @@
-use crate::common::{Map, Set};
+use bytes::BytesMut;
+use futures::{Sink, SinkExt};
+
+use crate::common::Map;
 use crate::scheduler::TaskId;
 use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
@@ -7,19 +10,14 @@ use crate::server::dask::dasktransport::{
     make_dask_payload, serialize_single_packet, DaskPacket, SerializedMemory,
 };
 use crate::server::dask::key::{to_dask_key, DaskKey};
-use crate::server::dask::messages::client::{
-    client_task_spec_to_memory, GetDataResponse, UpdateGraphMsg,
-};
-use crate::server::dask::messages::generic::{ScatterMsg, ScatterResponse, WhoHasMsgResponse};
+use crate::server::dask::messages::client::{GetDataResponse, UpdateGraphMsg};
+use crate::server::dask::messages::generic::{ScatterMsg, WhoHasMsgResponse};
 use crate::server::dask::state::DaskState;
 use crate::server::dask::taskspec::DaskTaskSpec;
 use crate::server::dask::DaskStateRef;
 use crate::server::notifications::Notifications;
 use crate::server::reactor::scatter;
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
-use crate::server::worker::WorkerRef;
-use bytes::BytesMut;
-use futures::{Sink, SinkExt};
 
 pub fn update_graph(
     core_ref: &CoreRef,
@@ -144,29 +142,37 @@ pub fn release_keys(
 
 pub fn subscribe_keys(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
-    client_id: ClientId,
+    _comm_ref: &CommRef,
+    state_ref: &DaskStateRef,
+    client_key: &DaskKey,
     task_keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
-    todo!()
-    /*let mut core = core_ref.get_mut();
-    let mut notifications = Notifications::default();
-    for key in task_keys {
-        let task_ref = core.get_task_by_key_or_panic(&key).clone();
-        {
-            let mut task = task_ref.get_mut();
-            task.subscribe_client(client_id);
-        }
+    let mut state = state_ref.get_mut();
+    let core = core_ref.get();
+    let mut finished = Vec::new();
 
-        let task = task_ref.get();
-        match task.state {
-            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Error(_) => {
-                core.notify_key_in_memory(&task_ref, &mut notifications);
+    let client_id = match state.get_client_by_key(client_key) {
+        Some(c) => c.id(),
+        None => return Ok(()),
+    };
+
+    for key in task_keys {
+        if let Some(task_id) = state.get_task_id(&key) {
+            let task_ref = core.get_task_by_id_or_panic(task_id);
+            state.subscribe_client_to_task(task_id, client_id);
+            if task_ref.get().is_done() {
+                finished.push(key);
             }
-            _ => {}
         }
     }
-    comm_ref.get_mut().notify(&mut core, notifications)*/
+
+    if !finished.is_empty() {
+        state
+            .get_client_by_id_or_panic(client_id)
+            .send_finished_keys(finished)?;
+    }
+
+    Ok(())
 }
 
 pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
@@ -198,6 +204,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         status: to_dask_key("OK"),
         data: result_map,
     };
+    log::debug!("Sending gathered data {}", address);
     sink.send(serialize_single_packet(msg)?).await?;
     Ok(())
 
@@ -335,7 +342,7 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 
     let keys: Vec<_> = key_mapping
         .iter()
-        .map(|(task_id, key)| key.clone())
+        .map(|(_task_id, key)| key.clone())
         .collect();
     let mut state = state_ref.get_mut();
     // TODO: If client was disconnected during scatter, we should remove the uploaded tasks
@@ -345,15 +352,16 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         state.subscribe_client_to_task(task_id, client_id);
     }
 
-    {
-        let client = state.get_client_by_id_or_panic(client_id);
-        client.send_finished_keys(keys.clone());
-    }
-
     comm_ref
         .get_mut()
         .notify(&mut core_ref.get_mut(), notifications)
         .unwrap();
+
+    {
+        let client = state.get_client_by_id_or_panic(client_id);
+        client.send_finished_keys(keys.clone())?;
+    }
+
     writer.send(serialize_single_packet(keys)?).await?;
     Ok(())
     //let who_what: Vec<(WorkerRef, Vec<(TaskId, BytesMut)>)> =
@@ -362,7 +370,7 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     //let response: ScatterResponse = message.data.keys().cloned().collect();
 
     /*
-    */
+     */
     /*
     let data: Vec<(DaskKey, BytesMut)> = message
         .data

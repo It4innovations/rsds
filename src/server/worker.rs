@@ -6,7 +6,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::WorkerInfo;
 
-use crate::server::dask::key::{DaskKey, DaskKeyRef};
 use crate::server::protocol::messages::worker::ToWorkerMessage;
 
 pub type WorkerId = u64;
