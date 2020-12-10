@@ -64,12 +64,11 @@ pub fn trace_task_new(task_id: TaskId, inputs: &[u64]) {
     );
 }
 #[inline(always)]
-pub fn trace_task_new_finished(task_id: TaskId, key: &str, size: u64, worker_id: WorkerId) {
+pub fn trace_task_new_finished(task_id: TaskId, size: u64, worker_id: WorkerId) {
     tracing::info!(
         action = "task",
         event = "create",
         task = task_id,
-        key = key,
         worker = worker_id,
         size = size
     );

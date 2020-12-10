@@ -31,6 +31,10 @@ impl DaskState {
         self.task_key_to_id.get(key).map(|x| *x)
     }
 
+    pub fn get_all_keys(&self) -> impl Iterator<Item = &DaskKey> {
+        self.task_key_to_id.keys()
+    }
+
     #[inline]
     pub fn subscriptions(&self) -> &Map<TaskId, SmallVec<[ClientId; 1]>> {
         &self.subscriptions

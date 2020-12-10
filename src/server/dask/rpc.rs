@@ -20,7 +20,7 @@ use crate::server::dask::dasktransport::{
 };
 use crate::server::dask::key::{to_dask_key, DaskKey};
 use crate::server::dask::reactor::{
-    gather, get_ncores, release_keys, scatter, subscribe_keys, update_graph, who_has,
+    dask_scatter, gather, get_ncores, release_keys, subscribe_keys, update_graph, who_has,
 };
 
 use crate::server::dask::state::DaskStateRef;
@@ -209,7 +209,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::WhoHas(msg) => {
                     log::debug!("WhoHas request from {} (keys={:?})", &address, msg.keys);
-                    who_has(&core_ref, &comm_ref, &mut writer, msg.keys).await?;
+                    who_has(&core_ref, &comm_ref, &dask_state_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
@@ -227,7 +227,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::Scatter(msg) => {
                     log::debug!("Scatter request from {}", &address);
-                    scatter(&core_ref, &comm_ref, &dask_state_ref, &mut writer, msg).await?;
+                    dask_scatter(&core_ref, &comm_ref, &dask_state_ref, &mut writer, msg).await?;
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);

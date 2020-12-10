@@ -132,7 +132,6 @@ impl Core {
         self.tasks.get(&id)
     }
 
-
     pub fn get_worker_addresses(&self) -> Map<WorkerId, String> {
         self.workers
             .values()
