@@ -513,30 +513,29 @@ mod tests {
     use crate::common::Set;
     use crate::scheduler::protocol::{TaskUpdate, TaskUpdateType};
     use crate::scheduler::ToSchedulerMessage;
-    use crate::server::client::Client;
-    use crate::server::dask::key::DaskKey;
-    use crate::server::notifications::{ClientNotification, Notifications};
+    use crate::server::notifications::Notifications;
     use crate::server::protocol::messages::worker::TaskFinishedMsg;
     use crate::server::task::{ErrorInfo, TaskRuntimeState};
-    use crate::test_util::{client, task_add, task_add_deps, task_assign, worker};
-
-    use super::Core;
+    use crate::test_util::{task_add, task_add_deps, task_assign, worker, TestClientStateRef};
 
     #[test]
     fn add_remove() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
-        assert_eq!(core.get_task_by_key_or_panic(&t.get().key_ref()), &t);
-
-        core.remove_task(&t.get());
-        assert_eq!(core.get_task_by_id(0), None);
+        let core_ref = TestClientStateRef::new().get_core();
+        let mut core = core_ref.get_mut();
+        let t = task_add(&mut core, 101);
+        assert_eq!(core.get_task_by_id(101).unwrap(), &t);
+        assert!(match core.remove_task(&mut t.get_mut()) {
+            TaskRuntimeState::Waiting => true,
+            _ => false,
+        });
+        assert_eq!(core.get_task_by_id(101), None);
     }
 
     #[test]
     fn assign_task() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
-
+        let core_ref = TestClientStateRef::new().get_core();
+        let mut core = core_ref.get_mut();
+        let t = task_add(&mut core, 101);
         let (w, _w_rx) = worker(&mut core, "w0");
         let notifications = task_assign(&mut core, &t, &w);
         assert!(t.get().is_assigned_or_stealed_from(&w));
@@ -545,16 +544,16 @@ mod tests {
 
     #[test]
     fn finish_task_scheduler_notification() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let core_ref = TestClientStateRef::new().get_core();
+        let mut core = core_ref.get_mut();
+
+        let t = task_add(&mut core, 101);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key_ref().into();
-
         let mut notifications = Notifications::default();
         let nbytes = 16;
-        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
         assert_eq!(
             notifications.scheduler_messages[0],
             ToSchedulerMessage::TaskUpdate(TaskUpdate {
@@ -568,17 +567,17 @@ mod tests {
 
     #[test]
     fn release_task_without_consumers() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let core_ref = TestClientStateRef::new().get_core();
+        let mut core = core_ref.get_mut();
+        let t = task_add(&mut core, 101);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key_ref().into();
         let _type = vec![1, 2, 3];
         let nbytes = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Released => {}
             _ => panic!("Wrong task state"),
@@ -587,18 +586,18 @@ mod tests {
 
     #[test]
     fn finish_task_with_consumers() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let core_ref = TestClientStateRef::new().get_core();
+        let mut core = core_ref.get_mut();
+        let t = task_add(&mut core, 101);
         let _ = task_add_deps(&mut core, 1, &[&t]);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key_ref().into();
         let _type = vec![1, 2, 3];
         let nbytes = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes }, &mut notifications);
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Finished(data, workers) => {
                 assert_eq!(data.size, nbytes);
@@ -612,45 +611,40 @@ mod tests {
 
     #[test]
     fn finish_task_inmemory_notification() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let cs = TestClientStateRef::new();
+        let core_ref = cs.get_core();
+        let mut core = core_ref.get_mut();
+
+        let t = task_add(&mut core, 101);
         let (w, _w_rx) = worker(&mut core, "w0");
         task_assign(&mut core, &t, &w);
 
-        let key: DaskKey = t.get().key_ref().into();
-        let clients: Vec<Client> = (0..2)
-            .map(|c| {
-                let (client, _c_rx) = client(c);
-                t.get_mut().subscribe_client(client.id());
-                client
-            })
-            .collect();
-
         let mut notifications = Notifications::default();
-        core.on_task_finished(&w, TaskFinishedMsg { key, nbytes: 0 }, &mut notifications);
-        for client in clients {
-            assert_eq!(
-                notifications.clients[&client.id()],
-                ClientNotification {
-                    in_memory_tasks: vec![t.clone()],
-                    error_tasks: vec![],
-                }
-            );
-        }
+        core.on_task_finished(
+            &w,
+            TaskFinishedMsg { id: 101, nbytes: 0 },
+            &mut notifications,
+        );
+        assert_eq!(notifications.client_notifications.finished_tasks, vec![101]);
     }
 
     #[test]
     #[should_panic]
     fn finish_unassigned_task() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let cs = TestClientStateRef::new();
+        let core_ref = cs.get_core();
+        let mut core = core_ref.get_mut();
+
+        task_add(&mut core, 101);
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
-        let key: DaskKey = t.get().key_ref().into();
         core.on_task_finished(
             &w,
-            TaskFinishedMsg { key, nbytes: 16 },
+            TaskFinishedMsg {
+                id: 101,
+                nbytes: 16,
+            },
             &mut &mut Default::default(),
         );
     }
@@ -658,15 +652,17 @@ mod tests {
     #[test]
     #[should_panic]
     fn error_unassigned_task() {
-        let mut core = Core::default();
-        let t = task_add(&mut core, 0);
+        let cs = TestClientStateRef::new();
+        let core_ref = cs.get_core();
+        let mut core = core_ref.get_mut();
+
+        task_add(&mut core, 101);
 
         let (w, _w_rx) = worker(&mut core, "w0");
 
-        let key: DaskKey = t.get().key_ref().into();
         core.on_task_error(
             &w,
-            key,
+            101,
             ErrorInfo {
                 exception: Default::default(),
                 traceback: Default::default(),
