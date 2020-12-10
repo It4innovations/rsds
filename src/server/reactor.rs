@@ -259,16 +259,18 @@ pub async fn get_data_from_worker(
 
 pub async fn update_data_on_worker(
     worker_ref: WorkerRef,
-    data: Vec<(TaskId, BytesMut)>,
+    data: Vec<(TaskRef, BytesMut)>,
 ) -> crate::Result<()> {
     let connection = connect_to_worker(worker_ref.get().listen_address.clone()).await?;
     let mut stream = make_protocol_builder().new_framed(connection);
 
-    for (task_id, data_for_id) in data {
+    for (task_ref, data_for_id) in data {
+        let task_id = task_ref.get().id;
         let message = DataRequest::UploadData(UploadDataMsg {
             task_id,
             serializer: SerializationType::Pickle,
         });
+        let size = data_for_id.len() as u64;
         let data = rmp_serde::to_vec_named(&message).unwrap();
         stream.send(data.into()).await?;
         stream.send(data_for_id.into()).await?;
@@ -288,6 +290,13 @@ pub async fn update_data_on_worker(
                 panic!("Invalid response");
             }
         };
+        match &mut task_ref.get_mut().state {
+            &mut TaskRuntimeState::Finished(_, ref mut set) => {
+                set.insert(worker_ref.clone());
+            }
+            _ => unreachable!(),
+        };
+        trace_task_new_finished(task_ref.get().id, size, worker_ref.get().id);
     }
 
     Ok(())
@@ -298,4 +307,73 @@ async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStre
     let stream = TcpStream::connect(address).await?;
     stream.set_nodelay(true)?;
     Ok(stream)
+}
+
+fn scatter_tasks<D>(
+    data: Vec<D>,
+    workers: &[WorkerRef],
+    counter: usize,
+) -> Vec<(WorkerRef, Vec<D>)> {
+    let total_cpus: usize = workers.iter().map(|wr| wr.get().ncpus as usize).sum();
+    let mut counter = counter % total_cpus;
+
+    let mut cpu = 0;
+    let mut index = 0;
+    for (i, wr) in workers.iter().enumerate() {
+        let ncpus = wr.get().ncpus as usize;
+        if counter >= ncpus {
+            counter -= ncpus;
+        } else {
+            cpu = counter;
+            index = i;
+            break;
+        }
+    }
+
+    let mut worker_ref = &workers[index];
+    let mut ncpus = worker_ref.get().ncpus as usize;
+
+    let mut result: Map<WorkerRef, Vec<D>> = Map::new();
+
+    for d in data {
+        result.entry(worker_ref.clone()).or_default().push(d);
+        cpu += 1;
+        if cpu >= ncpus {
+            cpu = 0;
+            index += 1;
+            index %= workers.len();
+            worker_ref = &workers[index];
+            ncpus = worker_ref.get().ncpus as usize;
+        }
+    }
+    result.into_iter().collect()
+}
+
+pub async fn scatter(
+    core_ref: &CoreRef,
+    workers: &[WorkerRef],
+    data: Vec<(TaskRef, BytesMut)>,
+    notifications: &mut Notifications,
+) {
+    let counter = core_ref.get_mut().get_and_move_scatter_counter(data.len());
+    let tasks: Vec<_> = data.iter().map(|(t_ref, _)| t_ref.clone()).collect();
+    let placement = scatter_tasks(data, workers, counter);
+    let worker_futures = join_all(
+        placement
+            .into_iter()
+            .map(|(worker, data)| update_data_on_worker(worker, data)),
+    );
+
+    // TODO: Proper error handling
+    // Note that sucessfull uploads are written in tasks
+    worker_futures.await.iter().for_each(|x| assert!(x.is_ok()));
+
+    let mut core = core_ref.get_mut();
+    for t_ref in tasks {
+        {
+            let task = t_ref.get();
+            notifications.new_finished_task(&task);
+        }
+        core.add_task(t_ref);
+    }
 }
