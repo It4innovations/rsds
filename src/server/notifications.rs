@@ -20,7 +20,6 @@ pub struct ErrorNotification {
     pub error_info: ErrorInfo,
 }
 
-#[cfg_attr(test, derive(PartialEq))]
 #[derive(Default, Debug)]
 pub struct ClientNotifications {
     pub(crate) finished_tasks: Vec<TaskId>,
