@@ -1,12 +1,9 @@
 use std::collections::HashSet;
 use std::fmt;
-use std::rc::Rc;
 
 use crate::common::{Set, WrappedRcRefCell};
 use crate::scheduler::protocol::TaskId;
 use crate::server::core::Core;
-use crate::server::dask::key::{DaskKey, DaskKeyRef};
-use crate::server::dask::messages::client::{ClientTaskSpec, DirectTaskSpec};
 use crate::server::notifications::Notifications;
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
@@ -28,7 +25,6 @@ pub enum TaskRuntimeState {
     Stealing(WorkerRef, WorkerRef), // (from, to)
     Finished(DataInfo, Set<WorkerRef>),
     Released,
-    Error(Rc<ErrorInfo>),
 }
 
 impl fmt::Debug for TaskRuntimeState {
@@ -40,7 +36,6 @@ impl fmt::Debug for TaskRuntimeState {
             Self::Stealing(_, _) => 'T',
             Self::Finished(_, _) => 'F',
             Self::Released => 'R',
-            Self::Error(_) => 'E',
         };
         write!(f, "{}", n)
     }
@@ -235,9 +230,7 @@ impl Task {
     #[inline]
     pub fn is_done(&self) -> bool {
         match &self.state {
-            TaskRuntimeState::Finished(_, _)
-            | TaskRuntimeState::Released
-            | TaskRuntimeState::Error(_) => true,
+            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released => true,
             _ => false,
         }
     }

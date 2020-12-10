@@ -3,7 +3,6 @@ use crate::scheduler::protocol::{
     NewFinishedTaskInfo, TaskStealResponse, TaskUpdate, TaskUpdateType,
 };
 use crate::scheduler::{TaskId, ToSchedulerMessage};
-use crate::server::dask::key::DaskKey;
 use crate::server::task::{ErrorInfo, Task, TaskRef};
 use crate::server::worker::{Worker, WorkerRef};
 

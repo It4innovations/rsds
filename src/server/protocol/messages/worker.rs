@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use crate::common::data::SerializationType;
 use crate::common::Map;
 use crate::scheduler::{TaskId, WorkerId};
-use crate::server::dask::key::DaskKey;
 use crate::server::protocol::PriorityValue;
 
 #[derive(Serialize, Deserialize, Debug)]

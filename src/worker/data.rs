@@ -4,7 +4,6 @@ use hashbrown::HashSet;
 use crate::common::data::SerializationType;
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::{TaskId, WorkerId};
-use crate::server::dask::key::DaskKey;
 use crate::worker::task::TaskRef;
 
 #[derive(Debug)]

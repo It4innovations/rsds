@@ -8,6 +8,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::sink::WithFlatMap;
 use futures::stream::Map;
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use rmpv::Value;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
@@ -17,7 +18,6 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::common::data::SerializationType;
 use crate::trace::{trace_packet_receive, trace_packet_send};
-use rmpv::Value;
 
 /// Commonly used types
 pub type Frame = BytesMut;

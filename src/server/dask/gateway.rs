@@ -1,18 +1,10 @@
-use crate::common::{IdCounter, Map, Set, WrappedRcRefCell};
-use crate::scheduler::TaskId;
-use crate::server::dask::client::{Client, ClientId};
-use crate::server::dask::dasktransport::{make_dask_pickle_payload, MessageBuilder};
-use crate::server::dask::key::{DaskKey, DaskKeyRef};
-use crate::server::dask::messages::client::{TaskErredMsg, ToClientMessage};
+use crate::common::Map;
+use crate::server::dask::client::ClientId;
+use crate::server::dask::key::DaskKey;
 use crate::server::dask::state::DaskStateRef;
 use crate::server::gateway::Gateway;
 use crate::server::notifications::ClientNotifications;
 use crate::server::task::TaskRef;
-use bytes::BytesMut;
-use hashbrown::{HashMap, HashSet};
-use smallvec::SmallVec;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 pub struct DaskGateway {
     pub dask_state_ref: DaskStateRef,
@@ -20,7 +12,7 @@ pub struct DaskGateway {
 
 impl Gateway for DaskGateway {
     fn is_kept(&self, task_id: u64) -> bool {
-        let mut dask_state = self.dask_state_ref.get();
+        let dask_state = self.dask_state_ref.get();
         dask_state.subscriptions().contains_key(&task_id)
     }
 
