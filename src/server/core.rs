@@ -331,10 +331,10 @@ impl Core {
             self.unregister_as_consumer(&task_ref, &mut notifications);
         }
 
-        assert!(match self.remove_task(&mut task_ref.get_mut()) {
-            TaskRuntimeState::Assigned(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            self.remove_task(&mut task_ref.get_mut()),
+            TaskRuntimeState::Assigned(_)
+        ));
 
         for task_ref in &task_refs {
             // We can drop the resulting state as checks was done earlier

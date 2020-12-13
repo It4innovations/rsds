@@ -31,15 +31,15 @@ impl<'a> DaskTaskSpec<'a> {
                 args,
                 kwargs,
             }) => (
-                function.unwrap().to_memory(frames).to_msgpack_value(),
-                args.map(|x| x.to_memory(frames).to_msgpack_value())
+                function.unwrap().into_memory(frames).to_msgpack_value(),
+                args.map(|x| x.into_memory(frames).to_msgpack_value())
                     .unwrap_or(rmpv::Value::Nil),
                 kwargs
-                    .map(|x| x.to_memory(frames).to_msgpack_value())
+                    .map(|x| x.into_memory(frames).to_msgpack_value())
                     .unwrap_or(rmpv::Value::Nil),
             ),
             ClientTaskSpec::Serialized(s) => (
-                s.to_memory(frames).to_msgpack_value(),
+                s.into_memory(frames).to_msgpack_value(),
                 rmpv::Value::Nil,
                 rmpv::Value::Nil,
             ),

@@ -32,44 +32,32 @@ pub type TaskRef = crate::common::WrappedRcRefCell<Task>;
 impl Task {
     #[inline]
     pub fn is_waiting(&self) -> bool {
-        match self.state {
-            SchedulerTaskState::Waiting => true,
-            _ => false,
-        }
+        matches!(self.state, SchedulerTaskState::Waiting)
     }
 
     #[inline]
     pub fn is_finished(&self) -> bool {
-        match self.state {
-            SchedulerTaskState::Finished => true,
-            _ => false,
-        }
+        matches!(self.state, SchedulerTaskState::Finished)
     }
 
     #[inline]
     pub fn is_pinned(&self) -> bool {
-        match self.state {
-            SchedulerTaskState::AssignedPinned => true,
-            _ => false,
-        }
+        matches!(self.state, SchedulerTaskState::AssignedPinned)
     }
 
     #[inline]
     pub fn is_fresh(&self) -> bool {
-        match self.state {
-            SchedulerTaskState::AssignedFresh => true,
-            _ => false,
-        }
+        matches!(self.state, SchedulerTaskState::AssignedFresh)
     }
 
     #[inline]
     pub fn is_assigned(&self) -> bool {
-        match self.state {
+        matches!(
+            self.state,
             SchedulerTaskState::AssignedFresh
-            | SchedulerTaskState::Assigned
-            | SchedulerTaskState::AssignedPinned => true,
-            _ => false,
-        }
+                | SchedulerTaskState::Assigned
+                | SchedulerTaskState::AssignedPinned
+        )
     }
 
     #[inline]

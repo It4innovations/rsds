@@ -88,7 +88,7 @@ fn assign<M: NodeMetrics>(
     worker_ref: WorkerRef,
     assignments: &mut Vec<TaskAssignment>,
 ) {
-    assign_task_to_worker(task, task_ref.clone(), worker, worker_ref);
+    assign_task_to_worker(task, task_ref, worker, worker_ref);
     assignments.push(create_task_assignment::<M>(task, worker.id));
 }
 

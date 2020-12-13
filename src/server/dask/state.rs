@@ -29,7 +29,7 @@ impl DaskState {
 
     #[inline]
     pub fn get_task_id(&self, key: &DaskKey) -> Option<TaskId> {
-        self.task_key_to_id.get(key).map(|x| *x)
+        self.task_key_to_id.get(key).copied()
     }
 
     pub fn get_all_keys(&self) -> impl Iterator<Item = &DaskKey> {

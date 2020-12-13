@@ -189,26 +189,17 @@ impl Task {
 
     #[inline]
     pub fn is_waiting(&self) -> bool {
-        match &self.state {
-            TaskRuntimeState::Waiting => true,
-            _ => false,
-        }
+        matches!(&self.state, TaskRuntimeState::Waiting)
     }
 
     #[inline]
     pub fn is_scheduled(&self) -> bool {
-        match &self.state {
-            TaskRuntimeState::Scheduled(_) => true,
-            _ => false,
-        }
+        matches!(&self.state, TaskRuntimeState::Scheduled(_))
     }
 
     #[inline]
     pub fn is_assigned(&self) -> bool {
-        match &self.state {
-            TaskRuntimeState::Assigned(_) => true,
-            _ => false,
-        }
+        matches!(&self.state, TaskRuntimeState::Assigned(_))
     }
 
     #[inline]
@@ -221,18 +212,12 @@ impl Task {
 
     #[inline]
     pub fn is_finished(&self) -> bool {
-        match &self.state {
-            TaskRuntimeState::Finished(_, _) => true,
-            _ => false,
-        }
+        matches!(&self.state, TaskRuntimeState::Finished(_, _))
     }
 
     #[inline]
     pub fn is_done(&self) -> bool {
-        match &self.state {
-            TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released => true,
-            _ => false,
-        }
+        matches!(&self.state, TaskRuntimeState::Finished(_, _) | TaskRuntimeState::Released)
     }
 
     #[inline]

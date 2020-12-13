@@ -22,26 +22,17 @@ pub struct Task {
 impl Task {
     #[inline]
     pub fn is_waiting(&self) -> bool {
-        match self.state {
-            TaskState::Waiting(_) => true,
-            _ => false,
-        }
+        matches!(self.state, TaskState::Waiting(_))
     }
 
     #[inline]
     pub fn is_ready(&self) -> bool {
-        match self.state {
-            TaskState::Waiting(0) => true,
-            _ => false,
-        }
+        matches!(self.state, TaskState::Waiting(0))
     }
 
     #[inline]
     pub fn is_running(&self) -> bool {
-        match self.state {
-            TaskState::Running(_) => true,
-            _ => false,
-        }
+        matches!(self.state, TaskState::Running(_))
     }
 
     pub fn get_waiting(&self) -> u32 {
@@ -80,13 +71,12 @@ pub type TaskRef = WrappedRcRefCell<Task>;
 
 impl TaskRef {
     pub fn new(message: ComputeTaskMsg) -> Self {
-        let task_ref = TaskRef::wrap(Task {
+        TaskRef::wrap(Task {
             id: message.id,
             spec: message.spec,
             priority: (message.user_priority, message.scheduler_priority),
             state: TaskState::Waiting(0),
             deps: Default::default(),
-        });
-        task_ref
+        })
     }
 }

@@ -46,16 +46,16 @@ pub fn client_task_spec_to_memory(
 ) -> ClientTaskSpec<SerializedMemory> {
     match spec {
         ClientTaskSpec::Serialized(v) => {
-            ClientTaskSpec::<SerializedMemory>::Serialized(v.to_memory(frames))
+            ClientTaskSpec::<SerializedMemory>::Serialized(v.into_memory(frames))
         }
         ClientTaskSpec::Direct(DirectTaskSpec {
             function,
             args,
             kwargs,
         }) => ClientTaskSpec::<SerializedMemory>::Direct(DirectTaskSpec {
-            function: function.map(|v| v.to_memory(frames)),
-            args: args.map(|v| v.to_memory(frames)),
-            kwargs: kwargs.map(|v| v.to_memory(frames)),
+            function: function.map(|v| v.into_memory(frames)),
+            args: args.map(|v| v.into_memory(frames)),
+            kwargs: kwargs.map(|v| v.into_memory(frames)),
         }),
     }
 }

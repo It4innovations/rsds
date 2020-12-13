@@ -41,6 +41,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     address: std::net::SocketAddr,
 ) -> crate::Result<()> {
     let (writer, mut reader) = make_protocol_builder().new_framed(stream).split();
+    #[allow(clippy::never_loop)] // More general messages to come
     while let Some(message_data) = reader.next().await {
         let message: GenericMessage = rmp_serde::from_slice(&message_data?)?;
         match message {

@@ -91,7 +91,7 @@ pub async fn fetch_data(
         None => return Err(GenericError("Unexpected close of connection".into())),
         Some(data) => data?,
     };
-    Ok((data.into(), header.serializer))
+    Ok((data, header.serializer))
 }
 
 pub async fn get_data_from_worker(
@@ -153,7 +153,7 @@ pub async fn update_data_on_worker(
             }
         };
         match &mut task_ref.get_mut().state {
-            &mut TaskRuntimeState::Finished(_, ref mut set) => {
+            TaskRuntimeState::Finished(_, ref mut set) => {
                 set.insert(worker_ref.clone());
             }
             _ => unreachable!(),
