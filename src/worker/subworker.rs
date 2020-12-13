@@ -273,7 +273,7 @@ async fn run_subworker(
 
     // TODO: pass writing end
     let subworker = SubworkerRef::new(subworker_id, queue_sender);
-    if let Err(_) = ready_shot.send(subworker.clone()) {
+    if ready_shot.send(subworker.clone()).is_err() {
         panic!("Announcing subworker failed");
     }
 

@@ -260,7 +260,7 @@ pub enum SerializedTransport {
 }
 
 impl SerializedTransport {
-    pub fn to_memory(self, frames: &mut Frames) -> SerializedMemory {
+    pub fn into_memory(self, frames: &mut Frames) -> SerializedMemory {
         match self {
             SerializedTransport::Inline(value) => SerializedMemory::Inline(value),
             SerializedTransport::Indexed {
@@ -299,7 +299,7 @@ impl SerializedMemory {
         message_builder.copy_serialized(self)
     }
     #[inline]
-    pub fn to_transport<T: Serialize>(
+    pub fn into_transport<T: Serialize>(
         self,
         message_builder: &mut MessageBuilder<T>,
     ) -> SerializedTransport {
@@ -346,7 +346,7 @@ pub fn map_from_transport<K: Eq + Hash>(
     frames: &mut Frames,
 ) -> crate::common::Map<K, SerializedMemory> {
     map.into_iter()
-        .map(|(k, v)| (k, v.to_memory(frames)))
+        .map(|(k, v)| (k, v.into_memory(frames)))
         .collect()
 }
 #[inline]
@@ -355,7 +355,7 @@ pub fn map_to_transport<K: Eq + Hash, T: Serialize>(
     message_builder: &mut MessageBuilder<T>,
 ) -> crate::common::Map<K, SerializedTransport> {
     map.into_iter()
-        .map(|(k, v)| (k, v.to_transport(message_builder)))
+        .map(|(k, v)| (k, v.into_transport(message_builder)))
         .collect()
 }
 #[inline]
@@ -571,7 +571,7 @@ pub fn asyncwrite_to_sink<W: AsyncWrite>(
 ) -> impl Sink<DaskPacket, Error = crate::Error> + IntoInner<FramedWrite<W, DaskCodec>> {
     FramedWrite::new(sink, DaskCodec::default()).with_flat_map(|packet| {
         let parts = split_packet_into_parts(packet, WRITE_BUFFER_SIZE);
-        futures::stream::iter(parts.into_iter().map(|p| Ok(p)))
+        futures::stream::iter(parts.into_iter().map(Ok))
     })
 }
 

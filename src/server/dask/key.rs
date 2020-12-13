@@ -42,7 +42,7 @@ impl Debug for DaskKey {
 
 impl DaskKey {
     #[inline]
-    pub fn to_string(self) -> String {
+    pub fn into_string(self) -> String {
         String::from_utf8(self.bytes.into_vec()).expect("Couldn't convert DaskKey to String")
     }
     #[inline]

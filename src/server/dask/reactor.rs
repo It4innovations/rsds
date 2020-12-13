@@ -58,7 +58,7 @@ pub fn update_graph(
                 .iter()
                 .map(|key| state.get_task_id(&key).unwrap())
                 .collect();
-            inputs.sort();
+            inputs.sort_unstable();
             inputs.dedup();
             inputs
         } else {
@@ -297,7 +297,7 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
                 workers
                     .into_iter()
                     .map(|worker_key| {
-                        core.get_worker_by_address(&worker_key.to_string())
+                        core.get_worker_by_address(&worker_key.into_string())
                             .unwrap()
                             .clone()
                     })

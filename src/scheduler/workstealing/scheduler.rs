@@ -13,6 +13,7 @@ use crate::scheduler::task::{SchedulerTaskState, Task, TaskRef};
 use crate::scheduler::utils::task_transfer_cost;
 use crate::scheduler::worker::{Worker, WorkerRef};
 use crate::scheduler::{Scheduler, TaskAssignment, ToSchedulerMessage, WorkerId};
+use std::cmp::Ordering;
 
 type DirtyTaskSet = Set<TaskRef>;
 
@@ -295,12 +296,14 @@ fn choose_worker_for_task(
     let mut workers = Vec::new();
     for wr in worker_map.values() {
         let c = task_transfer_cost(task, wr);
-        if c < costs {
-            costs = c;
-            workers.clear();
-            workers.push(wr.clone());
-        } else if c == costs {
-            workers.push(wr.clone());
+        match c.cmp(&costs) {
+            Ordering::Less => {
+                costs = c;
+                workers.clear();
+                workers.push(wr.clone());
+            }
+            Ordering::Equal => workers.push(wr.clone()),
+            Ordering::Greater => { /* Do nothing */ }
         }
     }
     if workers.len() == 1 {

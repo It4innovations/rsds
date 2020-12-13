@@ -98,7 +98,7 @@ impl WorkerState {
     }
 
     pub fn add_ready_task(&mut self, task_ref: TaskRef) {
-        let priority = task_ref.get().priority.clone();
+        let priority = task_ref.get().priority;
         self.ready_task_queue.push(task_ref, Reverse(priority));
         self.try_start_tasks();
     }
@@ -186,13 +186,13 @@ impl WorkerState {
 
     pub fn remove_data(&mut self, task_id: TaskId) {
         log::info!("Removing data object {}", task_id);
-        self.data_objects.remove(&task_id).map(|data_ref| {
+        if let Some(data_ref) = self.data_objects.remove(&task_id) {
             let mut data_obj = data_ref.get_mut();
             data_obj.state = DataObjectState::Removed;
             if !data_obj.consumers.is_empty() {
                 todo!(); // What should happen when server removes data but there are tasks that needs it?
             }
-        });
+        };
     }
 
     pub fn remove_task(&mut self, task_ref: TaskRef, just_finished: bool) {

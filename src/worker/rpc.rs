@@ -280,9 +280,7 @@ async fn connection_rpc_loop(
                     let data = data_obj.local_data().unwrap();
                     (data.bytes.clone(), data.serializer.clone())
                 };
-                let response = DataResponse::Data(FetchResponseData {
-                    serializer: serializer,
-                });
+                let response = DataResponse::Data(FetchResponseData { serializer });
                 let data = rmp_serde::to_vec_named(&response).unwrap();
                 stream.send(data.into()).await?;
                 stream.send(bytes).await?;
