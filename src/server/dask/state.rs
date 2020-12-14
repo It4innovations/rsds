@@ -76,7 +76,7 @@ impl DaskState {
             .push(client_id);
     }
 
-    pub fn unsubscribe_client_from_task(&mut self, task_id: TaskId, client_id: ClientId) {
+    pub fn unsubscribe_client_from_task(&mut self, task_id: TaskId, client_id: ClientId) -> bool {
         log::debug!("Unsubscribing task={} from client={}", task_id, client_id);
         let remove = self
             .subscriptions
@@ -88,7 +88,9 @@ impl DaskState {
             .unwrap_or(false);
 
         if remove {
-            assert!(self.subscriptions.remove(&task_id).is_some());
+            self.subscriptions.remove(&task_id).is_some()
+        } else {
+            false
         }
     }
 
