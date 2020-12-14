@@ -26,7 +26,3 @@ pub fn try_start_tasks(state: &mut WorkerState) {
         }
     }
 }
-
-/*pub fn try_download_tasks(state: &mut WorkerState, stream: ()) {
-    while state.
-}*/

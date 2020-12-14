@@ -9,13 +9,9 @@ use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage}
 use crate::server::protocol::PriorityValue;
 use crate::server::worker::WorkerRef;
 
-/*use crate::server::protocol::messages::worker::{
-    ComputeTaskMsg as DaskComputeTaskMsg, ToWorkerMessage as DaskToWorkerMessage,
-};*/
 #[derive(Debug)]
 pub struct DataInfo {
     pub size: u64,
-    //pub r#type: Vec<u8>,
 }
 
 pub enum TaskRuntimeState {
@@ -55,7 +51,6 @@ pub struct Task {
     consumers: Set<TaskRef>,
     pub dependencies: Vec<TaskId>,
 
-    //pub spec: Option<ClientTaskSpec>,
     pub spec: Vec<u8>, // Serialized TaskSpec
 
     pub user_priority: i32,
@@ -92,12 +87,6 @@ impl Task {
     pub fn get_consumers(&self) -> &Set<TaskRef> {
         &self.consumers
     }
-
-    /*pub fn subscribe_client(&mut self, client_id: ClientId) {
-        if !self.subscribed_clients.contains(&client_id) {
-            self.subscribed_clients.push(client_id);
-        }
-    }*/
 
     pub fn make_sched_info(&self) -> crate::scheduler::protocol::TaskInfo {
         crate::scheduler::protocol::TaskInfo {
@@ -155,28 +144,6 @@ impl Task {
                 (task.id, task.data_info().unwrap().size, addresses)
             })
             .collect();
-
-        /*let unpack = |s: &SerializedMemory| match s {
-            SerializedMemory::Inline(v) => v.clone(),
-            SerializedMemory::Indexed { frames, header: _ } => {
-                assert_eq!(frames.len(), 1);
-                frames[0].to_vec().into()
-            }
-        };*/
-
-        /*let (function, args, kwargs) = match &self.spec {
-            Some(ClientTaskSpec::Direct(DirectTaskSpec {
-                function,
-                args,
-                kwargs,
-            })) => (
-                function.as_ref().unwrap().to_msgpack_value(),
-                args.as_ref().unwrap().to_msgpack_value(),
-                kwargs.as_ref().map(|x| x.to_msgpack_value()),
-            ),
-            Some(ClientTaskSpec::Serialized(s)) => (s.to_msgpack_value(), rmpv::Value::Nil, None),
-            None => panic!("Task has no specification"),
-        };*/
 
         ToWorkerMessage::ComputeTask(ComputeTaskMsg {
             id: self.id,

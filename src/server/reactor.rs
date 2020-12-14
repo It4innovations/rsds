@@ -48,7 +48,6 @@ pub async fn gather(
         }
     }
 
-    //let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
             .into_iter()
@@ -56,11 +55,9 @@ pub async fn gather(
     );
 
     let mut result = Vec::with_capacity(task_ids.len());
-
     while let Some(r) = worker_futures.next().await {
         result.append(&mut r?);
     }
-
     Ok(result)
 }
 
@@ -227,7 +224,7 @@ pub async fn scatter(
     );
 
     // TODO: Proper error handling
-    // Note that sucessfull uploads are written in tasks
+    // Note that successful uploads are written in tasks
     worker_futures.await.iter().for_each(|x| assert!(x.is_ok()));
 
     let mut core = core_ref.get_mut();

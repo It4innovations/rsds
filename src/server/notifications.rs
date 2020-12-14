@@ -156,19 +156,5 @@ impl Notifications {
         self.client_notifications
             .error_notifications
             .push(notification);
-
-        /*self.clients
-        .entry(client_id)
-        .or_default()
-        .error_tasks
-        .push(task_ref);*/
     }
-
-    /*pub fn notify_client_key_in_memory(&mut self, client_id: ClientId, task_ref: TaskRef) {
-        self.clients
-            .entry(client_id)
-            .or_default()
-            .in_memory_tasks
-            .push(task_ref);
-    }*/
 }
