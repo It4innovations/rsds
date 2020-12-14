@@ -133,7 +133,7 @@ async fn main() -> rsds::Result<()> {
                     comm_ref.clone(),
                     dask_state_ref,
                 );
-                let rsds_connection = rsds::server::rpc::rsds::connection_initiator(
+                let rsds_connection = rsds::server::rpc::connection_initiator(
                     rsds_listener,
                     core_ref,
                     comm_ref,
