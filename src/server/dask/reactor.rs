@@ -128,14 +128,22 @@ pub fn release_keys(
     let mut notifications = Notifications::default();
     for key in task_keys {
         log::debug!("Releasing dask key {}", key);
-        let task_id = state_ref.get().get_task_id(&key).unwrap();
-        let task_ref = core.get_task_by_id_or_panic(task_id).clone();
-        state_ref
-            .get_mut()
-            .unsubscribe_client_from_task(task_id, client_id);
-        let mut task = task_ref.get_mut();
-        // NOTE! remove_data_if_possible may borrow state_ref!
-        task.remove_data_if_possible(&mut core, &mut notifications);
+        let task_id_maybe = state_ref.get().get_task_id(&key);
+        if let Some(task_id) = task_id_maybe {
+            let unsubscribed = state_ref
+                .get_mut()
+                .unsubscribe_client_from_task(task_id, client_id);
+            if unsubscribed {
+                    let task_ref = core.get_task_by_id_or_panic(task_id).clone();
+                    let mut task = task_ref.get_mut();
+                    // NOTE! remove_data_if_possible may borrow state_ref!
+                    task.remove_data_if_possible(&mut core, &mut notifications);
+            } else {
+                log::debug!("Unsubscribing invalid client from key");
+            }
+        } else {
+            log::debug!("Unsubscribing invalid key");
+        }
     }
     comm_ref.get_mut().notify(&mut core, notifications)
 }
