@@ -43,20 +43,12 @@ impl Worker {
         }
     }
 
-    /*pub fn send_dask_message(&self, packet: DaskPacket) {
-        self.send_message(WorkerMessage::Dask(packet))
-    }*/
-
     pub fn send_message(&self, message: ToWorkerMessage) {
         let data = rmp_serde::to_vec_named(&message).unwrap();
         self.sender
             .send(data.into())
             .expect("Send to worker failed");
     }
-
-    /*fn send_message(&self, data: WorkerMessage) {
-        self.sender.send(data).expect("Send to worker failed");
-    }*/
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;

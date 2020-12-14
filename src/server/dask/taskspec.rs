@@ -52,39 +52,3 @@ impl<'a> DaskTaskSpec<'a> {
         }
     }
 }
-
-/*pub fn client_task_spec_to_memory(
-    spec: ClientTaskSpec<SerializedTransport>,
-    frames: &mut Frames,
-) -> ClientTaskSpec<SerializedMemory> {
-    match spec {
-        ClientTaskSpec::Serialized(v) => {
-            ClientTaskSpec::<SerializedMemory>::Serialized(v.to_memory(frames))
-        }
-        ClientTaskSpec::Direct(DirectTaskSpec {
-            function,
-            args,
-            kwargs,
-        }) => ClientTaskSpec::<SerializedMemory>::Direct(DirectTaskSpec {
-            function: function.map(|v| v.to_memory(frames)),
-            args: args.map(|v| v.to_memory(frames)),
-            kwargs: kwargs.map(|v| v.to_memory(frames)),
-        }),
-    }
-}*/
-
-/*
-   let (function, args, kwargs) = match &self.spec {
-            Some(ClientTaskSpec::Direct(DirectTaskSpec {
-                function,
-                args,
-                kwargs,
-            })) => (
-                function.as_ref().unwrap().to_msgpack_value(),
-                args.as_ref().unwrap().to_msgpack_value(),
-                kwargs.as_ref().map(|x| x.to_msgpack_value()),
-            ),
-            Some(ClientTaskSpec::Serialized(s)) => (s.to_msgpack_value(), rmpv::Value::Nil, None),
-            None => panic!("Task has no specification"),
-        };
-*/

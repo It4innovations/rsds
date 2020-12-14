@@ -134,10 +134,10 @@ pub fn release_keys(
                 .get_mut()
                 .unsubscribe_client_from_task(task_id, client_id);
             if unsubscribed {
-                    let task_ref = core.get_task_by_id_or_panic(task_id).clone();
-                    let mut task = task_ref.get_mut();
-                    // NOTE! remove_data_if_possible may borrow state_ref!
-                    task.remove_data_if_possible(&mut core, &mut notifications);
+                let task_ref = core.get_task_by_id_or_panic(task_id).clone();
+                let mut task = task_ref.get_mut();
+                // NOTE! remove_data_if_possible may borrow state_ref!
+                task.remove_data_if_possible(&mut core, &mut notifications);
             } else {
                 log::debug!("Unsubscribing invalid client from key");
             }
@@ -215,48 +215,6 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     log::debug!("Sending gathered data {}", address);
     sink.send(serialize_single_packet(msg)?).await?;
     Ok(())
-
-    /*let mut worker_map: Map<DaskKey, Vec<DaskKey>> = Default::default();
-    {
-        let core = core_ref.get();
-        let mut rng = rand::thread_rng();
-        for key in &keys {
-            let task_ref = core.get_task_by_key_or_panic(key);
-            let task = task_ref.get();
-            //let data_info = task.data_info().unwrap();
-            task.get_workers().map(|ws| {
-                let ws = Vec::from_iter(ws.into_iter());
-                ws.choose(&mut rng).map(|w| {
-                    worker_map
-                        .entry(w.get().address().into())
-                        .or_default()
-                        .push(key.clone());
-                })
-            });
-        }
-    }
-
-    let mut result_map: Map<DaskKey, SerializedMemory> = Map::with_capacity(keys.len());
-    let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
-        worker_map
-            .into_iter()
-            .map(|(worker, keys)| get_data_from_worker(worker, keys)),
-    );
-
-    while let Some(result) = worker_futures.next().await {
-        result?.into_iter().for_each(|(k, v, s)| {
-            result_map.insert(k, make_dask_payload(s, v));
-        });
-    }
-
-    log::debug!("Sending gathered data {}", address);
-
-    let msg = GetDataResponse {
-        status: to_dask_key("OK"),
-        data: result_map,
-    };
-    sink.send(serialize_single_packet(msg)?).await?;
-    Ok(())*/
 }
 
 pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
@@ -372,78 +330,6 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 
     writer.send(serialize_single_packet(keys)?).await?;
     Ok(())
-    //let who_what: Vec<(WorkerRef, Vec<(TaskId, BytesMut)>)> =
-    //scatter_tasks(data, &workers, counter);
-
-    //let response: ScatterResponse = message.data.keys().cloned().collect();
-
-    /*
-     */
-    /*
-    let data: Vec<(DaskKey, BytesMut)> = message
-        .data
-        .into_iter()
-        .map(|(key, value)| (key, value.into_bytesmut().unwrap()))
-        .collect();
-    let who_what: Vec<(WorkerRef, Vec<(DaskKey, BytesMut)>)> =
-        scatter_tasks(data, &workers, counter);
-    let placement: Vec<(WorkerRef, Vec<(DaskKey, u64)>)> = who_what
-        .iter()
-        .map(|(wr, data)| {
-            (
-                wr.clone(),
-                data.iter()
-                    .map(|(key, d)| (key.clone(), d.len() as u64))
-                    .collect(),
-            )
-        })
-        .collect();
-
-    let worker_futures = join_all(
-        who_what
-            .into_iter()
-            .map(|(worker, data)| update_data_on_worker(worker.get().address().into(), data)),
-    );
-    worker_futures.await.iter().for_each(|x| assert!(x.is_ok()));
-
-    let mut notifications: Notifications = Default::default();
-    {
-        let mut core = core_ref.get_mut();
-        let client_id = core.get_client_id_by_key(&message.client);
-        for (wr, key_size) in placement.into_iter() {
-            for (key, size) in key_size.into_iter() {
-                let mut set = Set::new();
-                set.insert(wr.clone());
-                let task_ref = TaskRef::new(
-                    core.new_task_id(),
-                    key,
-                    None,
-                    Default::default(),
-                    0,
-                    Default::default(),
-                    Default::default(),
-                );
-                {
-                    let mut task = task_ref.get_mut();
-                    task.state = TaskRuntimeState::Finished(DataInfo { size }, set);
-                    task.subscribe_client(client_id);
-                    notifications.new_finished_task(&task);
-                    trace_task_new_finished(
-                        task.id,
-                        dask_key_ref_to_str(&task.key()),
-                        size,
-                        wr.get().id,
-                    );
-                }
-
-                core.add_task(task_ref.clone());
-                notifications.notify_client_key_in_memory(client_id, task_ref)
-            }
-        }
-        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
-    }
-    writer.send(serialize_single_packet(response)?).await?;
-    Ok(())*/
 }
 
 pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
@@ -475,31 +361,3 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     };
     sink.send(serialize_single_packet(response)?).await
 }
-
-/*
-pub async fn proxy_to_worker<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
-    sink: &mut W,
-    msg: ProxyMsg,
-) -> crate::Result<()> {
-    let worker_address: DaskKey = {
-        core_ref
-            .get()
-            .get_worker_by_key_or_panic(&msg.worker)
-            .get()
-            .address()
-            .into()
-    };
-    let mut connection = connect_to_worker(worker_address).await?;
-    let (reader, writer) = connection.split();
-    let mut writer = asyncwrite_to_sink(writer);
-    let packet = DaskPacket::from_wrapper(MessageWrapper::Message(msg.msg), msg.frames)?;
-    writer.send(packet).await?;
-
-    let mut reader = asyncread_to_stream(reader);
-    if let Some(packet) = reader.next().await {
-        sink.send(packet?).await?;
-    }
-    Ok(())
-}*/
