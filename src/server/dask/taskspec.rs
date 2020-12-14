@@ -16,14 +16,14 @@ pub struct DaskTaskSpec<'a> {
     kwargs: rmpv::Value,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    id_key_map: Vec<(TaskId, &'a DaskKey)>,
+    key_id_map: Vec<(&'a DaskKey, TaskId)>,
 }
 
 impl<'a> DaskTaskSpec<'a> {
     pub fn new(
         spec: ClientTaskSpec<SerializedTransport>,
         frames: &mut Frames,
-        id_key_map: Vec<(TaskId, &'a DaskKey)>,
+        key_id_map: Vec<(&'a DaskKey, TaskId)>,
     ) -> Self {
         let (function, args, kwargs) = match spec {
             ClientTaskSpec::Direct(DirectTaskSpec {
@@ -48,7 +48,7 @@ impl<'a> DaskTaskSpec<'a> {
             function,
             args,
             kwargs,
-            id_key_map,
+            key_id_map,
         }
     }
 }

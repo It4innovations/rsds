@@ -19,5 +19,5 @@ setup(
     description="RSDS Rust worker",
     license="MIT",
     packages=find_packages(),
-    install_requires=requirements
+    install_requires=requirements,
 )

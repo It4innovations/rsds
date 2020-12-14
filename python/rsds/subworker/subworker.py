@@ -27,6 +27,7 @@ class Subworker:
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.loop = asyncio.get_event_loop()
         self.worker_id = None
+        self.objects = {}
 
     async def run(self):
         await self.handshake()
@@ -35,6 +36,8 @@ class Subworker:
             op = message["op"]
             if op == "ComputeTask":
                 await self.handle_compute_task(message)
+            elif op == "Upload":
+                await self.handle_upload(message)
             else:
                 raise Exception("Unknown command: {}".format(op))
 
@@ -57,19 +60,23 @@ class Subworker:
             result.append((data_id, data, upload["serializer"]))
         return result
 
+    async def handle_upload(self, message):
+        data_id = message["id"]
+        serializer = message["serializer"]
+        logger.info("Uploading %s from worker (serializer %s)", data_id, serializer)
+        data = await self.socket.read_raw_message()
+
+        # Offload bigger deserialization into another thread
+        data_obj = deserialize(data, serializer)
+        self.objects[data_id] = data_obj
+
     async def handle_compute_task(self, message):
         task_id = message["id"]
         logger.info("Starting task %s", task_id)
-        uploads = message.get("uploads")
-        if uploads:
-            logger.info("Need %s uploads", len(uploads))
-            upload_data = await self.get_uploads(uploads)
-        else:
-            upload_data = ()
 
         async def inner():
             state, result = await self.loop.run_in_executor(
-                self.executor, run_task, message, upload_data
+                self.executor, run_task, message, self.objects
             )
             if state == "ok":
                 logger.info("Task %s successfully finished", task_id)
@@ -110,7 +117,7 @@ def _run_dask_composed_task(obj):
     return obj
 
 
-def run_task(message, uploads):
+def run_task(message, objects):
     try:
         logger.debug("Deserializing spec")
         spec = msgpack.loads(message["spec"])
@@ -130,14 +137,13 @@ def run_task(message, uploads):
         else:
             kwargs = {}
 
-        id_key_map = spec.get("id_key_map")
-        if id_key_map is not None:
-            id_key_map = dict(id_key_map)
+        key_id_map = spec.get("key_id_map")
         deps = {}
-        for data_id, data, serializer in uploads:
-            logger.debug("Deserializing upload %s", data_id)
-            deps[id_key_map[data_id]] = deserialize(data, serializer)
-        del id_key_map
+        if key_id_map is not None:
+            for key, data_id in key_id_map:
+                logger.debug("Deserializing upload %s", data_id)
+                deps[key] = objects[data_id]
+            del key_id_map
 
         if callable(function):
             logger.debug("Starting normal function")

@@ -17,7 +17,7 @@ pub(crate) struct RegisterSubworkerResponse {
 }
 
 #[derive(Serialize, Debug)]
-pub struct Upload {
+pub struct UploadMsg {
     pub id: TaskId,
     pub serializer: SerializationType,
 }
@@ -28,15 +28,13 @@ pub struct ComputeTaskMsg<'a> {
 
     #[serde(with = "serde_bytes")]
     pub spec: &'a Vec<u8>,
-
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub uploads: Vec<Upload>,
 }
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 pub enum ToSubworkerMessage<'a> {
     ComputeTask(ComputeTaskMsg<'a>),
+    Upload(UploadMsg),
 }
 
 #[derive(Deserialize, Debug)]

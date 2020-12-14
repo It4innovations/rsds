@@ -19,7 +19,7 @@ use crate::server::protocol::messages::worker::{
 use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
 use crate::worker::messages;
 use crate::worker::messages::{
-    ComputeTaskMsg, FromSubworkerMessage, RegisterSubworkerResponse, ToSubworkerMessage, Upload,
+    ComputeTaskMsg, FromSubworkerMessage, RegisterSubworkerResponse, ToSubworkerMessage, UploadMsg,
 };
 use crate::worker::reactor::try_start_tasks;
 use crate::worker::state::WorkerStateRef;
@@ -56,39 +56,37 @@ pub type SubworkerRef = WrappedRcRefCell<Subworker>;
 
 impl Subworker {
     pub fn start_task(&self, task: &Task) {
-        let uploads: Vec<Upload> = task
-            .deps
-            .iter()
-            .map(|data_ref| {
-                let data_obj = data_ref.get();
-                Upload {
-                    id: data_obj.id,
-                    serializer: data_obj.local_data().unwrap().serializer.clone(),
-                }
-            })
-            .collect();
-
+        for data_ref in &task.deps {
+            let data_obj = data_ref.get();
+            let local_data = data_obj.local_data().unwrap();
+            log::debug!(
+                "Uploading data={} (size={}) in subworker {}",
+                data_obj.id,
+                local_data.bytes.len(),
+                self.id,
+            );
+            let message = ToSubworkerMessage::Upload(UploadMsg {
+                id: data_obj.id,
+                serializer: local_data.serializer.clone(),
+            });
+            let data = rmp_serde::to_vec_named(&message).unwrap();
+            self.sender.send(data.into()).unwrap();
+            self.sender
+                .send(local_data.bytes.clone())
+                .unwrap();
+        }
         log::debug!(
-            "Starting task {} in subworker {} ({} uploads)",
+            "Starting task {} in subworker {}",
             task.id,
             self.id,
-            uploads.len()
         );
         // Send message to subworker
         let message = ToSubworkerMessage::ComputeTask(ComputeTaskMsg {
             id: task.id,
             spec: &task.spec,
-            uploads,
         });
         let data = rmp_serde::to_vec_named(&message).unwrap();
         self.sender.send(data.into()).unwrap();
-
-        for data_ref in &task.deps {
-            let data_obj = data_ref.get();
-            self.sender
-                .send(data_obj.local_data().unwrap().bytes.clone())
-                .unwrap();
-        }
     }
 }
 

@@ -80,14 +80,14 @@ pub fn update_graph(
 
         //let task_spec = client_task_spec_to_memory(task_spec, &mut update.frames);
 
-        let id_key_map: Vec<(TaskId, &DaskKey)> = inputs
+        let key_id_map: Vec<(&DaskKey, TaskId)> = inputs
             .iter()
-            .map(|task_id| (*task_id, state.get_task_key(*task_id).unwrap()))
+            .map(|task_id| (state.get_task_key(*task_id).unwrap(), *task_id))
             .collect();
         let serialized_dask_spec = rmp_serde::to_vec_named(&DaskTaskSpec::new(
             task_spec,
             &mut update.frames,
-            id_key_map,
+            key_id_map,
         ))
         .unwrap();
 
