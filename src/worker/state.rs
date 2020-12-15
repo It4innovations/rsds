@@ -13,9 +13,13 @@ use crate::server::protocol::messages::worker::{
 use crate::server::protocol::{Priority, PriorityValue};
 use crate::server::worker::WorkerId;
 use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData};
-use crate::worker::reactor::choose_subworker;
+use crate::worker::reactor::try_assign_tasks;
 use crate::worker::subworker::{SubworkerId, SubworkerRef};
 use crate::worker::task::{TaskRef, TaskState};
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use smallvec::{smallvec, SmallVec};
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -32,6 +36,7 @@ pub struct WorkerState {
     pub download_sender: tokio::sync::mpsc::UnboundedSender<(DataObjectRef, Priority)>,
     pub worker_id: WorkerId,
     pub worker_addresses: Map<WorkerId, String>,
+    pub random: SmallRng,
 }
 
 impl WorkerState {
@@ -62,7 +67,7 @@ impl WorkerState {
         data: BytesMut,
         serializer: SerializationType,
     ) {
-        {
+        let new_ready = {
             let mut data_obj = data_ref.get_mut();
             log::debug!("Data {} downloaded ({} bytes)", data_obj.id, data.len());
             match data_obj.state {
@@ -72,35 +77,54 @@ impl WorkerState {
                     log::debug!("Data is not needed any more");
                     return;
                 }
-                DataObjectState::Local(_) => unreachable!(),
+                DataObjectState::Local(_) => {
+                    log::debug!("Data clash, data is already in worker, ignoring download");
+                    return;
+                }
+                DataObjectState::InSubworkers(_) | DataObjectState::LocalDownloading(_) => {
+                    log::debug!("Data is also in subworker, but not local, accepting download");
+                }
             }
             data_obj.state = DataObjectState::Local(LocalData {
                 serializer,
                 bytes: data.into(),
+                subworkers: Default::default(),
             });
 
             let message = FromWorkerMessage::DataDownloaded(DataDownloadedMsg { id: data_obj.id });
             self.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
-        }
 
-        /* TODO: Inform server about download */
-
-        /* We need to reborrow the data_ref to readonly as
-          add_ready_task may start to read this data_ref
-        */
-        for task_ref in &data_ref.get().consumers {
-            let is_ready = task_ref.get_mut().decrease_waiting_count();
-            if is_ready {
-                log::debug!("Task {} becomes ready", task_ref.get().id);
-                self.add_ready_task(task_ref.clone());
+            /* We need to drop borrow before calling
+              add_ready_task may start to borrow_mut this data_ref
+            */
+            let mut new_ready: SmallVec<[TaskRef; 2]> = smallvec![];
+            for task_ref in &data_obj.consumers {
+                let is_ready = task_ref.get_mut().decrease_waiting_count();
+                if is_ready {
+                    log::debug!("Task {} becomes ready", task_ref.get().id);
+                    new_ready.push(task_ref.clone());
+                }
             }
+            new_ready
+        };
+        if !new_ready.is_empty() {
+            self.add_ready_tasks(&new_ready);
         }
     }
 
     pub fn add_ready_task(&mut self, task_ref: TaskRef) {
         let priority = task_ref.get().priority;
         self.ready_task_queue.push(task_ref, Reverse(priority));
-        self.try_start_tasks();
+        try_assign_tasks(self);
+    }
+
+    pub fn add_ready_tasks(&mut self, task_refs: &[TaskRef]) {
+        for task_ref in task_refs {
+            let priority = task_ref.get().priority;
+            self.ready_task_queue
+                .push(task_ref.clone(), Reverse(priority));
+        }
+        try_assign_tasks(self);
     }
 
     pub fn add_dependancy(
@@ -131,7 +155,9 @@ impl WorkerState {
                             is_remote = true;
                             data_obj.state = DataObjectState::Remote(RemoteData { workers })
                         }
-                        DataObjectState::Local(_) => { /* Do nothing */ }
+                        DataObjectState::Local(_)
+                        | DataObjectState::InSubworkers(_)
+                        | DataObjectState::LocalDownloading(_) => { /* Do nothing */ }
                         DataObjectState::Removed => {
                             unreachable!();
                         }
@@ -164,26 +190,6 @@ impl WorkerState {
         self.tasks.insert(id, task_ref);
     }
 
-    pub fn try_start_tasks(&mut self) {
-        if self.free_subworkers.is_empty() {
-            return;
-        }
-        while let Some((task_ref, _)) = self.ready_task_queue.pop() {
-            {
-                let subworker_ref = choose_subworker(self);
-                let mut task = task_ref.get_mut();
-                task.set_running(subworker_ref.clone());
-                let mut sw = subworker_ref.get_mut();
-                assert!(sw.running_task.is_none());
-                sw.running_task = Some(task_ref.clone());
-                sw.start_task(&task);
-            }
-            if self.free_subworkers.is_empty() {
-                return;
-            }
-        }
-    }
-
     pub fn remove_data(&mut self, task_id: TaskId) {
         log::info!("Removing data object {}", task_id);
         if let Some(data_ref) = self.data_objects.remove(&task_id) {
@@ -192,7 +198,20 @@ impl WorkerState {
             if !data_obj.consumers.is_empty() {
                 todo!(); // What should happen when server removes data but there are tasks that needs it?
             }
+            if let Some(sw_refs) = data_obj.get_placement() {
+                for sw_ref in sw_refs {
+                    sw_ref.get().send_remove_data(data_obj.id);
+                }
+            }
         };
+    }
+
+    pub fn random_choice<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        if items.len() == 1 {
+            &items[0]
+        } else {
+            items.choose(&mut self.random).unwrap()
+        }
     }
 
     pub fn remove_task(&mut self, task_ref: TaskRef, just_finished: bool) {
@@ -204,6 +223,27 @@ impl WorkerState {
                     assert!(self.ready_task_queue.remove(&task_ref).is_some());
                 }
             }
+            TaskState::Uploading(_, _) => {
+                todo!()
+                /* This should not happen in this version, but in case of need:
+                   TODO: The following code
+                   TODO: Free subworker
+                   TODO: Try to schedule new task
+                  for data_ref in std::mem::take(&mut task.deps) {
+                    let data_obj = data_ref.get_mut();
+                    if let DataObjectState::LocalDownloading(mut ld) = &mut data_obj.state {
+                        let pos = ld.subscribers.iter().position(|s| {
+                            match s {
+                                Subscriber::Task(t_ref) => { t_ref == &task_ref }
+                                _ => false
+                            }
+                        });
+                        if let Some(p) = pos {
+                            ld.subscribers.remove(p);
+                        }
+                    }
+                }*/
+            }
             TaskState::Running(_) => {
                 assert!(just_finished);
             }
@@ -214,20 +254,25 @@ impl WorkerState {
         task.state = TaskState::Removed;
 
         assert!(self.tasks.remove(&task.id).is_some());
-
         for data_ref in std::mem::take(&mut task.deps) {
             let mut data = data_ref.get_mut();
             assert!(data.consumers.remove(&task_ref));
-            if data.consumers.is_empty() {
-                match data.state {
+            /*if data.consumers.is_empty() {
+                let match data.state {
                     DataObjectState::Remote(_) => {
+                        /* We are doing to stop unnecessary download */
                         assert!(!just_finished);
-                        data.state = DataObjectState::Removed;
                     }
-                    DataObjectState::Local(_) => { /* Do nothing */ }
-                    DataObjectState::Removed => { /* Do nothing */ }
+                    DataObjectState::InSubworkers(_)
+                    | DataObjectState::Local(_)
+                    | DataObjectState::LocalDownloading(_) => {
+                        /* Do nothing */
+                    }
+                    DataObjectState::Removed => {
+                        unreachable!()
+                    }
                 };
-            }
+            }*/
         }
     }
 
@@ -239,8 +284,10 @@ impl WorkerState {
                     let task = task_ref.get_mut();
                     match task.state {
                         TaskState::Waiting(_) => { /* Continue */ }
-                        TaskState::Running(_) => return StealResponse::Running,
-                        TaskState::Removed => return StealResponse::NotHere,
+                        TaskState::Running(_) | TaskState::Uploading(_, _) => {
+                            return StealResponse::Running
+                        }
+                        TaskState::Removed => unreachable!(),
                     }
                 }
                 self.remove_task(task_ref, false);
@@ -271,6 +318,7 @@ impl WorkerStateRef {
             free_subworkers: Default::default(),
             ready_task_queue: Default::default(),
             data_objects: Default::default(),
+            random: SmallRng::from_entropy(),
         })
     }
 }

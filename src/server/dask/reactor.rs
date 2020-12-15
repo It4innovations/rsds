@@ -39,7 +39,7 @@ pub fn update_graph(
             new_task_id,
             task_key
         );
-        state.insert_task_key(task_key.clone(), new_task_id);
+        state.assign_key(task_key.clone(), &mut core);
     }
 
     log::debug!(

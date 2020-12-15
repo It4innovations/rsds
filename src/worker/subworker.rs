@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{Future, FutureExt, SinkExt, StreamExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -16,16 +16,22 @@ use crate::common::WrappedRcRefCell;
 use crate::server::protocol::messages::worker::{
     FromWorkerMessage, TaskFailedMsg, TaskFinishedMsg,
 };
-use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
+use crate::worker::data::{
+    DataObjectRef, DataObjectState, InSubworkersData, LocalData, Subscriber,
+};
 use crate::worker::messages;
 use crate::worker::messages::{
-    ComputeTaskMsg, FromSubworkerMessage, RegisterSubworkerResponse, ToSubworkerMessage, UploadMsg,
+    ComputeTaskMsg, DownloadRequestMsg, FromSubworkerMessage, RegisterSubworkerResponse,
+    RemoveDataMsg, ToSubworkerMessage, UploadMsg,
 };
-use crate::worker::reactor::try_start_tasks;
 use crate::worker::state::WorkerStateRef;
-use crate::worker::task::{Task, TaskRef};
+use crate::worker::task::{Task, TaskRef, TaskState};
 
 use super::messages::RegisterSubworkerMessage;
+use crate::common::data::SerializationType;
+use crate::scheduler::TaskId;
+use crate::worker::reactor::{start_task, try_assign_tasks};
+use smallvec::{smallvec, SmallVec};
 
 #[derive(Debug, Clone)]
 pub struct SubworkerPaths {
@@ -55,31 +61,42 @@ pub struct Subworker {
 pub type SubworkerRef = WrappedRcRefCell<Subworker>;
 
 impl Subworker {
-    pub fn start_task(&self, task: &Task) {
-        for data_ref in &task.deps {
-            let data_obj = data_ref.get();
-            let local_data = data_obj.local_data().unwrap();
-            log::debug!(
-                "Uploading data={} (size={}) in subworker {}",
-                data_obj.id,
-                local_data.bytes.len(),
-                self.id,
-            );
-            let message = ToSubworkerMessage::Upload(UploadMsg {
-                id: data_obj.id,
-                serializer: local_data.serializer.clone(),
-            });
-            let data = rmp_serde::to_vec_named(&message).unwrap();
-            self.sender.send(data.into()).unwrap();
-            self.sender
-                .send(local_data.bytes.clone())
-                .unwrap();
-        }
+    pub fn send_remove_data(&self, data_id: TaskId) {
+        log::debug!("Removing data={} from subworker {}", data_id, self.id,);
+        let message = ToSubworkerMessage::RemoveData(RemoveDataMsg { id: data_id });
+        let msg_data = rmp_serde::to_vec_named(&message).unwrap();
+        self.sender.send(msg_data.into()).unwrap();
+    }
+
+    pub fn send_download_request(&self, data_id: TaskId) {
         log::debug!(
-            "Starting task {} in subworker {}",
-            task.id,
+            "Download request data={} for subworker {}",
+            data_id,
             self.id,
         );
+        let message = ToSubworkerMessage::DownloadRequest(DownloadRequestMsg { id: data_id });
+        let msg_data = rmp_serde::to_vec_named(&message).unwrap();
+        self.sender.send(msg_data.into()).unwrap();
+    }
+
+    pub fn send_data(&self, data_id: TaskId, data: Bytes, serializer: SerializationType) {
+        log::debug!(
+            "Uploading data={} (size={}) in subworker {}",
+            data_id,
+            data.len(),
+            self.id,
+        );
+        let message = ToSubworkerMessage::Upload(UploadMsg {
+            id: data_id,
+            serializer,
+        });
+        let msg_data = rmp_serde::to_vec_named(&message).unwrap();
+        self.sender.send(msg_data.into()).unwrap();
+        self.sender.send(data).unwrap();
+    }
+
+    pub fn send_start_task(&self, task: &Task) {
+        log::debug!("Starting task {} in subworker {}", task.id, self.id,);
         // Send message to subworker
         let message = ToSubworkerMessage::ComputeTask(ComputeTaskMsg {
             id: task.id,
@@ -139,6 +156,80 @@ async fn subworker_handshake(
     }
 }
 
+fn subworker_download_finished(
+    state_ref: &WorkerStateRef,
+    subworker_ref: &SubworkerRef,
+    data: BytesMut,
+    msg: messages::DownloadResponseMsg,
+) {
+    let state = state_ref.get();
+    let data_id = msg.id;
+    log::debug!(
+        "Downloading data={} from subworker={} finished",
+        data_id,
+        subworker_ref.get().id
+    );
+    if let Some(data_ref) = state.data_objects.get(&data_id) {
+        let mut data_obj = data_ref.get_mut();
+        let bytes: Bytes = data.into();
+        log::debug!(
+            "Updating size, new size {}, old size {}",
+            bytes.len(),
+            data_obj.size
+        );
+        data_obj.size = bytes.len() as u64;
+        match &mut data_obj.state {
+            DataObjectState::LocalDownloading(ld) => {
+                let mut subworkers = std::mem::take(&mut ld.subworkers);
+                for subscriber in std::mem::take(&mut ld.subscribers) {
+                    match subscriber {
+                        Subscriber::Task(task_ref) => {
+                            let mut task = task_ref.get_mut();
+                            let start_task_at = match &mut task.state {
+                                TaskState::Uploading(target_sw_ref, ref mut w) => {
+                                    subworkers.push(target_sw_ref.clone());
+                                    target_sw_ref.get_mut().send_data(
+                                        data_id,
+                                        bytes.clone(),
+                                        msg.serializer.clone(),
+                                    );
+                                    assert!(*w > 0);
+                                    *w -= 1;
+                                    if *w == 0 {
+                                        Some(target_sw_ref.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => unreachable!(),
+                            };
+                            if let Some(target_sw_ref) = start_task_at {
+                                start_task(&target_sw_ref.get(), target_sw_ref.clone(), &mut task);
+                            }
+                        }
+                        Subscriber::OneShot(shot) => {
+                            let _ = shot.send((msg.serializer.clone(), bytes.clone()));
+                        }
+                    }
+                }
+                data_obj.state = DataObjectState::Local(LocalData {
+                    serializer: msg.serializer,
+                    bytes,
+                    subworkers,
+                })
+            }
+            DataObjectState::InSubworkers(_) | DataObjectState::Local(_) => {
+                log::debug!("Downloading finished but object is not requested any more")
+            }
+            DataObjectState::Remote(_) | DataObjectState::Removed => {
+                unreachable!()
+            }
+        }
+    } else {
+        log::debug!("Downloading finished but object is not requested any more")
+    }
+}
+
 fn subworker_task_finished(
     state_ref: &WorkerStateRef,
     subworker_ref: &SubworkerRef,
@@ -146,30 +237,30 @@ fn subworker_task_finished(
 ) {
     let mut state = state_ref.get_mut();
     {
-        let mut sw = subworker_ref.get_mut();
-        log::debug!("Task {} finished in subworker {}", msg.id, sw.id);
-        let task_ref = sw.running_task.take().unwrap();
+        let task_ref = {
+            let mut sw = subworker_ref.get_mut();
+            log::debug!("Task {} finished in subworker {}", msg.id, sw.id);
+            sw.running_task.take().unwrap()
+        };
         state.free_subworkers.push(subworker_ref.clone());
         assert_eq!(task_ref.get().id, msg.id);
         state.remove_task(task_ref, true);
 
         let message = FromWorkerMessage::TaskFinished(TaskFinishedMsg {
             id: msg.id,
-            nbytes: msg.result.len() as u64,
+            size: msg.size,
         });
         state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
 
+        let subworkers: SmallVec<[SubworkerRef; 1]> = smallvec![subworker_ref.clone()];
         let data_ref = DataObjectRef::new(
             msg.id,
-            msg.result.len() as u64,
-            DataObjectState::Local(LocalData {
-                serializer: msg.serializer,
-                bytes: msg.result.into(),
-            }),
+            msg.size,
+            DataObjectState::InSubworkers(InSubworkersData { subworkers }),
         );
         state.add_data_object(data_ref);
     }
-    try_start_tasks(&mut state);
+    try_assign_tasks(&mut state);
 }
 
 fn subworker_task_fail(
@@ -179,9 +270,11 @@ fn subworker_task_fail(
 ) {
     let mut state = state_ref.get_mut();
     {
-        let mut sw = subworker_ref.get_mut();
-        log::debug!("Task {} failed in subworker {}", msg.id, sw.id);
-        let task_ref = sw.running_task.take().unwrap();
+        let task_ref = {
+            let mut sw = subworker_ref.get_mut();
+            log::debug!("Task {} failed in subworker {}", msg.id, sw.id);
+            sw.running_task.take().unwrap()
+        };
         state.free_subworkers.push(subworker_ref.clone());
         assert_eq!(task_ref.get().id, msg.id);
         state.remove_task(task_ref, true);
@@ -193,7 +286,7 @@ fn subworker_task_fail(
         });
         state.send_message_to_server(rmp_serde::to_vec_named(&message).unwrap());
     }
-    try_start_tasks(&mut state);
+    try_assign_tasks(&mut state);
 }
 
 async fn run_subworker_message_loop(
@@ -209,6 +302,14 @@ async fn run_subworker_message_loop(
             }
             FromSubworkerMessage::TaskFailed(msg) => {
                 subworker_task_fail(&state_ref, &subworker_ref, msg);
+            }
+            FromSubworkerMessage::DownloadResponse(msg) => {
+                if let Some(data) = stream.next().await {
+                    let data = data?;
+                    subworker_download_finished(&state_ref, &subworker_ref, data, msg);
+                } else {
+                    panic!("Subworker announced download but then closed the connection");
+                }
             }
         };
     }

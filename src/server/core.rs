@@ -389,7 +389,7 @@ impl Core {
                 trace_task_finish(
                     task.id,
                     worker_ref.id,
-                    msg.nbytes,
+                    msg.size,
                     (0, 0), /* TODO: gather real computation */
                 );
                 log::debug!("Task id={} finished on worker={}", task.id, worker_ref.id);
@@ -398,7 +398,7 @@ impl Core {
                 set.insert(worker.clone());
                 task.state = TaskRuntimeState::Finished(
                     DataInfo {
-                        size: msg.nbytes,
+                        size: msg.size,
                         //r#type: msg.r#type,
                     },
                     set,

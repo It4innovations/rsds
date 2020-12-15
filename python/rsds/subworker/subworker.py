@@ -38,6 +38,10 @@ class Subworker:
                 await self.handle_compute_task(message)
             elif op == "Upload":
                 await self.handle_upload(message)
+            elif op == "DownloadRequest":
+                await self.handle_download(message)
+            elif op == "RemoveData":
+                self.handle_remove_data(message)
             else:
                 raise Exception("Unknown command: {}".format(op))
 
@@ -66,9 +70,32 @@ class Subworker:
         logger.info("Uploading %s from worker (serializer %s)", data_id, serializer)
         data = await self.socket.read_raw_message()
 
-        # Offload bigger deserialization into another thread
+        # Maybe?? Offload bigger (de)serializetion into another thread
+        # It will make sense in parallel downloads/uploads
+        # but so far we only have only one connection
         data_obj = deserialize(data, serializer)
         self.objects[data_id] = data_obj
+
+    async def handle_download(self, message):
+        data_id = message["id"]
+
+        # Maybe?? Offload bigger (de)serializetion into another thread
+        # It will make sense in parallel downloads/uploads
+        # but so far we only have only one connection
+        serializer, data = serialize(self.objects[data_id])
+        await self.socket.send_message(
+            {
+                "op": "DownloadResponse",
+                "id": data_id,
+                "serializer": serializer
+            }
+        )
+        await self.socket.write_raw_message(data)
+
+    def handle_remove_data(self, message):
+        data_id = message["id"]
+        logger.info("Removing data %s", data_id)
+        del self.objects[data_id]
 
     async def handle_compute_task(self, message):
         task_id = message["id"]
@@ -80,13 +107,12 @@ class Subworker:
             )
             if state == "ok":
                 logger.info("Task %s successfully finished", task_id)
-                serializer, data = serialize(result)
+                self.objects[task_id] = result
                 await self.socket.send_message(
                     {
                         "op": "TaskFinished",
-                        "serializer": serializer,
                         "id": task_id,
-                        "result": data,
+                        "size": sys.getsizeof(result),
                     }
                 )
             else:

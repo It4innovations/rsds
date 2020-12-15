@@ -27,8 +27,10 @@ use crate::server::protocol::messages::worker::{
 use crate::server::protocol::Priority;
 use crate::server::protocol::PriorityValue;
 use crate::server::reactor::fetch_data;
-use crate::worker::data::{DataObjectRef, DataObjectState, LocalData};
+use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, Subscriber};
 
+use crate::common::data::SerializationType;
+use crate::worker::reactor::start_local_download;
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
@@ -152,11 +154,18 @@ async fn worker_data_downloader(
             let data_obj = data_ref.get();
             let workers = match &data_obj.state {
                 DataObjectState::Remote(rs) => &rs.workers,
-                DataObjectState::Local(_) | DataObjectState::Removed => {
+                DataObjectState::Local(_)
+                | DataObjectState::Removed
+                | DataObjectState::InSubworkers(_)
+                | DataObjectState::LocalDownloading(_) => {
                     /* It is already finished */
                     continue;
                 }
             };
+            if data_obj.consumers.is_empty() {
+                // Task that requested data was removed (because of work stealing)
+                continue;
+            }
             let worker_id = workers.choose(&mut random).cloned().unwrap();
             (worker_id, data_obj.id)
         };
@@ -203,6 +212,7 @@ async fn worker_message_loop(
             }
             ToWorkerMessage::DeleteData(msg) => {
                 for id in msg.ids {
+                    //log::debug!("Server removes data={}", id);
                     state.remove_data(id);
                 }
             }
@@ -256,6 +266,11 @@ async fn connection_rpc_loop(
     state_ref: WorkerStateRef,
     address: SocketAddr,
 ) -> crate::Result<()> {
+    enum FetchHelperResult {
+        OneShot(tokio::sync::oneshot::Receiver<(SerializationType, Bytes)>),
+        DirectResult(DataResponse, Option<Bytes>),
+    };
+
     let mut stream = make_protocol_builder().new_framed(stream);
     loop {
         let data = match stream.next().await {
@@ -263,27 +278,81 @@ async fn connection_rpc_loop(
             Some(data) => data?,
         };
         let request: DataRequest = rmp_serde::from_slice(&data)?;
+
         match request {
             DataRequest::FetchRequest(msg) => {
                 log::debug!("Object {} request from {} started", msg.task_id, address);
-                let state = state_ref.get();
-                let (bytes, serializer) = {
-                    let data_obj = match state.data_objects.get(&msg.task_id) {
+                let result = {
+                    /* It is now a little bix complex, as we need to get .await
+                       out of borrow of data object and state
+                    */
+                    let maybe_data_ref = state_ref.get().data_objects.get(&msg.task_id).cloned();
+                    let data_ref = match maybe_data_ref {
                         None => {
+                            log::debug!("Object is not here");
                             let response = DataResponse::NotAvailable;
-                            let data = rmp_serde::to_vec_named(&response).unwrap();
-                            stream.send(data.into()).await?;
+                            stream
+                                .send(rmp_serde::to_vec_named(&response).unwrap().into())
+                                .await?;
                             continue;
                         }
-                        Some(x) => x.get(),
+                        Some(x) => x,
                     };
-                    let data = data_obj.local_data().unwrap();
-                    (data.bytes.clone(), data.serializer.clone())
+                    let mut data_obj = data_ref.get_mut();
+                    match &mut data_obj.state {
+                        DataObjectState::Remote(_) => {
+                            log::debug!("Object is marked as remote");
+                            FetchHelperResult::DirectResult(DataResponse::NotAvailable, None)
+                        }
+                        DataObjectState::InSubworkers(insw) => {
+                            let (sender, receiver) = tokio::sync::oneshot::channel();
+                            data_obj.state = start_local_download(
+                                &mut state_ref.get_mut(),
+                                msg.task_id,
+                                insw,
+                                Subscriber::OneShot(sender),
+                            );
+                            FetchHelperResult::OneShot(receiver)
+                        }
+                        DataObjectState::LocalDownloading(ref mut ld) => {
+                            let (sender, receiver) = tokio::sync::oneshot::channel();
+                            ld.subscribers.push(Subscriber::OneShot(sender));
+                            FetchHelperResult::OneShot(receiver)
+                        }
+                        DataObjectState::Local(local_data) => {
+                            FetchHelperResult::DirectResult(
+                                DataResponse::Data(FetchResponseData {
+                                    serializer: local_data.serializer.clone(),
+                                }),
+                                Some(local_data.bytes.clone()),
+                            )
+                            //let data = rmp_serde::to_vec_named(&).unwrap();
+
+                            /*    Either::Right(
+                            stream.send(data.into()).await?;
+                            stream.send(local_data.bytes.clone()).await?;
+                            log::debug!("Object {} request from {} finished", data_id, address);
+                            continue*/
+                        }
+                        DataObjectState::Removed => unreachable!(),
+                    }
                 };
-                let response = DataResponse::Data(FetchResponseData { serializer });
-                let data = rmp_serde::to_vec_named(&response).unwrap();
+
+                let (out_msg, opt_bytes) = match result {
+                    FetchHelperResult::DirectResult(msg, opt_bytes) => (msg, opt_bytes),
+                    FetchHelperResult::OneShot(receiver) => match receiver.await {
+                        Ok((serializer, bytes)) => (
+                            DataResponse::Data(FetchResponseData { serializer }),
+                            Some(bytes),
+                        ),
+                        Err(_) => (DataResponse::NotAvailable, None),
+                    },
+                };
+                let data = rmp_serde::to_vec_named(&out_msg).unwrap();
                 stream.send(data.into()).await?;
-                stream.send(bytes).await?;
+                if let Some(bytes) = opt_bytes {
+                    stream.send(bytes).await?;
+                }
                 log::debug!("Object {} request from {} finished", msg.task_id, address);
             }
             DataRequest::UploadData(msg) => {
@@ -308,6 +377,7 @@ async fn connection_rpc_loop(
                             DataObjectState::Local(LocalData {
                                 serializer: msg.serializer,
                                 bytes: data.into(),
+                                subworkers: Default::default(),
                             }),
                         );
                         state.add_data_object(data_ref);
@@ -317,6 +387,14 @@ async fn connection_rpc_loop(
                         match &data_obj.state {
                             DataObjectState::Remote(_) => {
                                 /* set the data and check waiting tasks */
+                                todo!()
+                            }
+                            DataObjectState::InSubworkers(_)
+                            | DataObjectState::LocalDownloading(_) => {
+                                log::debug!(
+                                    "Uploaded data {} is already in subworkers",
+                                    &msg.task_id
+                                );
                                 todo!()
                             }
                             DataObjectState::Local(local) => {

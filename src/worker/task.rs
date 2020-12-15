@@ -7,6 +7,7 @@ use crate::worker::subworker::SubworkerRef;
 
 pub enum TaskState {
     Waiting(u32),
+    Uploading(SubworkerRef, u32),
     Running(SubworkerRef),
     Removed,
 }
@@ -44,11 +45,12 @@ impl Task {
 
     pub fn decrease_waiting_count(&mut self) -> bool {
         match &mut self.state {
-            TaskState::Removed | TaskState::Waiting(0) | TaskState::Running(_) => unreachable!(),
             TaskState::Waiting(ref mut x) => {
+                assert!(*x > 0);
                 *x -= 1;
                 *x == 0
             }
+            _ => unreachable!(),
         }
     }
 
@@ -57,7 +59,7 @@ impl Task {
             TaskState::Waiting(ref mut x) => {
                 *x += 1;
             }
-            TaskState::Running(_) | TaskState::Removed => unreachable!(),
+            _ => unreachable!(),
         }
     }
 

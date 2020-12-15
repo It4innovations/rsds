@@ -49,7 +49,7 @@ pub enum ToWorkerMessage {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TaskFinishedMsg {
     pub id: TaskId,
-    pub nbytes: u64,
+    pub size: u64,
     /*#[serde(with = "serde_bytes")]
     pub r#type: Vec<u8>,*/
 }

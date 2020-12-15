@@ -20,6 +20,11 @@ pub(crate) struct RegisterSubworkerResponse {
 pub struct UploadMsg {
     pub id: TaskId,
     pub serializer: SerializationType,
+} // The following message contains data
+
+#[derive(Serialize, Debug)]
+pub struct DownloadRequestMsg {
+    pub id: TaskId,
 }
 
 #[derive(Serialize, Debug)]
@@ -31,18 +36,23 @@ pub struct ComputeTaskMsg<'a> {
 }
 
 #[derive(Serialize, Debug)]
+pub struct RemoveDataMsg {
+    pub id: TaskId,
+}
+
+#[derive(Serialize, Debug)]
 #[serde(tag = "op")]
 pub enum ToSubworkerMessage<'a> {
     ComputeTask(ComputeTaskMsg<'a>),
     Upload(UploadMsg),
+    DownloadRequest(DownloadRequestMsg),
+    RemoveData(RemoveDataMsg),
 }
 
 #[derive(Deserialize, Debug)]
 pub struct TaskFinishedMsg {
     pub id: TaskId,
-    pub serializer: SerializationType,
-    #[serde(with = "serde_bytes")]
-    pub result: Vec<u8>,
+    pub size: u64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -55,8 +65,15 @@ pub struct TaskFailedMsg {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct DownloadResponseMsg {
+    pub id: TaskId,
+    pub serializer: SerializationType,
+} // The following message contains data
+
+#[derive(Deserialize, Debug)]
 #[serde(tag = "op")]
 pub enum FromSubworkerMessage {
     TaskFinished(TaskFinishedMsg),
     TaskFailed(TaskFailedMsg),
+    DownloadResponse(DownloadResponseMsg),
 }

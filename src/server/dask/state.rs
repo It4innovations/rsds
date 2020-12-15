@@ -2,10 +2,12 @@ use smallvec::SmallVec;
 
 use crate::common::{IdCounter, Map, WrappedRcRefCell};
 use crate::scheduler::TaskId;
+use crate::server::core::Core;
 use crate::server::dask::client::{Client, ClientId};
 use crate::server::dask::gateway::DaskGateway;
 use crate::server::dask::key::DaskKey;
 use crate::server::gateway::Gateway;
+use hashbrown::hash_map::Entry;
 
 pub struct DaskState {
     uid: DaskKey,
@@ -66,6 +68,22 @@ impl DaskState {
             .insert(task_key.clone(), task_id)
             .is_none());
         assert!(self.task_id_to_key.insert(task_id, task_key).is_none());
+    }
+
+    pub fn assign_key(&mut self, task_key: DaskKey, core: &mut Core) {
+        match self.task_key_to_id.entry(task_key) {
+            Entry::Vacant(e) => {
+                let task_id = core.new_task_id();
+                assert!(self
+                    .task_id_to_key
+                    .insert(task_id, e.key().clone())
+                    .is_none());
+                e.insert(task_id);
+            }
+            Entry::Occupied(e) => {
+                log::debug!("Existing key {} assigned, task={}", e.key(), e.get());
+            }
+        }
     }
 
     pub fn subscribe_client_to_task(&mut self, task_id: TaskId, client_id: ClientId) {
