@@ -1,12 +1,10 @@
 import asyncio
 import concurrent
-import pickle
 import msgpack
 import sys
 from concurrent.futures.thread import ThreadPoolExecutor
 from dask.sizeof import sizeof
 
-import cloudpickle
 import logging
 
 from .conn import SocketWrapper
@@ -85,11 +83,7 @@ class Subworker:
         # but so far we only have only one connection
         serializer, data = serialize(self.objects[data_id])
         await self.socket.send_message(
-            {
-                "op": "DownloadResponse",
-                "id": data_id,
-                "serializer": serializer
-            }
+            {"op": "DownloadResponse", "id": data_id, "serializer": serializer}
         )
         await self.socket.write_raw_message(data)
 
