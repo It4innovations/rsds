@@ -4,6 +4,7 @@ import pickle
 import msgpack
 import sys
 from concurrent.futures.thread import ThreadPoolExecutor
+from dask.sizeof import sizeof
 
 import cloudpickle
 import logging
@@ -112,7 +113,7 @@ class Subworker:
                     {
                         "op": "TaskFinished",
                         "id": task_id,
-                        "size": sys.getsizeof(result),
+                        "size": sizeof(result),
                     }
                 )
             else:
