@@ -355,24 +355,28 @@ impl Core {
         notifications: &mut Notifications,
     ) {
         let worker = worker_ref.get();
+        log::debug!("Task id={} transfered on worker={}", id, worker.id);
         // TODO handle the race when task is removed from server before this message arrives
-        let task_ref = self.get_task_by_id_or_panic(id);
-        let mut task = task_ref.get_mut();
-        match &mut task.state {
-            TaskRuntimeState::Finished(_, ws) => {
-                ws.insert(worker_ref.clone());
-            }
-            TaskRuntimeState::Released
-            | TaskRuntimeState::Waiting
-            | TaskRuntimeState::Scheduled(_)
-            | TaskRuntimeState::Assigned(_)
-            | TaskRuntimeState::Stealing(_, _) => {
-                panic!("Invalid task state");
-            }
-        };
-        trace_task_place(task.id, worker.id);
-        notifications.task_placed(&worker, &task);
-        // TODO: Store that task result is on worker
+        if let Some(task_ref) = self.get_task_by_id(id) {
+            let mut task = task_ref.get_mut();
+            match &mut task.state {
+                TaskRuntimeState::Finished(_, ws) => {
+                    ws.insert(worker_ref.clone());
+                }
+                TaskRuntimeState::Released
+                | TaskRuntimeState::Waiting
+                | TaskRuntimeState::Scheduled(_)
+                | TaskRuntimeState::Assigned(_)
+                | TaskRuntimeState::Stealing(_, _) => {
+                    panic!("Invalid task state");
+                }
+            };
+            trace_task_place(task.id, worker.id);
+            notifications.task_placed(&worker, &task);
+        } else {
+            log::debug!("Task id={} is not known to server; replaying with delete", id);
+            worker.send_remove_data(id);
+        }
     }
 
     pub fn on_task_finished(

@@ -6,7 +6,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::WorkerInfo;
 
-use crate::server::protocol::messages::worker::ToWorkerMessage;
+use crate::server::protocol::messages::worker::{ToWorkerMessage, TaskIdsMsg};
+use crate::scheduler::TaskId;
 
 pub type WorkerId = u64;
 
@@ -48,6 +49,13 @@ impl Worker {
         self.sender
             .send(data.into())
             .expect("Send to worker failed");
+    }
+
+    pub fn send_remove_data(&self, id: TaskId) {
+        let message = ToWorkerMessage::DeleteData(TaskIdsMsg {
+            ids: vec![id],
+        });
+        self.send_message(message);
     }
 }
 
