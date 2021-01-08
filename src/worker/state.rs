@@ -191,7 +191,7 @@ impl WorkerState {
     }
 
     pub fn remove_data(&mut self, task_id: TaskId) {
-        log::info!("Removing data object {}", task_id);
+        log::debug!("Removing data object {}", task_id);
         if let Some(data_ref) = self.data_objects.remove(&task_id) {
             let mut data_obj = data_ref.get_mut();
             data_obj.state = DataObjectState::Removed;
