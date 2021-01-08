@@ -5,14 +5,14 @@ use std::time::Duration;
 use bytes::buf::BufMutExt;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, Stream, StreamExt};
-use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 
 use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::LocalSet;
 use tokio::time::delay_for;
+use tokio::sync::mpsc::error::{SendError, TryRecvError};
+use futures::select_biased;
 
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
@@ -34,6 +34,8 @@ use crate::worker::reactor::start_local_download;
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
+use futures::stream::FuturesUnordered;
+use crate::server::worker::WorkerId;
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -138,49 +140,80 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: Su
     //Ok(())
 }
 
+const MAX_RUNNING_DOWNLOADS : usize = 32;
+
+async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
+{
+    let (worker_id, data_id) = {
+        let data_obj = data_ref.get();
+        let workers = match &data_obj.state {
+            DataObjectState::Remote(rs) => &rs.workers,
+            DataObjectState::Local(_)
+            | DataObjectState::Removed
+            | DataObjectState::InSubworkers(_)
+            | DataObjectState::LocalDownloading(_) => {
+                /* It is already finished */
+                return;
+            }
+        };
+        if data_obj.consumers.is_empty() {
+            // Task that requested data was removed (because of work stealing)
+            return;
+        }
+        let worker_id : WorkerId = state_ref.get_mut().random_choice(&workers).clone();
+        (worker_id, data_obj.id)
+    };
+    let address = state_ref
+        .get()
+        .worker_addresses
+        .get(&worker_id)
+        .unwrap()
+        .clone();
+    let connection = connect_to_worker(address).await.unwrap();
+    let stream = make_protocol_builder().new_framed(connection);
+    let (stream, data, serializer) = fetch_data(stream, data_id).await.unwrap();
+    state_ref
+        .get_mut()
+        .on_data_downloaded(data_ref, data, serializer);
+}
+
 async fn worker_data_downloader(
     state_ref: WorkerStateRef,
     mut stream: tokio::sync::mpsc::UnboundedReceiver<(DataObjectRef, Priority)>,
 ) {
     // TODO: Limit downloads, more parallel downloads, respect priorities
     // TODO: Reuse connections
-    let _queue: priority_queue::PriorityQueue<DataObjectRef, Reverse<Priority>> =
+    let mut queue: priority_queue::PriorityQueue<DataObjectRef, Reverse<Priority>> =
         Default::default();
-    let mut random = SmallRng::from_entropy();
-    loop {
-        let (data_ref, _priority) = stream.next().await.unwrap();
+    //let mut random = SmallRng::from_entropy();
+    //let mut stream = stream;
 
-        let (worker_id, task_id) = {
-            let data_obj = data_ref.get();
-            let workers = match &data_obj.state {
-                DataObjectState::Remote(rs) => &rs.workers,
-                DataObjectState::Local(_)
-                | DataObjectState::Removed
-                | DataObjectState::InSubworkers(_)
-                | DataObjectState::LocalDownloading(_) => {
-                    /* It is already finished */
-                    continue;
-                }
-            };
-            if data_obj.consumers.is_empty() {
-                // Task that requested data was removed (because of work stealing)
-                continue;
+    let mut running = FuturesUnordered::new();
+
+    loop {
+        tokio::select! {
+            s = stream.next() => {
+               let (data_ref, priority) = s.unwrap();
+               queue.push_increase(data_ref, Reverse(priority));
+               loop {
+                    match stream.try_recv() {
+                        Ok((data_ref, priority)) => queue.push_increase(data_ref, Reverse(priority)),
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Closed) => unreachable!(),
+                    };
+               }
+            },
+            _ = running.next(), if !running.is_empty() => {}
+        }
+
+        while running.len() < MAX_RUNNING_DOWNLOADS {
+            if let Some((data_ref, _)) = queue.pop() {
+                log::debug!("Getting data={} from download queue", data_ref.get().id);
+                running.push(download_data(state_ref.clone(), data_ref));
+            } else {
+                break
             }
-            let worker_id = workers.choose(&mut random).cloned().unwrap();
-            (worker_id, data_obj.id)
-        };
-        let address = state_ref
-            .get()
-            .worker_addresses
-            .get(&worker_id)
-            .unwrap()
-            .clone();
-        let connection = connect_to_worker(address).await.unwrap();
-        let mut stream = make_protocol_builder().new_framed(connection);
-        let (data, serializer) = fetch_data(&mut stream, task_id).await.unwrap();
-        state_ref
-            .get_mut()
-            .on_data_downloaded(data_ref, data, serializer);
+        }
     }
 }
 

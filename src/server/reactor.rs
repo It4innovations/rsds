@@ -62,9 +62,9 @@ pub async fn gather(
 }
 
 pub async fn fetch_data(
-    stream: &mut tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
+    mut stream: tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
     task_id: TaskId,
-) -> crate::Result<(BytesMut, SerializationType)> {
+) -> crate::Result<(tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>, BytesMut, SerializationType)> {
     let message = DataRequest::FetchRequest(FetchRequestMsg { task_id });
     let data = rmp_serde::to_vec_named(&message).unwrap();
     stream.send(data.into()).await?;
@@ -91,7 +91,7 @@ pub async fn fetch_data(
         None => return Err(GenericError("Unexpected close of connection".into())),
         Some(data) => data?,
     };
-    Ok((data, header.serializer))
+    Ok((stream, data, header.serializer))
 }
 
 pub async fn get_data_from_worker(
@@ -107,7 +107,8 @@ pub async fn get_data_from_worker(
     let mut result = Vec::with_capacity(task_ids.len());
     for task_id in task_ids {
         log::debug!("Fetching {} from {}", &task_id, worker_address);
-        let (data, serializer) = fetch_data(&mut stream, task_id).await?;
+        let (s, data, serializer) = fetch_data(stream, task_id).await?;
+        stream = s;
         log::debug!(
             "Fetched {} from {} ({} bytes)",
             &task_id,
