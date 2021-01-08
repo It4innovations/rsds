@@ -105,7 +105,6 @@ def start_process(commands, host=None, workdir=None, modules=(), name=None, env=
     command = f"""
 cd {workdir} || exit 1
 {' && '.join(f"{{ {cmd} || exit 1; }}" for cmd in init_cmd)}
-ulimit -c unlimited
 {' '.join(args)} > {stdout_file} 2> {stderr_file} &
 ps -ho pgid $!
 """.strip()

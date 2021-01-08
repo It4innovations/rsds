@@ -128,9 +128,10 @@ class DaskCluster:
         logging.info(f"Cluster killed in {time.time() - start} seconds")
 
     def run_single_benchmark(self, configuration, identifier):
+        is_rust = self.workers.get("rust", False)
         arguments = {
             "scheduler_address": self.scheduler_address,
-            "required_workers": worker_count(self.workers),
+            "required_workers": self.workers["nodes"] if is_rust else worker_count(self.workers),
             "function_name": configuration["function"],
             "args": configuration["args"],
             "needs_client": configuration["needs_client"],
@@ -209,6 +210,7 @@ python {RUN_BENCHMARK_SCRIPT}
         start_all = workers.get("spawn-all", False)
         processes_per_node = processes if start_all else 1
         is_rust = workers.get("rust", False)
+        subworker_directory = workers.get("subworker")
 
         def get_args():
             if is_rust:
@@ -236,8 +238,14 @@ python {RUN_BENCHMARK_SCRIPT}
         }
 
         if is_rust:
+            if subworker_directory:
+                env["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") + f":{subworker_directory}"
             if self._profile_flamegraph():
                 env["RSDS_SUBWORKER_PREFIX"] = "py-spy record --rate=200 --function --subprocesses --output=subworker-<I>.svg"
+        else:
+            assert subworker_directory is None
+
+        env.update(workers.get("env", {}))
 
         if node_count == "local":
             for i in range(processes_per_node):
@@ -653,6 +661,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 #PBS -N {actual_name}
 #PBS -o {stdout}
 #PBS -e {stderr}
+#PBS -m aeb
 {pbs_project}
 
 export PBS_START_TIME=`date +%s`
