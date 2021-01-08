@@ -231,6 +231,11 @@ python {RUN_BENCHMARK_SCRIPT}
                         "--preload", USECASES_SCRIPT,
                         "--no-dashboard"] + worker_args
 
+        def get_env(env, index):
+            env = env.copy()
+            env["RSDS_WORKER_ID"] = str(index)
+            return env
+
         env = {
             "OMP_NUM_THREADS": "1",  # TODO
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -238,6 +243,7 @@ python {RUN_BENCHMARK_SCRIPT}
         }
 
         if is_rust:
+            assert processes_per_node == 1
             if subworker_directory:
                 env["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") + f":{subworker_directory}"
             if self._profile_flamegraph():
@@ -249,7 +255,7 @@ python {RUN_BENCHMARK_SCRIPT}
 
         if node_count == "local":
             for i in range(processes_per_node):
-                self.start(get_args(), env=env, name=f"worker-0-{i}", workdir=self.workdir)
+                self.start(get_args(), env=get_env(env, 0), name=f"worker-0-{i}", workdir=self.workdir)
             return [self.hostname]
         else:
             nodes = get_pbs_nodes()
@@ -259,7 +265,7 @@ python {RUN_BENCHMARK_SCRIPT}
             nodes_spawned = []
             for i, node in zip(range(node_count), nodes[1:]):
                 for p in range(processes_per_node):
-                    args.append((get_args(), f"worker-{i}-{p}", node, env, self.workdir))
+                    args.append((get_args(), f"worker-{i}-{p}", node, get_env(env, i), self.workdir))
                 nodes_spawned.append(node)
             self.start_many(args)
             return nodes_spawned
