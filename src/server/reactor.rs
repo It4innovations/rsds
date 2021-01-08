@@ -77,7 +77,10 @@ pub async fn fetch_data(
         rmp_serde::from_slice(&data)?
     };
     let header = match message {
-        DataResponse::NotAvailable => todo!(),
+        DataResponse::NotAvailable => {
+            log::error!("Fetching data={} failed", task_id);
+            todo!();
+        },
         DataResponse::Data(x) => x,
         DataResponse::DataUploaded(_) => {
             // Worker send complete garbage, it should be considered as invalid and termianted
