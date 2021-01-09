@@ -556,15 +556,15 @@ mod tests {
         task_assign(&mut core, &t, &w);
 
         let mut notifications = Notifications::default();
-        let nbytes = 16;
-        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
+        let size = 16;
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, size }, &mut notifications);
         assert_eq!(
             notifications.scheduler_messages[0],
             ToSchedulerMessage::TaskUpdate(TaskUpdate {
                 id: t.get().id,
                 state: TaskUpdateType::Finished,
                 worker: w.get().id,
-                size: Some(nbytes),
+                size: Some(size),
             })
         );
     }
@@ -578,10 +578,10 @@ mod tests {
         task_assign(&mut core, &t, &w);
 
         let _type = vec![1, 2, 3];
-        let nbytes = 16;
+        let size = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, size }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Released => {}
             _ => panic!("Wrong task state"),
@@ -598,13 +598,13 @@ mod tests {
         task_assign(&mut core, &t, &w);
 
         let _type = vec![1, 2, 3];
-        let nbytes = 16;
+        let size = 16;
 
         let mut notifications = Notifications::default();
-        core.on_task_finished(&w, TaskFinishedMsg { id: 101, nbytes }, &mut notifications);
+        core.on_task_finished(&w, TaskFinishedMsg { id: 101, size }, &mut notifications);
         match &t.get().state {
             TaskRuntimeState::Finished(data, workers) => {
-                assert_eq!(data.size, nbytes);
+                assert_eq!(data.size, size);
                 let mut s = Set::new();
                 s.insert(w);
                 assert_eq!(workers, &s);
@@ -626,7 +626,7 @@ mod tests {
         let mut notifications = Notifications::default();
         core.on_task_finished(
             &w,
-            TaskFinishedMsg { id: 101, nbytes: 0 },
+            TaskFinishedMsg { id: 101, size: 0 },
             &mut notifications,
         );
         assert_eq!(notifications.client_notifications.finished_tasks, vec![101]);
@@ -647,7 +647,7 @@ mod tests {
             &w,
             TaskFinishedMsg {
                 id: 101,
-                nbytes: 16,
+                size: 16,
             },
             &mut &mut Default::default(),
         );
