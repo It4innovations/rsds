@@ -3,7 +3,6 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use rsds::scheduler::ToSchedulerMessage;
 use rsds::server::client::{Client, ClientId};
-use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
 use rsds::server::dask::dasktransport::{DaskPacket, SerializedTransport};
 use rsds::server::dask::key::DaskKey;

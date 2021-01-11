@@ -23,12 +23,12 @@ pub fn finish_task<S: Scheduler>(
     worker_id: WorkerId,
     size: u64,
 ) {
-    scheduler.handle_messages(vec![ToSchedulerMessage::TaskUpdate(TaskUpdate {
+    scheduler.handle_messages(ToSchedulerMessage::TaskUpdate(TaskUpdate {
         state: TaskUpdateType::Finished,
         id: task_id,
         worker: worker_id,
         size: Some(size),
-    })]);
+    }));
 }
 
 pub fn connect_workers<S: Scheduler>(scheduler: &mut S, count: u32, n_cpus: u32) -> Vec<WorkerId> {
@@ -36,14 +36,19 @@ pub fn connect_workers<S: Scheduler>(scheduler: &mut S, count: u32, n_cpus: u32)
     for i in 0..count {
         let id = 100 + i as WorkerId;
         ids.push(id);
-        scheduler.handle_messages(vec![ToSchedulerMessage::NewWorker(WorkerInfo {
+        scheduler.handle_messages(ToSchedulerMessage::NewWorker(WorkerInfo {
             id,
             n_cpus,
             hostname: "worker".into(),
-        })]);
+        }));
     }
     ids
 }
-pub fn new_task(id: TaskId, inputs: Vec<TaskId>) -> ToSchedulerMessage {
-    ToSchedulerMessage::NewTask(TaskInfo { id, inputs })
+
+pub fn new_tasks(task_infos: Vec<TaskInfo>) -> ToSchedulerMessage {
+    ToSchedulerMessage::NewTasks(task_infos)
+}
+
+pub fn new_task(id: TaskId, inputs: Vec<TaskId>) -> TaskInfo {
+    TaskInfo { id, inputs }
 }

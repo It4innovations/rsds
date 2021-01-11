@@ -1,115 +1,95 @@
-use futures::StreamExt;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use crate::scheduler::{TaskId, ToSchedulerMessage};
+use crate::server::protocol::messages::worker::ToWorkerMessage;
+use crate::server::worker::WorkerId;
 
 use crate::common::{Map, WrappedRcRefCell};
-use crate::scheduler::{FromSchedulerMessage, ToSchedulerMessage};
-use crate::server::core::{Core, CoreRef};
-use crate::server::notifications::Notifications;
-use crate::server::notifications::WorkerNotification;
-use crate::server::protocol::messages::worker::{TaskIdsMsg, ToWorkerMessage};
-use crate::server::worker::WorkerRef;
-use crate::trace::trace_task_send;
-use crate::Error;
+use crate::server::gateway::Gateway;
+use crate::server::task::ErrorInfo;
+use bytes::Bytes;
+use tokio::sync::mpsc::UnboundedSender;
 
-pub type CommRef = WrappedRcRefCell<Comm>;
+pub trait Comm {
+    fn send_worker_message(&mut self, worker_id: WorkerId, message: &ToWorkerMessage);
+    fn broadcast_worker_message(&mut self, message: &ToWorkerMessage);
+    fn send_scheduler_message(&mut self, message: ToSchedulerMessage);
 
-pub struct Comm {
-    sender: UnboundedSender<Vec<ToSchedulerMessage>>,
-}
-
-impl Comm {
-    pub fn notify(&mut self, core: &mut Core, notifications: Notifications) -> crate::Result<()> {
-        if !notifications.scheduler_messages.is_empty() {
-            self.sender.send(notifications.scheduler_messages).unwrap();
-        }
-        self.notify_workers(&core, notifications.workers)?;
-
-        if !notifications.client_notifications.is_empty() {
-            core.gateway
-                .send_notifications(notifications.client_notifications);
-        }
-        Ok(())
-    }
-
-    fn notify_workers(
+    fn send_client_task_finished(&mut self, task_id: TaskId);
+    fn send_client_task_removed(&mut self, task_id: TaskId);
+    fn send_client_task_error(
         &mut self,
-        core: &Core,
-        notifications: Map<WorkerRef, WorkerNotification>,
-    ) -> crate::Result<()> {
-        for (worker_ref, w_update) in notifications {
-            let worker = worker_ref.get();
-            for task in w_update.compute_tasks {
-                let task = task.get();
-                trace_task_send(task.id, worker_ref.get().id);
-                let msg = task.make_compute_task_msg_rsds(core);
-                worker.send_message(msg);
-            }
-            if !w_update.delete_keys.is_empty() {
-                let message = ToWorkerMessage::DeleteData(TaskIdsMsg {
-                    ids: w_update.delete_keys,
-                });
-                worker.send_message(message);
-            }
+        task_id: TaskId,
+        consumers_id: Vec<TaskId>,
+        error_info: ErrorInfo,
+    );
+}
 
-            if !w_update.steal_tasks.is_empty() {
-                let ids: Vec<_> = w_update.steal_tasks.iter().map(|t| t.get().id()).collect();
-                let message = ToWorkerMessage::StealTasks(TaskIdsMsg { ids });
-                worker.send_message(message);
-            }
-        }
-        Ok(())
+pub struct CommSender {
+    workers: Map<WorkerId, UnboundedSender<Bytes>>,
+    scheduler_sender: UnboundedSender<ToSchedulerMessage>,
+    pub gateway: Box<dyn Gateway>,
+}
+pub type CommSenderRef = WrappedRcRefCell<CommSender>;
+
+impl CommSenderRef {
+    pub fn new(
+        scheduler_sender: UnboundedSender<ToSchedulerMessage>,
+        gateway: Box<dyn Gateway>,
+    ) -> Self {
+        WrappedRcRefCell::wrap(CommSender {
+            workers: Default::default(),
+            scheduler_sender,
+            gateway,
+        })
     }
 }
 
-impl CommRef {
-    pub fn new(sender: UnboundedSender<Vec<ToSchedulerMessage>>) -> Self {
-        Self::wrap(Comm { sender })
+impl CommSender {
+    pub fn add_worker(&mut self, worker_id: WorkerId, sender: UnboundedSender<Bytes>) {
+        assert!(self.workers.insert(worker_id, sender).is_none());
     }
 }
 
-pub async fn observe_scheduler(
-    core_ref: CoreRef,
-    comm_ref: CommRef,
-    mut receiver: UnboundedReceiver<FromSchedulerMessage>,
-) -> crate::Result<()> {
-    log::debug!("Starting scheduler");
+impl Comm for CommSender {
+    fn send_worker_message(&mut self, worker_id: WorkerId, message: &ToWorkerMessage) {
+        let data = rmp_serde::to_vec_named(&message).unwrap();
+        self.workers
+            .get(&worker_id)
+            .unwrap()
+            .send(data.into())
+            .expect("Send to worker failed");
+    }
 
-    match receiver.next().await {
-        Some(crate::scheduler::FromSchedulerMessage::Register(r)) => {
-            log::debug!("Scheduler registered: {:?}", r)
-        }
-        None => {
-            return Err(Error::SchedulerError(
-                "Scheduler closed connection without registration".to_owned(),
-            ));
-        }
-        _ => {
-            return Err(Error::SchedulerError(
-                "First message of scheduler has to be registration".to_owned(),
-            ));
+    fn broadcast_worker_message(&mut self, message: &ToWorkerMessage) {
+        let data: Bytes = rmp_serde::to_vec_named(&message).unwrap().into();
+        for sender in self.workers.values() {
+            sender.send(data.clone()).expect("Send to worker failed");
         }
     }
 
-    while let Some(msg) = receiver.next().await {
-        match msg {
-            FromSchedulerMessage::TaskAssignments(assignments) => {
-                let mut core = core_ref.get_mut();
-                let mut notifications = Default::default();
-
-                trace_time!("core", "process_assignments", {
-                    core.process_assignments(assignments, &mut notifications);
-                    trace_time!("core", "notify", {
-                        comm_ref.get_mut().notify(&mut core, notifications).unwrap();
-                    });
-                });
-            }
-            FromSchedulerMessage::Register(_) => {
-                return Err(Error::SchedulerError(
-                    "Double registration of scheduler".to_owned(),
-                ));
-            }
-        }
+    #[inline]
+    fn send_scheduler_message(&mut self, message: ToSchedulerMessage) {
+        self.scheduler_sender
+            .send(message)
+            .expect("Sending scheduler message failed");
     }
 
-    Ok(())
+    #[inline]
+    fn send_client_task_finished(&mut self, task_id: TaskId) {
+        self.gateway.send_client_task_finished(task_id);
+    }
+
+    #[inline]
+    fn send_client_task_removed(&mut self, task_id: TaskId) {
+        self.gateway.send_client_task_removed(task_id);
+    }
+
+    fn send_client_task_error(
+        &mut self,
+        task_id: TaskId,
+        consumers_id: Vec<TaskId>,
+        error_info: ErrorInfo,
+    ) {
+        self.gateway
+            .send_client_task_error(task_id, consumers_id, error_info);
+    }
 }

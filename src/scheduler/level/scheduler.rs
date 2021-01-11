@@ -21,18 +21,16 @@ impl<Metric: NodeMetrics> Scheduler for LevelScheduler<Metric> {
         }
     }
 
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
+    fn handle_messages(&mut self, message: ToSchedulerMessage) -> bool {
         let mut schedule = false;
-        for message in messages {
-            match &message {
-                ToSchedulerMessage::NewFinishedTask(..)
-                | ToSchedulerMessage::NewTask(..)
-                | ToSchedulerMessage::NewWorker(..)
-                | ToSchedulerMessage::TaskUpdate(..) => schedule = true,
-                _ => {}
-            }
-            self.graph.handle_message(message);
+        match &message {
+            ToSchedulerMessage::NewFinishedTask(..)
+            | ToSchedulerMessage::NewTasks(..)
+            | ToSchedulerMessage::NewWorker(..)
+            | ToSchedulerMessage::TaskUpdate(..) => schedule = true,
+            _ => {}
         }
+        self.graph.handle_message(message);
         schedule
     }
 
@@ -96,7 +94,7 @@ fn assign<M: NodeMetrics>(
 mod tests {
     use hashbrown::HashMap;
 
-    use crate::scheduler::test_util::{connect_workers, finish_task, new_task};
+    use crate::scheduler::test_util::{connect_workers, finish_task, new_task, new_tasks};
     use crate::scheduler::{
         BLevelMetric, LevelScheduler, Scheduler, TLevelMetric, TaskAssignment, TaskId,
     };
@@ -162,7 +160,7 @@ mod tests {
           T5
     */
     fn submit_graph_simple<S: Scheduler>(scheduler: &mut S) {
-        scheduler.handle_messages(vec![
+        scheduler.handle_messages(new_tasks(vec![
             new_task(1, vec![]),
             new_task(2, vec![1]),
             new_task(3, vec![1]),
@@ -170,6 +168,6 @@ mod tests {
             new_task(5, vec![4]),
             new_task(6, vec![3]),
             new_task(7, vec![6]),
-        ]);
+        ]));
     }
 }

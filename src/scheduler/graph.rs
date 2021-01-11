@@ -46,7 +46,11 @@ impl SchedulerGraph {
         match message {
             ToSchedulerMessage::TaskUpdate(tu) => self.update_task(tu),
             ToSchedulerMessage::NewWorker(wi) => self.add_worker(wi),
-            ToSchedulerMessage::NewTask(ti) => self.add_task(ti),
+            ToSchedulerMessage::NewTasks(ts) => {
+                for ti in ts {
+                    self.add_task(ti);
+                }
+            }
             ToSchedulerMessage::NewFinishedTask(ti) => self.add_finished_task(ti),
             ToSchedulerMessage::RemoveTask(task_id) => self.remove_task(task_id),
             ToSchedulerMessage::NetworkBandwidth(bandwidth) => self.network_bandwidth = bandwidth,
@@ -70,20 +74,30 @@ impl SchedulerGraph {
         self.new_tasks.push(task.clone());
         assert!(self.tasks.insert(task_id, task).is_none());
     }
-    pub fn add_finished_task(&mut self, ti: NewFinishedTaskInfo) {
-        let placement: Set<WorkerRef> = ti
-            .workers
-            .iter()
-            .map(|id| self.get_worker(*id).clone())
-            .collect();
-        let task_id = ti.id;
-        let task = OwningTaskRef::new_finished(ti, placement);
-        assert!(self.tasks.insert(task_id, task).is_none());
+
+    pub fn add_finished_task(&mut self, tis: Vec<NewFinishedTaskInfo>) {
+        for ti in tis {
+            let placement: Set<WorkerRef> = ti
+                .workers
+                .iter()
+                .map(|id| self.get_worker(*id).clone())
+                .collect();
+            let task_id = ti.id;
+            let task = OwningTaskRef::new_finished(ti, placement);
+            assert!(self.tasks.insert(task_id, task).is_none());
+        }
     }
+
     pub fn remove_task(&mut self, task_id: TaskId) {
         {
-            let mut task = self.get_task(task_id).get_mut();
-            assert!(task.is_finished()); // TODO: Define semantics of removing non-finished tasks
+            let task_ref = self.get_task(task_id);
+            let mut task = task_ref.get_mut();
+
+            let assigned_wr = task.assigned_worker.take();
+            if let Some(wr) = assigned_wr {
+                assert!(wr.get_mut().tasks.remove(&task_ref));
+            }
+            task.placement = Default::default();
             for tr in &task.consumers {
                 let mut t = tr.get_mut();
                 t.inputs = Default::default();
@@ -157,6 +171,7 @@ impl SchedulerGraph {
         task.placement.insert(worker);
         (ready_consumer, assigned_wr)
     }
+
     pub fn place_task_on_worker(&mut self, task_id: TaskId, worker_id: WorkerId) {
         let tref = self.get_task(task_id).clone();
         let mut task = tref.get_mut();
@@ -164,6 +179,7 @@ impl SchedulerGraph {
         assert!(task.is_finished());
         task.placement.insert(worker);
     }
+
     pub fn remove_task_from_worker(&mut self, task_id: TaskId, worker_id: WorkerId) {
         let mut task = self.get_task(task_id).get_mut();
         let worker = self.get_worker(worker_id);

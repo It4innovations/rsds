@@ -60,9 +60,9 @@ pub struct TaskStealResponse {
 pub enum ToSchedulerMessage {
     TaskUpdate(TaskUpdate),
     TaskStealResponse(TaskStealResponse),
-    NewTask(TaskInfo),
+    NewTasks(Vec<TaskInfo>),
     RemoveTask(TaskId),
-    NewFinishedTask(NewFinishedTaskInfo),
+    NewFinishedTask(Vec<NewFinishedTaskInfo>),
     NewWorker(WorkerInfo),
     NetworkBandwidth(f32),
 }

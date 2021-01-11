@@ -242,34 +242,33 @@ impl Scheduler for WorkstealingScheduler {
         }
     }
 
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
-        let mut invoke_scheduling = false;
-        for message in messages {
-            match message {
-                ToSchedulerMessage::TaskUpdate(tu) => {
-                    invoke_scheduling |= self.task_update(tu);
-                }
-                ToSchedulerMessage::TaskStealResponse(sr) => {
-                    if !sr.success {
-                        invoke_scheduling |= self.rollback_steal(sr);
-                    }
-                }
-                ToSchedulerMessage::NewTask(ti) => {
-                    self.graph.add_task(ti);
-                    invoke_scheduling = true;
-                }
-                ToSchedulerMessage::RemoveTask(task_id) => self.graph.remove_task(task_id),
-                ToSchedulerMessage::NewFinishedTask(ti) => self.graph.add_finished_task(ti),
-                ToSchedulerMessage::NewWorker(wi) => {
-                    self.graph.add_worker(wi);
-                    invoke_scheduling = true;
-                }
-                ToSchedulerMessage::NetworkBandwidth(nb) => {
-                    self.graph.network_bandwidth = nb;
+    fn handle_messages(&mut self, message: ToSchedulerMessage) -> bool {
+        match message {
+            ToSchedulerMessage::TaskUpdate(tu) => {
+                return self.task_update(tu);
+            }
+            ToSchedulerMessage::TaskStealResponse(sr) => {
+                if !sr.success {
+                    return self.rollback_steal(sr);
                 }
             }
-        }
-        invoke_scheduling
+            ToSchedulerMessage::NewTasks(ts) => {
+                for ti in ts {
+                    self.graph.add_task(ti);
+                }
+                return true;
+            }
+            ToSchedulerMessage::RemoveTask(task_id) => self.graph.remove_task(task_id),
+            ToSchedulerMessage::NewFinishedTask(ti) => self.graph.add_finished_task(ti),
+            ToSchedulerMessage::NewWorker(wi) => {
+                self.graph.add_worker(wi);
+                return true;
+            }
+            ToSchedulerMessage::NetworkBandwidth(nb) => {
+                self.graph.network_bandwidth = nb;
+            }
+        };
+        return false;
     }
 
     fn schedule(&mut self) -> Vec<TaskAssignment> {
@@ -316,7 +315,9 @@ fn choose_worker_for_task(
 #[cfg(test)]
 mod tests {
     use crate::common::{Map, Set};
-    use crate::scheduler::test_util::{assigned_worker, connect_workers, finish_task, new_task};
+    use crate::scheduler::test_util::{
+        assigned_worker, connect_workers, finish_task, new_task, new_tasks,
+    };
     use crate::scheduler::{TaskId, WorkerId};
 
     use super::*;
@@ -339,7 +340,7 @@ mod tests {
 
     */
     fn submit_graph_simple(scheduler: &mut WorkstealingScheduler) {
-        scheduler.handle_messages(vec![
+        scheduler.handle_messages(new_tasks(vec![
             new_task(1, vec![]),
             new_task(2, vec![1]),
             new_task(3, vec![1]),
@@ -347,7 +348,7 @@ mod tests {
             new_task(5, vec![4]),
             new_task(6, vec![3]),
             new_task(7, vec![6]),
-        ]);
+        ]));
     }
 
     /* Graph reduce
@@ -363,7 +364,7 @@ mod tests {
             .map(|t| new_task(t as TaskId, Vec::new()))
             .collect();
         tasks.push(new_task(size as TaskId, (0..size as TaskId).collect()));
-        scheduler.handle_messages(tasks);
+        scheduler.handle_messages(new_tasks(tasks));
     }
 
     /* Graph split
@@ -376,7 +377,7 @@ mod tests {
     fn submit_graph_split(scheduler: &mut WorkstealingScheduler, size: usize) {
         let mut tasks = vec![new_task(0, Vec::new())];
         tasks.extend((1..=size).map(|t| new_task(t as TaskId, vec![0])));
-        scheduler.handle_messages(tasks);
+        scheduler.handle_messages(new_tasks(tasks));
     }
 
     fn run_schedule(scheduler: &mut WorkstealingScheduler) -> Vec<TaskAssignment> {
@@ -504,14 +505,14 @@ mod tests {
         init();
         let mut scheduler = WorkstealingScheduler::default();
         connect_workers(&mut scheduler, 5, 1);
-        scheduler.handle_messages(vec![new_task(1, vec![])]);
+        scheduler.handle_messages(new_tasks(vec![new_task(1, vec![])]));
         let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&1));
         scheduler.sanity_check();
         finish_task(&mut scheduler, 1, 101, 1000_1000);
         scheduler.sanity_check();
-        scheduler.handle_messages(vec![new_task(2, vec![1])]);
+        scheduler.handle_messages(new_tasks(vec![new_task(2, vec![1])]));
         let n = run_schedule_get_task_ids(&mut scheduler);
         assert_eq!(n.len(), 1);
         assert!(n.contains(&2));
@@ -527,7 +528,7 @@ mod tests {
         connect_workers(&mut scheduler, WORKERS, 1);
         let mut workers: Set<WorkerId> = Set::new();
         for i in 0..TASKS {
-            scheduler.handle_messages(vec![new_task((i + 1) as u64, vec![])]);
+            scheduler.handle_messages(new_tasks(vec![new_task((i + 1) as u64, vec![])]));
             let n = run_schedule(&mut scheduler);
             assert_eq!(n.len(), 1);
             let worker_id = n.iter().next().unwrap().worker;

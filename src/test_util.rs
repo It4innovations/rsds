@@ -6,20 +6,23 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use bytes::{Bytes, BytesMut};
-use futures::Stream;
+use bytes::BytesMut;
+
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::mpsc::UnboundedSender;
+
 use tokio_util::codec::Decoder;
 
-use crate::common::{Set, WrappedRcRefCell};
+use crate::common::{Map, WrappedRcRefCell};
 use crate::scheduler::protocol::{TaskAssignment, TaskId};
-use crate::server::core::{Core, CoreRef};
+use crate::server::core::Core;
 use crate::server::dask::dasktransport::{deserialize_packet, Batch, DaskCodec, FromDaskTransport};
-use crate::server::gateway::Gateway;
-use crate::server::notifications::{ClientNotifications, Notifications};
-use crate::server::task::TaskRef;
-use crate::server::worker::WorkerRef;
+
+use crate::scheduler::ToSchedulerMessage;
+use crate::server::protocol::messages::worker::{TaskFinishedMsg, ToWorkerMessage};
+use crate::server::reactor::{on_assignments, on_new_tasks, on_new_worker, on_task_finished};
+use crate::server::comm::Comm;
+use crate::server::task::{ErrorInfo, TaskRef};
+use crate::server::worker::{WorkerId, WorkerRef};
 
 /// Memory stream for reading and writing at the same time.
 pub struct MemoryStream {
@@ -70,63 +73,18 @@ impl AsyncWrite for MemoryStream {
     }
 }
 
-pub(crate) fn create_worker(
-    core: &mut Core,
-    sender: UnboundedSender<Bytes>,
-    address: String,
-    ncpus: u32,
-) -> WorkerRef {
-    let worker_ref = WorkerRef::new(core.new_worker_id(), ncpus, sender, address);
-    core.register_worker(worker_ref.clone());
-    worker_ref
+pub fn task(id: TaskId) -> TaskRef {
+    task_with_deps(id, &[])
 }
 
-pub fn task(id: TaskId) -> TaskRef {
-    task_deps(id, &[])
-}
-pub fn task_deps(id: TaskId, deps: &[&TaskRef]) -> TaskRef {
-    let task = TaskRef::new(
+pub fn task_with_deps(id: TaskId, deps: &[TaskId]) -> TaskRef {
+    TaskRef::new(
         id,
         Vec::new(),
-        deps.iter().map(|t| t.get().id).collect(),
-        deps.iter().filter(|t| !t.get().is_finished()).count() as u32,
+        deps.to_vec(),
         Default::default(),
         Default::default(),
-    );
-    for &dep in deps {
-        dep.get_mut().add_consumer(task.clone());
-    }
-    task
-}
-
-pub fn worker(core: &mut Core, address: &str) -> (WorkerRef, impl Stream<Item = Bytes>) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let worker = create_worker(core, tx, address.to_string(), 1);
-    (worker, rx)
-}
-
-pub(crate) fn task_add(core: &mut Core, id: TaskId) -> TaskRef {
-    task_add_deps(core, id, &[])
-}
-pub(crate) fn task_add_deps(core: &mut Core, id: TaskId, deps: &[&TaskRef]) -> TaskRef {
-    let t = task_deps(id, deps);
-    core.add_task(t.clone());
-    t
-}
-
-pub(crate) fn task_assign(core: &mut Core, task: &TaskRef, worker: &WorkerRef) -> Notifications {
-    let mut notifications = Notifications::default();
-    let tid = task.get().id;
-    let wid = worker.get().id;
-    core.process_assignments(
-        vec![TaskAssignment {
-            task: tid,
-            worker: wid,
-            priority: 0,
-        }],
-        &mut notifications,
-    );
-    notifications
+    )
 }
 
 pub fn bytes_to_msg<T: FromDaskTransport>(data: &[u8]) -> crate::Result<Batch<T>> {
@@ -139,6 +97,7 @@ pub fn load_bin_test_data(path: &str) -> Vec<u8> {
     let path = get_test_path(path);
     std::fs::read(path).unwrap()
 }
+
 pub fn get_test_path(path: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -148,40 +107,191 @@ pub fn get_test_path(path: &str) -> String {
         .to_owned()
 }
 
-pub struct TestClientState {
-    keep: Set<TaskId>,
+#[derive(Default)]
+pub struct TestComm {
+    pub scheduler_msgs: Vec<ToSchedulerMessage>,
+    pub worker_msgs: Map<WorkerId, Vec<ToWorkerMessage>>,
+    pub broadcast_msgs: Vec<ToWorkerMessage>,
+
+    pub client_task_finished: Vec<TaskId>,
+    pub client_task_removed: Vec<TaskId>,
+    pub client_task_errors: Vec<(TaskId, Vec<TaskId>, ErrorInfo)>,
 }
 
-pub type TestClientStateRef = WrappedRcRefCell<TestClientState>;
+impl TestComm {
+    pub fn take_worker_msgs(&mut self, worker_id: WorkerId, len: usize) -> Vec<ToWorkerMessage> {
+        let msgs = match self.worker_msgs.remove(&worker_id) {
+            None => {
+                panic!("No messages for worker {}", worker_id)
+            }
+            Some(x) => x,
+        };
+        assert_eq!(msgs.len(), len);
+        msgs
+    }
 
-pub struct TestGateway {
-    state_ref: TestClientStateRef,
+    pub fn take_broadcasts(&mut self, len: usize) -> Vec<ToWorkerMessage> {
+        assert_eq!(self.broadcast_msgs.len(), len);
+        std::mem::take(&mut self.broadcast_msgs)
+    }
+
+    pub fn take_scheduler_msgs(&mut self, len: usize) -> Vec<ToSchedulerMessage> {
+        assert_eq!(self.scheduler_msgs.len(), len);
+        std::mem::take(&mut self.scheduler_msgs)
+    }
+
+    pub fn take_scheduler_removal(&mut self) -> Vec<TaskId> {
+        let mut result = Vec::new();
+        self.scheduler_msgs = std::mem::take(&mut self.scheduler_msgs)
+            .into_iter()
+            .filter(|m| match m {
+                ToSchedulerMessage::RemoveTask(task_id) => {
+                    result.push(*task_id);
+                    false
+                }
+                _ => true,
+            })
+            .collect();
+        result
+    }
+
+    pub fn take_client_task_finished(&mut self, len: usize) -> Vec<TaskId> {
+        assert_eq!(self.client_task_finished.len(), len);
+        std::mem::take(&mut self.client_task_finished)
+    }
+
+    pub fn take_client_task_removed(&mut self, len: usize) -> Vec<TaskId> {
+        assert_eq!(self.client_task_removed.len(), len);
+        std::mem::take(&mut self.client_task_removed)
+    }
+
+    pub fn take_client_task_errors(&mut self, len: usize) -> Vec<(TaskId, Vec<TaskId>, ErrorInfo)> {
+        assert_eq!(self.client_task_errors.len(), len);
+        std::mem::take(&mut self.client_task_errors)
+    }
+
+    pub fn emptiness_check(&self) {
+        if !self.worker_msgs.is_empty() {
+            let ids: Vec<_> = self.worker_msgs.keys().collect();
+            panic!("Unexpected worker messages for workers: {:?}", ids);
+        }
+        assert!(self.scheduler_msgs.is_empty());
+        assert!(self.broadcast_msgs.is_empty());
+
+        assert!(self.client_task_finished.is_empty());
+        assert!(self.client_task_removed.is_empty());
+        assert!(self.client_task_errors.is_empty());
+    }
 }
 
-impl TestClientStateRef {
-    pub fn new() -> Self {
-        WrappedRcRefCell::wrap(TestClientState {
-            keep: Default::default(),
-        })
+impl Comm for TestComm {
+    fn send_worker_message(&mut self, worker_id: WorkerId, message: &ToWorkerMessage) {
+        let data = rmp_serde::to_vec_named(&message).unwrap();
+        let message = rmp_serde::from_slice(&data).unwrap();
+        self.worker_msgs.entry(worker_id).or_default().push(message);
     }
 
-    pub fn get_gateway(&self) -> Box<dyn Gateway> {
-        Box::new(TestGateway {
-            state_ref: self.clone(),
-        })
+    fn broadcast_worker_message(&mut self, message: &ToWorkerMessage) {
+        let data = rmp_serde::to_vec_named(&message).unwrap();
+        let message = rmp_serde::from_slice(&data).unwrap();
+        self.broadcast_msgs.push(message);
     }
 
-    pub fn get_core(&self) -> CoreRef {
-        CoreRef::new(self.get_gateway())
+    fn send_scheduler_message(&mut self, message: ToSchedulerMessage) {
+        self.scheduler_msgs.push(message);
+    }
+
+    fn send_client_task_finished(&mut self, task_id: TaskId) {
+        self.client_task_finished.push(task_id);
+    }
+
+    fn send_client_task_removed(&mut self, task_id: TaskId) {
+        self.client_task_removed.push(task_id);
+    }
+
+    fn send_client_task_error(
+        &mut self,
+        task_id: TaskId,
+        consumers: Vec<TaskId>,
+        error_info: ErrorInfo,
+    ) {
+        self.client_task_errors
+            .push((task_id, consumers, error_info));
     }
 }
 
-impl Gateway for TestGateway {
-    fn is_kept(&self, task_id: TaskId) -> bool {
-        self.state_ref.get().keep.contains(&task_id)
-    }
+pub fn create_test_comm() -> TestComm {
+    TestComm::default()
+}
 
-    fn send_notifications(&self, _notifications: ClientNotifications) {
-        unimplemented!()
+pub fn create_test_workers(core: &mut Core, cpus: &[u32]) {
+    for (i, c) in cpus.iter().enumerate() {
+        let worker_id = (100 + i) as WorkerId;
+        let worker_ref = WorkerRef::new(worker_id, *c, format!("test{}:123", i));
+        on_new_worker(core, &mut TestComm::default(), worker_ref);
     }
+}
+
+pub fn submit_test_tasks(core: &mut Core, tasks: &[TaskRef]) {
+    on_new_tasks(core, &mut TestComm::default(), tasks.to_vec());
+}
+
+pub fn start_on_worker(core: &mut Core, task_id: TaskId, worker_id: WorkerId) {
+    let mut comm = TestComm::default();
+    on_assignments(
+        core,
+        &mut comm,
+        vec![TaskAssignment {
+            task: task_id,
+            worker: worker_id,
+            priority: 0,
+        }],
+    );
+}
+
+pub fn finish_on_worker(core: &mut Core, task_id: TaskId, worker_id: WorkerId) {
+    let mut comm = TestComm::default();
+    let worker_ref = core.get_worker_by_id_or_panic(worker_id).clone();
+    on_task_finished(
+        core,
+        &mut comm,
+        &worker_ref,
+        TaskFinishedMsg {
+            id: task_id,
+            size: 1000,
+        },
+    );
+}
+
+pub fn start_and_finish_on_worker(core: &mut Core, task_id: TaskId, worker_id: WorkerId) {
+    start_on_worker(core, task_id, worker_id);
+    finish_on_worker(core, task_id, worker_id);
+}
+
+pub fn submit_example_1(core: &mut Core) {
+    /*
+       11  12 <- keep
+        \  / \
+         13  14
+         /\  /
+        16 15 <- keep
+        |
+        17
+    */
+
+    let t1 = task(11);
+    let t2 = task(12);
+    t2.get_mut().increment_keep_counter();
+    let t3 = task_with_deps(13, &[11, 12]);
+    let t4 = task_with_deps(14, &[12]);
+    let t5 = task_with_deps(15, &[13, 14]);
+    t5.get_mut().increment_keep_counter();
+    let t6 = task_with_deps(16, &[13]);
+    let t7 = task_with_deps(17, &[16]);
+    submit_test_tasks(core, &[t1, t2, t3, t4, t5, t6, t7]);
+}
+
+pub fn sorted_vec<T: Ord>(mut vec: Vec<T>) -> Vec<T> {
+    vec.sort();
+    vec
 }

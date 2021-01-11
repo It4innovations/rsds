@@ -4,7 +4,6 @@ use std::fmt;
 use crate::common::{Set, WrappedRcRefCell};
 use crate::scheduler::protocol::TaskId;
 use crate::server::core::Core;
-use crate::server::notifications::Notifications;
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
 use crate::server::worker::WorkerRef;
@@ -50,7 +49,7 @@ pub struct Task {
     pub unfinished_inputs: u32,
     consumers: Set<TaskRef>,
     pub dependencies: Vec<TaskId>,
-
+    pub keep_counter: u32,
     pub spec: Vec<u8>, // Serialized TaskSpec
 
     pub user_priority: i32,
@@ -88,6 +87,17 @@ impl Task {
         &self.consumers
     }
 
+    #[inline]
+    pub fn increment_keep_counter(&mut self) {
+        self.keep_counter += 1;
+    }
+
+    #[inline]
+    pub fn decrement_keep_counter(&mut self) -> bool {
+        self.keep_counter -= 1;
+        self.keep_counter == 0
+    }
+
     pub fn make_sched_info(&self) -> crate::scheduler::protocol::TaskInfo {
         crate::scheduler::protocol::TaskInfo {
             id: self.id,
@@ -95,22 +105,9 @@ impl Task {
         }
     }
 
-    pub fn remove_data_if_possible(&mut self, core: &mut Core, notifications: &mut Notifications) {
-        if self.consumers.is_empty() && self.is_finished() && !core.gateway.is_kept(self.id) {
-            let ws = match core.remove_task(self) {
-                TaskRuntimeState::Finished(_, ws) => ws,
-                _ => unreachable!(),
-            };
-            for worker_ref in ws {
-                log::debug!(
-                    "Task id={} is no longer needed, deleting from worker={}",
-                    self.id,
-                    worker_ref.get().id
-                );
-                notifications.delete_data_from_worker(worker_ref, &self);
-            }
-            notifications.remove_task(&self);
-        }
+    #[inline]
+    pub fn is_removable(&self) -> bool {
+        self.consumers.is_empty() && self.keep_counter == 0 && self.is_finished()
     }
 
     pub fn collect_consumers(&self) -> HashSet<TaskRef> {
@@ -128,7 +125,7 @@ impl Task {
         result
     }
 
-    pub fn make_compute_task_msg_rsds(&self, core: &Core) -> ToWorkerMessage {
+    pub fn make_compute_message(&self, core: &Core) -> ToWorkerMessage {
         let dep_info: Vec<_> = self
             .dependencies
             .iter()
@@ -209,14 +206,14 @@ impl TaskRef {
         id: TaskId,
         spec: Vec<u8>,
         dependencies: Vec<TaskId>,
-        unfinished_inputs: u32,
         user_priority: PriorityValue,
         client_priority: PriorityValue,
     ) -> Self {
         Self::wrap(Task {
             id,
             dependencies,
-            unfinished_inputs,
+            unfinished_inputs: 0,
+            keep_counter: 0,
             spec,
             user_priority,
             client_priority,
@@ -231,7 +228,8 @@ impl TaskRef {
 mod tests {
     use std::default::Default;
 
-    use crate::test_util::{task, task_deps};
+    use crate::server::core::Core;
+    use crate::test_util::{submit_test_tasks, task, task_with_deps};
 
     #[test]
     fn task_consumers_empty() {
@@ -241,11 +239,17 @@ mod tests {
 
     #[test]
     fn task_recursive_consumers() {
+        let mut core = Core::default();
         let a = task(0);
-        let b = task_deps(1, &[&a]);
-        let c = task_deps(2, &[&b]);
-        let d = task_deps(3, &[&b]);
-        let e = task_deps(4, &[&c, &d]);
+        let b = task_with_deps(1, &[0]);
+        let c = task_with_deps(2, &[1]);
+        let d = task_with_deps(3, &[1]);
+        let e = task_with_deps(4, &[2, 3]);
+
+        submit_test_tasks(
+            &mut core,
+            &[a.clone(), b.clone(), c.clone(), d.clone(), e.clone()],
+        );
 
         assert_eq!(
             a.get().collect_consumers(),

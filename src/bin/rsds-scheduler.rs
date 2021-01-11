@@ -12,10 +12,10 @@ use tokio::net::TcpListener;
 use rsds::scheduler::{
     drive_scheduler, prepare_scheduler_comm, BLevelMetric, SchedulerComm, TLevelMetric,
 };
-use rsds::server::comm::observe_scheduler;
-use rsds::server::comm::CommRef;
 use rsds::server::core::CoreRef;
 use rsds::server::dask::DaskStateRef;
+use rsds::server::scheduler::observe_scheduler;
+use rsds::server::comm::CommSenderRef;
 use rsds::{setup_interrupt, setup_logging};
 
 #[global_allocator]
@@ -121,9 +121,9 @@ async fn main() -> rsds::Result<()> {
     });
     {
         let task_set = tokio::task::LocalSet::default();
-        let comm_ref = CommRef::new(sender);
         let dask_state_ref = DaskStateRef::new();
-        let core_ref = CoreRef::new(dask_state_ref.get_gateway());
+        let comm_ref = CommSenderRef::new(sender, dask_state_ref.get_gateway());
+        let core_ref = CoreRef::new();
         task_set
             .run_until(async move {
                 let scheduler = observe_scheduler(core_ref.clone(), comm_ref.clone(), receiver);

@@ -9,6 +9,7 @@ mod common;
 mod error;
 pub mod scheduler;
 pub mod server;
+pub mod transfer;
 pub mod worker;
 
 #[cfg(test)]

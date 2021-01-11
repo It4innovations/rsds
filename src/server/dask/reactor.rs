@@ -3,8 +3,7 @@ use futures::{Sink, SinkExt};
 
 use crate::common::Map;
 use crate::scheduler::TaskId;
-use crate::server::comm::CommRef;
-use crate::server::core::CoreRef;
+use crate::server::core::{Core, CoreRef};
 use crate::server::dask::client::ClientId;
 use crate::server::dask::dasktransport::{
     make_dask_payload, serialize_single_packet, DaskPacket, SerializedMemory,
@@ -15,22 +14,20 @@ use crate::server::dask::messages::generic::{ScatterMsg, WhoHasMsgResponse};
 use crate::server::dask::state::DaskState;
 use crate::server::dask::taskspec::DaskTaskSpec;
 use crate::server::dask::DaskStateRef;
-use crate::server::notifications::Notifications;
-use crate::server::reactor::scatter;
+use crate::server::reactor::{on_keep_counter_decrease, on_keep_counter_increase, on_new_tasks};
+use crate::server::comm::{CommSender, CommSenderRef};
 use crate::server::task::{DataInfo, TaskRef, TaskRuntimeState};
+use crate::server::transfer::scatter;
 
 pub fn update_graph(
-    core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    core: &mut Core,
+    comm: &mut CommSender,
     state: &mut DaskState,
     client_id: ClientId,
     mut update: UpdateGraphMsg,
 ) -> crate::Result<()> {
     log::debug!("Updating graph from client {}", client_id);
-
-    let mut core = core_ref.get_mut();
     let mut new_tasks = Vec::with_capacity(update.tasks.len());
-    let lowest_id = core.new_task_id();
     //let mut new_task_ids: Map<DaskKey, TaskId> = Map::with_capacity(update.tasks.len());
     for (task_key, _) in &update.tasks {
         let new_task_id = core.new_task_id();
@@ -39,7 +36,7 @@ pub fn update_graph(
             new_task_id,
             task_key
         );
-        state.assign_key(task_key.clone(), &mut core);
+        state.assign_key(task_key.clone(), core);
     }
 
     log::debug!(
@@ -65,19 +62,6 @@ pub fn update_graph(
             Vec::new()
         };
 
-        let unfinished_deps = inputs
-            .iter()
-            .map(|task_id| {
-                if *task_id >= lowest_id {
-                    1
-                } else if core.get_task_by_id_or_panic(*task_id).get().is_finished() {
-                    0
-                } else {
-                    1
-                }
-            })
-            .sum();
-
         //let task_spec = client_task_spec_to_memory(task_spec, &mut update.frames);
 
         let key_id_map: Vec<(&DaskKey, TaskId)> = inputs
@@ -96,7 +80,6 @@ pub fn update_graph(
             task_id,
             serialized_dask_spec,
             inputs,
-            unfinished_deps,
             user_priority,
             client_priority,
         );
@@ -106,26 +89,23 @@ pub fn update_graph(
     let is_actor = update.actors.unwrap_or(false);
     assert!(!is_actor);
 
-    let mut notifications = Notifications::with_scheduler_capacity(new_tasks.len());
-    core.new_tasks(new_tasks, &mut notifications, lowest_id);
-    comm_ref.get_mut().notify(&mut core, notifications)?;
+    on_new_tasks(core, comm, new_tasks);
 
     for task_key in update.keys {
         let task_id = state.get_task_id(&task_key).unwrap();
         state.subscribe_client_to_task(task_id, client_id);
+        on_keep_counter_increase(core, task_id);
     }
     Ok(())
 }
 
 pub fn release_keys(
-    core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    core: &mut Core,
+    comm: &mut CommSender,
     state_ref: &DaskStateRef,
     client_id: ClientId,
     task_keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
-    let mut core = core_ref.get_mut();
-    let mut notifications = Notifications::default();
     for key in task_keys {
         log::debug!("Releasing dask key {}", key);
         let task_id_maybe = state_ref.get().get_task_id(&key);
@@ -134,10 +114,7 @@ pub fn release_keys(
                 .get_mut()
                 .unsubscribe_client_from_task(task_id, client_id);
             if unsubscribed {
-                let task_ref = core.get_task_by_id_or_panic(task_id).clone();
-                let mut task = task_ref.get_mut();
-                // NOTE! remove_data_if_possible may borrow state_ref!
-                task.remove_data_if_possible(&mut core, &mut notifications);
+                on_keep_counter_decrease(core, comm, task_id);
             } else {
                 log::debug!("Unsubscribing invalid client from key");
             }
@@ -145,18 +122,16 @@ pub fn release_keys(
             log::debug!("Unsubscribing invalid key");
         }
     }
-    comm_ref.get_mut().notify(&mut core, notifications)
+    Ok(())
 }
 
 pub fn subscribe_keys(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
+    core: &mut Core,
     state_ref: &DaskStateRef,
     client_key: &DaskKey,
     task_keys: Vec<DaskKey>,
 ) -> crate::Result<()> {
     let mut state = state_ref.get_mut();
-    let core = core_ref.get();
     let mut finished = Vec::new();
 
     let client_id = match state.get_client_by_key(client_key) {
@@ -166,7 +141,7 @@ pub fn subscribe_keys(
 
     for key in task_keys {
         if let Some(task_id) = state.get_task_id(&key) {
-            let task_ref = core.get_task_by_id_or_panic(task_id);
+            let task_ref = on_keep_counter_increase(core, task_id);
             state.subscribe_client_to_task(task_id, client_id);
             if task_ref.get().is_done() {
                 finished.push(key);
@@ -179,13 +154,12 @@ pub fn subscribe_keys(
             .get_client_by_id_or_panic(client_id)
             .send_finished_keys(finished)?;
     }
-
     Ok(())
 }
 
 pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
-    _comm_ref: &CommRef,
+    comm_ref: &CommSenderRef,
     dask_state_ref: &DaskStateRef,
     address: std::net::SocketAddr,
     sink: &mut W,
@@ -198,7 +172,7 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
             .collect()
     };
 
-    let data_result = crate::server::reactor::gather(core_ref, &task_ids).await?;
+    let data_result = crate::server::transfer::gather(core_ref, comm_ref, &task_ids).await?;
 
     let result_map: Map<DaskKey, SerializedMemory> = data_result
         .into_iter()
@@ -218,12 +192,10 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 }
 
 pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core_ref: &CoreRef,
-    _comm_ref: &CommRef,
+    core: &Core,
     writer: &mut W,
 ) -> crate::Result<()> {
-    let cores: Map<String, _> = core_ref
-        .get()
+    let cores: Map<String, _> = core
         .get_workers()
         .map(|w_ref| {
             let w = w_ref.get();
@@ -236,7 +208,7 @@ pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 
 pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    comm_ref: &CommSenderRef,
     state_ref: &DaskStateRef,
     writer: &mut W,
     mut message: ScatterMsg,
@@ -284,12 +256,12 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
                     task_id,
                     Vec::new(),
                     Default::default(),
-                    0,
                     Default::default(),
                     Default::default(),
                 );
                 {
                     let mut task = task_ref.get_mut();
+                    task.increment_keep_counter();
                     task.state = TaskRuntimeState::Finished(
                         DataInfo {
                             size: value.len() as u64,
@@ -303,8 +275,7 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         (workers, key_mapping, data)
     };
 
-    let mut notifications = Notifications::default();
-    scatter(&core_ref, &workers, data, &mut notifications).await;
+    scatter(&core_ref, &comm_ref, &workers, data).await;
 
     let keys: Vec<_> = key_mapping
         .iter()
@@ -318,11 +289,6 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         state.subscribe_client_to_task(task_id, client_id);
     }
 
-    comm_ref
-        .get_mut()
-        .notify(&mut core_ref.get_mut(), notifications)
-        .unwrap();
-
     {
         let client = state.get_client_by_id_or_panic(client_id);
         client.send_finished_keys(keys.clone())?;
@@ -334,7 +300,6 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 
 pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
     core_ref: &CoreRef,
-    _comm_ref: &CommRef,
     state_ref: &DaskStateRef,
     sink: &mut W,
     keys: Option<Vec<DaskKey>>,

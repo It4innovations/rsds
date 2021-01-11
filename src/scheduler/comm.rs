@@ -9,7 +9,7 @@ use crate::scheduler::{FromSchedulerMessage, Scheduler, SchedulerSender, ToSched
 
 /// Communication channels used by the scheduler to receive events and send assignments.
 pub struct SchedulerComm {
-    pub(crate) recv: UnboundedReceiver<Vec<ToSchedulerMessage>>,
+    pub(crate) recv: UnboundedReceiver<ToSchedulerMessage>,
     send: UnboundedSender<FromSchedulerMessage>,
 }
 
@@ -23,10 +23,10 @@ impl SchedulerComm {
 
 pub fn prepare_scheduler_comm() -> (
     SchedulerComm,
-    UnboundedSender<Vec<ToSchedulerMessage>>,
+    UnboundedSender<ToSchedulerMessage>,
     UnboundedReceiver<FromSchedulerMessage>,
 ) {
-    let (up_sender, up_receiver) = unbounded_channel::<Vec<ToSchedulerMessage>>();
+    let (up_sender, up_receiver) = unbounded_channel::<ToSchedulerMessage>();
     let (down_sender, down_receiver) = unbounded_channel::<FromSchedulerMessage>();
 
     (
@@ -74,10 +74,10 @@ pub async fn drive_scheduler<S: Scheduler>(
     let needs_schedule = loop {
         match delay_fut {
             Some(delay) => match future::select(recv_fut, delay).await {
-                Either::Left((messages, previous_delay)) => match messages {
-                    Some(messages) => {
+                Either::Left((message, previous_delay)) => match message {
+                    Some(message) => {
                         trace_time!("scheduler", "handle_messages", {
-                            scheduler.handle_messages(messages)
+                            scheduler.handle_messages(message)
                         });
 
                         delay_fut = Some(previous_delay);
@@ -92,9 +92,9 @@ pub async fn drive_scheduler<S: Scheduler>(
                 }
             },
             None => match recv_fut.await {
-                Some(messages) => {
+                Some(message) => {
                     let needs_schedule = trace_time!("scheduler", "handle_messages", {
-                        scheduler.handle_messages(messages)
+                        scheduler.handle_messages(message)
                     });
 
                     if needs_schedule {
@@ -148,10 +148,14 @@ mod tests {
         assert!(schedule_times.is_empty());
     }
 
+    fn make_dummy_message() -> ToSchedulerMessage {
+        ToSchedulerMessage::NetworkBandwidth(1.0)
+    }
+
     #[tokio::test]
     async fn dont_schedule_if_not_needed() {
         let (schedule_times, tx, _rx, handle) = create_ctx(Duration::from_millis(5), vec![false]);
-        tx.send(vec![]).unwrap();
+        tx.send(make_dummy_message()).unwrap();
         delay_for(Duration::from_millis(100)).await;
 
         drop(tx);
@@ -164,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn schedule_immediately_after_first_message() {
         let (schedule_times, tx, _rx, handle) = create_ctx(Duration::from_millis(1000), vec![true]);
-        tx.send(vec![]).unwrap();
+        tx.send(make_dummy_message()).unwrap();
 
         drop(tx);
         handle.await.unwrap().unwrap();
@@ -177,12 +181,12 @@ mod tests {
     async fn schedule_immediately_after_long_delay() {
         let msd = Duration::from_millis(500);
         let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 3]);
-        tx.send(vec![]).unwrap(); // schedule immediately
-        tx.send(vec![]).unwrap(); // batch
+        tx.send(make_dummy_message()).unwrap(); // schedule immediately
+        tx.send(make_dummy_message()).unwrap(); // batch
 
         delay_for(msd * 2).await;
 
-        tx.send(vec![]).unwrap(); // schedule immediately
+        tx.send(make_dummy_message()).unwrap(); // schedule immediately
 
         drop(tx);
         handle.await.unwrap().unwrap();
@@ -196,7 +200,7 @@ mod tests {
         let msd = Duration::from_millis(100);
         let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 10]);
         for _ in 0..10 {
-            tx.send(vec![]).unwrap();
+            tx.send(make_dummy_message()).unwrap();
         }
 
         delay_for(msd * 2).await;
@@ -214,7 +218,7 @@ mod tests {
         let msd = Duration::from_millis(0);
         let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true; 10]);
         for _ in 0..10 {
-            tx.send(vec![]).unwrap();
+            tx.send(make_dummy_message()).unwrap();
         }
 
         drop(tx);
@@ -229,7 +233,7 @@ mod tests {
         let msd = Duration::from_millis(0);
         let (schedule_times, tx, _rx, handle) = create_ctx(msd, vec![true, true, false]);
         for _ in 0..3 {
-            tx.send(vec![]).unwrap();
+            tx.send(make_dummy_message()).unwrap();
         }
 
         delay_for(msd * 2).await;
@@ -246,7 +250,7 @@ mod tests {
         responses: Vec<bool>,
     ) -> (
         Arc<Mutex<Vec<Duration>>>,
-        UnboundedSender<Vec<ToSchedulerMessage>>,
+        UnboundedSender<ToSchedulerMessage>,
         UnboundedReceiver<FromSchedulerMessage>,
         JoinHandle<crate::Result<()>>,
     ) {
@@ -285,7 +289,7 @@ mod tests {
             }
         }
 
-        fn handle_messages(&mut self, _messages: Vec<ToSchedulerMessage>) -> bool {
+        fn handle_messages(&mut self, _messages: ToSchedulerMessage) -> bool {
             self.responses.pop_front().unwrap()
         }
 

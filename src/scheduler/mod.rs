@@ -31,6 +31,6 @@ pub trait Scheduler {
     fn identify(&self) -> SchedulerRegistration;
 
     /// Returns true if the scheduler requires someone to invoke `schedule` sometime in the future.
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool;
+    fn handle_messages(&mut self, messages: ToSchedulerMessage) -> bool;
     fn schedule(&mut self) -> Vec<TaskAssignment>;
 }

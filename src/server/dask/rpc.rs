@@ -5,7 +5,6 @@ use tokio::net::TcpListener;
 use tokio::stream::Stream;
 
 use crate::common::rpc::forward_queue_to_sink;
-use crate::server::comm::CommRef;
 use crate::server::core::CoreRef;
 use crate::server::dask::client::Client;
 use crate::server::dask::dasktransport::{
@@ -21,13 +20,14 @@ use crate::server::dask::reactor::{
     dask_scatter, gather, get_ncores, release_keys, subscribe_keys, update_graph, who_has,
 };
 use crate::server::dask::state::DaskStateRef;
+use crate::server::comm::CommSenderRef;
 
 pub async fn client_rpc_loop<
     Reader: Stream<Item = crate::Result<Batch<FromClientMessage>>> + Unpin,
     Writer: Sink<DaskPacket, Error = crate::Error> + Unpin,
 >(
     core_ref: &CoreRef,
-    comm_ref: &CommRef,
+    comm_ref: &CommSenderRef,
     address: std::net::SocketAddr,
     mut receiver: Reader,
     sender: Writer,
@@ -62,12 +62,17 @@ pub async fn client_rpc_loop<
                             .get_client_by_key(&msg.client)
                             .unwrap()
                             .id();
-                        release_keys(&core_ref, &comm_ref, &dask_state_ref, client_id, msg.keys)?;
+                        release_keys(
+                            &mut core_ref.get_mut(),
+                            &mut comm_ref.get_mut(),
+                            &dask_state_ref,
+                            client_id,
+                            msg.keys,
+                        )?;
                     }
                     FromClientMessage::ClientDesiresKeys(msg) => {
                         subscribe_keys(
-                            &core_ref,
-                            &comm_ref,
+                            &mut core_ref.get_mut(),
                             &dask_state_ref,
                             &msg.client,
                             msg.keys,
@@ -76,7 +81,13 @@ pub async fn client_rpc_loop<
                     FromClientMessage::UpdateGraph(update) => {
                         let mut state = dask_state_ref.get_mut();
                         trace_time!("client", "update_graph", {
-                            update_graph(&core_ref, &comm_ref, &mut state, client_id, update)?;
+                            update_graph(
+                                &mut core_ref.get_mut(),
+                                &mut comm_ref.get_mut(),
+                                &mut state,
+                                client_id,
+                                update,
+                            )?;
                         });
                     }
                     FromClientMessage::CloseClient => {
@@ -112,7 +123,7 @@ pub async fn client_rpc_loop<
 pub async fn connection_initiator(
     mut listener: TcpListener,
     core_ref: CoreRef,
-    comm_ref: CommRef,
+    comm_ref: CommSenderRef,
     gateway_ref: DaskStateRef,
 ) -> crate::Result<()> {
     loop {
@@ -133,7 +144,7 @@ pub async fn connection_initiator(
 
 pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
     core_ref: CoreRef,
-    comm_ref: CommRef,
+    comm_ref: CommSenderRef,
     dask_state_ref: DaskStateRef,
     stream: T,
     address: std::net::SocketAddr,
@@ -210,7 +221,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::WhoHas(msg) => {
                     log::debug!("WhoHas request from {} (keys={:?})", &address, msg.keys);
-                    who_has(&core_ref, &comm_ref, &dask_state_ref, &mut writer, msg.keys).await?;
+                    who_has(&core_ref, &dask_state_ref, &mut writer, msg.keys).await?;
                 }
                 GenericMessage::Gather(msg) => {
                     log::debug!("Gather request from {} (keys={:?})", &address, msg.keys);
@@ -232,7 +243,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
-                    get_ncores(&core_ref, &comm_ref, &mut writer).await?;
+                    get_ncores(&mut core_ref.get_mut(), &mut writer).await?;
                 }
                 /*GenericMessage::Proxy(msg) => {
                     log::debug!("Proxy request from {}", &address);

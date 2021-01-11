@@ -1,20 +1,13 @@
 use std::str;
 
-use bytes::Bytes;
-use tokio::sync::mpsc::UnboundedSender;
-
 use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::WorkerInfo;
-
-use crate::server::protocol::messages::worker::{ToWorkerMessage, TaskIdsMsg};
-use crate::scheduler::TaskId;
 
 pub type WorkerId = u64;
 
 #[derive(Debug)]
 pub struct Worker {
     pub id: WorkerId,
-    pub sender: UnboundedSender<Bytes>,
     pub ncpus: u32,
     pub listen_address: String,
 }
@@ -43,35 +36,15 @@ impl Worker {
             hostname: self.hostname(),
         }
     }
-
-    pub fn send_message(&self, message: ToWorkerMessage) {
-        let data = rmp_serde::to_vec_named(&message).unwrap();
-        self.sender
-            .send(data.into())
-            .expect("Send to worker failed");
-    }
-
-    pub fn send_remove_data(&self, id: TaskId) {
-        let message = ToWorkerMessage::DeleteData(TaskIdsMsg {
-            ids: vec![id],
-        });
-        self.send_message(message);
-    }
 }
 
 pub type WorkerRef = WrappedRcRefCell<Worker>;
 
 impl WorkerRef {
-    pub fn new(
-        id: WorkerId,
-        ncpus: u32,
-        sender: UnboundedSender<Bytes>,
-        listen_address: String,
-    ) -> Self {
+    pub fn new(id: WorkerId, ncpus: u32, listen_address: String) -> Self {
         Self::wrap(Worker {
             id,
             ncpus,
-            sender,
             listen_address,
         })
     }

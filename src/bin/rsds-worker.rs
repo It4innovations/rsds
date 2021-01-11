@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -47,7 +47,10 @@ fn create_local_directory(prefix: PathBuf) -> Result<PathBuf, std::io::Error> {
     Ok(work_dir)
 }
 
-fn create_paths(workdir: PathBuf, local_directory: PathBuf) -> Result<SubworkerPaths, std::io::Error> {
+fn create_paths(
+    workdir: PathBuf,
+    local_directory: PathBuf,
+) -> Result<SubworkerPaths, std::io::Error> {
     fs::create_dir_all(&workdir)?;
     let work_dir = fs::canonicalize(workdir)?;
     let local_dir = create_local_directory(local_directory)?;
@@ -64,7 +67,7 @@ async fn main() -> rsds::Result<()> {
 
     let paths = create_paths(
         opt.work_dir.unwrap_or(PathBuf::from("rsds-worker-space")),
-        opt.local_directory.unwrap_or(std::env::temp_dir())
+        opt.local_directory.unwrap_or(std::env::temp_dir()),
     )?;
 
     log::info!("subworker paths: {:?}", paths);

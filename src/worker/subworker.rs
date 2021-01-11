@@ -38,14 +38,14 @@ pub struct SubworkerPaths {
     /// Used for storing trace/profiling/log information.
     work_dir: PathBuf,
     /// Used for local communication (unix socket).
-    local_dir: PathBuf
+    local_dir: PathBuf,
 }
 
 impl SubworkerPaths {
     pub fn new(work_dir: PathBuf, local_dir: PathBuf) -> Self {
         Self {
             work_dir,
-            local_dir
+            local_dir,
         }
     }
 }
@@ -334,10 +334,7 @@ async fn run_subworker(
         let log_stdout = File::create(&log_path)?;
         let log_stderr = log_stdout.try_clone()?;
 
-        let mut args = vec!(
-            "-m".to_string(),
-            "rsds.subworker".to_string()
-        );
+        let mut args = vec!["-m".to_string(), "rsds.subworker".to_string()];
         let mut program = python_program;
 
         if let Ok(cmd) = std::env::var("RSDS_SUBWORKER_PREFIX") {
@@ -416,7 +413,8 @@ pub async fn start_subworkers(
             .boxed_local()
         })
         .collect();
-    let mut all_processes = futures::future::select_all(processes).map(|(result, idx, _)| (result, idx));
+    let mut all_processes =
+        futures::future::select_all(processes).map(|(result, idx, _)| (result, idx));
 
     tokio::select! {
         (result, idx) = &mut all_processes => {

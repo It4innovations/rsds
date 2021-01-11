@@ -9,7 +9,7 @@ fn choose_subworker(state: &mut WorkerState, task: &Task) -> SubworkerRef {
     let fsw = &state.free_subworkers;
     let len = fsw.len();
     if len == 1 || task.deps.is_empty() {
-        return state.free_subworkers.pop().unwrap()
+        return state.free_subworkers.pop().unwrap();
     }
     assert!(len > 0);
     let mut costs = Vec::with_capacity(len);
@@ -35,7 +35,12 @@ fn choose_subworker(state: &mut WorkerState, task: &Task) -> SubworkerRef {
         }
     }
 
-    let pos : usize = costs.iter().enumerate().min_by_key(|x| x.1).map(|x| x.0).unwrap();
+    let pos: usize = costs
+        .iter()
+        .enumerate()
+        .min_by_key(|x| x.1)
+        .map(|x| x.0)
+        .unwrap();
     state.free_subworkers.remove(pos)
 }
 

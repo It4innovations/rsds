@@ -5,14 +5,12 @@ use std::time::Duration;
 use bytes::buf::BufMutExt;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, Stream, StreamExt};
-use rand::seq::SliceRandom;
 
 use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::LocalSet;
 use tokio::time::delay_for;
-use tokio::sync::mpsc::error::{SendError, TryRecvError};
-use futures::select_biased;
 
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
@@ -21,21 +19,21 @@ use crate::common::transport::make_protocol_builder;
 
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::{
-    DataRequest, DataResponse, FetchResponseData, FromWorkerMessage, StealResponseMsg,
-    ToWorkerMessage, UploadResponseMsg, WorkerRegistrationResponse,
+    FromWorkerMessage, StealResponseMsg, ToWorkerMessage, WorkerRegistrationResponse,
 };
 use crate::server::protocol::Priority;
 use crate::server::protocol::PriorityValue;
-use crate::server::reactor::fetch_data;
+use crate::transfer::messages::{DataRequest, DataResponse, FetchResponseData, UploadResponseMsg};
 use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, Subscriber};
 
 use crate::common::data::SerializationType;
+use crate::server::worker::WorkerId;
+use crate::transfer::fetch::fetch_data;
 use crate::worker::reactor::start_local_download;
 use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
 use futures::stream::FuturesUnordered;
-use crate::server::worker::WorkerId;
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -77,7 +75,11 @@ async fn connect_to_server(scheduler_address: &str) -> crate::Result<TcpStream> 
     ))
 }
 
-pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: SubworkerPaths) -> crate::Result<()> {
+pub async fn run_worker(
+    scheduler_address: &str,
+    ncpus: u32,
+    subworker_paths: SubworkerPaths,
+) -> crate::Result<()> {
     let (listener, address) = start_listener().await?;
     let stream = connect_to_server(&scheduler_address).await?;
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
@@ -115,7 +117,8 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: Su
     };
 
     log::info!("Starting {} subworkers", ncpus);
-    let (subworkers, sw_processes) = start_subworkers(&state, subworker_paths, "python3", ncpus).await?;
+    let (subworkers, sw_processes) =
+        start_subworkers(&state, subworker_paths, "python3", ncpus).await?;
     log::debug!("Subworkers started");
 
     state.get_mut().set_subworkers(subworkers);
@@ -140,10 +143,9 @@ pub async fn run_worker(scheduler_address: &str, ncpus: u32, subworker_paths: Su
     //Ok(())
 }
 
-const MAX_RUNNING_DOWNLOADS : usize = 32;
+const MAX_RUNNING_DOWNLOADS: usize = 32;
 
-async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
-{
+async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef) {
     let (worker_id, data_id) = {
         let data_obj = data_ref.get();
         let workers = match &data_obj.state {
@@ -160,7 +162,7 @@ async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
             // Task that requested data was removed (because of work stealing)
             return;
         }
-        let worker_id : WorkerId = state_ref.get_mut().random_choice(&workers).clone();
+        let worker_id: WorkerId = state_ref.get_mut().random_choice(&workers).clone();
         (worker_id, data_obj.id)
     };
     let address = state_ref
@@ -171,7 +173,7 @@ async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
         .clone();
     let connection = connect_to_worker(address).await.unwrap();
     let stream = make_protocol_builder().new_framed(connection);
-    let (stream, data, serializer) = fetch_data(stream, data_id).await.unwrap();
+    let (_stream, data, serializer) = fetch_data(stream, data_id).await.unwrap();
     state_ref
         .get_mut()
         .on_data_downloaded(data_ref, data, serializer);
@@ -211,7 +213,7 @@ async fn worker_data_downloader(
                 log::debug!("Getting data={} from download queue", data_ref.get().id);
                 running.push(download_data(state_ref.clone(), data_ref));
             } else {
-                break
+                break;
             }
         }
     }
@@ -244,10 +246,7 @@ async fn worker_message_loop(
                 state.add_task(task_ref);
             }
             ToWorkerMessage::DeleteData(msg) => {
-                for id in msg.ids {
-                    //log::debug!("Server removes data={}", id);
-                    state.remove_data(id);
-                }
+                state.remove_data(msg.id);
             }
             ToWorkerMessage::StealTasks(msg) => {
                 log::debug!("Steal {} attempts", msg.ids.len());

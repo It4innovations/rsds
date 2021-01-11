@@ -21,34 +21,36 @@ impl Scheduler for RandomScheduler {
         }
     }
 
-    fn handle_messages(&mut self, messages: Vec<ToSchedulerMessage>) -> bool {
-        for message in messages {
-            match message {
-                ToSchedulerMessage::NewTask(task) => match self.workers.choose(&mut self.rng) {
-                    Some(&worker) => self.assignments.push(TaskAssignment {
-                        task: task.id,
-                        worker,
-                        priority: 0,
-                    }),
-                    None => self.pending_tasks.push(task.id),
-                },
-                ToSchedulerMessage::NewWorker(worker) => {
-                    self.workers.push(worker.id);
-                    if !self.pending_tasks.is_empty() {
-                        for task in self.pending_tasks.drain(..) {
-                            self.assignments.push(TaskAssignment {
-                                task,
-                                worker: worker.id,
-                                priority: 0,
-                            });
-                        }
+    fn handle_messages(&mut self, message: ToSchedulerMessage) -> bool {
+        match message {
+            ToSchedulerMessage::NewTasks(tasks) => {
+                for task in tasks {
+                    match self.workers.choose(&mut self.rng) {
+                        Some(&worker) => self.assignments.push(TaskAssignment {
+                            task: task.id,
+                            worker,
+                            priority: 0,
+                        }),
+                        None => self.pending_tasks.push(task.id),
                     }
                 }
-                ToSchedulerMessage::TaskStealResponse(_) => {
-                    panic!("Random scheduler received steal response")
-                }
-                _ => { /* Ignore */ }
             }
+            ToSchedulerMessage::NewWorker(worker) => {
+                self.workers.push(worker.id);
+                if !self.pending_tasks.is_empty() {
+                    for task in self.pending_tasks.drain(..) {
+                        self.assignments.push(TaskAssignment {
+                            task,
+                            worker: worker.id,
+                            priority: 0,
+                        });
+                    }
+                }
+            }
+            ToSchedulerMessage::TaskStealResponse(_) => {
+                panic!("Random scheduler received steal response")
+            }
+            _ => { /* Ignore */ }
         }
         !self.assignments.is_empty()
     }
