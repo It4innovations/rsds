@@ -22,6 +22,7 @@ use crate::server::protocol::messages::worker::{
 use crate::server::task::{TaskRef, TaskRuntimeState};
 use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_new_finished;
+use crate::error::DsError;
 
 // TODO: Convert this to returning Stream instead of vector,
 //   so data could be sent as they are received
@@ -66,7 +67,7 @@ pub async fn fetch_data(
     task_id: TaskId,
 ) -> crate::Result<(tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>, BytesMut, SerializationType)> {
     let message = DataRequest::FetchRequest(FetchRequestMsg { task_id });
-    let data = rmp_serde::to_vec_named(&message).unwrap();
+    let data = rmp_serde::to_vec_named(&message)?;
     stream.send(data.into()).await?;
 
     let message: DataResponse = {
@@ -78,13 +79,13 @@ pub async fn fetch_data(
     };
     let header = match message {
         DataResponse::NotAvailable => {
-            log::error!("Fetching data={} failed", task_id);
-            todo!();
+            log::error!("Fetching data={} failed: not available", task_id);
+            return Err(DsError::GenericError("Data object not available".into()));
         },
         DataResponse::Data(x) => x,
         DataResponse::DataUploaded(_) => {
-            // Worker send complete garbage, it should be considered as invalid and termianted
-            todo!()
+            log::error!("Fetching data={} failed: invalid response", task_id);
+            return Err(DsError::GenericError("Request returned invalid response".into()));
         }
     };
     let data = match stream.next().await {
