@@ -14,7 +14,8 @@ use crate::server::reactor::{
 };
 use crate::server::comm::CommSenderRef;
 use crate::server::task::ErrorInfo;
-use crate::server::worker::WorkerRef;
+use crate::server::worker::Worker;
+
 
 pub async fn connection_initiator(
     mut listener: TcpListener,
@@ -79,12 +80,12 @@ pub async fn worker_rpc_loop<
     sender.send(data.into()).await?;
 
     let (queue_sender, queue_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
-    let worker_ref = WorkerRef::new(worker_id, msg.ncpus, msg.address);
+    let worker = Worker::new(worker_id, msg.ncpus, msg.address);
 
     on_new_worker(
         &mut core_ref.get_mut(),
         &mut *comm_ref.get_mut(),
-        worker_ref.clone(),
+        worker,
     );
     comm_ref.get_mut().add_worker(worker_id, queue_sender);
 
@@ -100,13 +101,13 @@ pub async fn worker_rpc_loop<
             let mut comm = comm_ref.get_mut();
             match message {
                 FromWorkerMessage::TaskFinished(msg) => {
-                    on_task_finished(&mut core, &mut *comm, &worker_ref, msg);
+                    on_task_finished(&mut core, &mut *comm, worker_id, msg);
                 }
                 FromWorkerMessage::TaskFailed(msg) => {
                     on_task_error(
                         &mut core,
                         &mut *comm,
-                        &worker_ref,
+                        worker_id,
                         msg.id,
                         ErrorInfo {
                             exception: msg.exception,
@@ -115,10 +116,10 @@ pub async fn worker_rpc_loop<
                     );
                 }
                 FromWorkerMessage::DataDownloaded(msg) => {
-                    on_tasks_transferred(&mut core, &mut *comm, &worker_ref, msg.id)
+                    on_tasks_transferred(&mut core, &mut *comm, worker_id, msg.id)
                 }
                 FromWorkerMessage::StealResponse(msg) => {
-                    on_steal_response(&mut core, &mut *comm, &worker_ref, msg)
+                    on_steal_response(&mut core, &mut *comm, worker_id, msg)
                 }
             }
         }

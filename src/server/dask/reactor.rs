@@ -192,16 +192,18 @@ pub async fn gather<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
 }
 
 pub async fn get_ncores<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
-    core: &Core,
+    core_ref: &CoreRef,
     writer: &mut W,
 ) -> crate::Result<()> {
-    let cores: Map<String, _> = core
-        .get_workers()
-        .map(|w_ref| {
-            let w = w_ref.get();
-            (w.id.to_string(), w.ncpus)
-        })
-        .collect();
+    let cores : Map<String, _> = {
+        let core = core_ref.get();
+        core
+            .get_workers()
+            .map(|w| {
+                (w.id.to_string(), w.ncpus)
+            })
+            .collect()
+    };
     writer.send(serialize_single_packet(cores)?).await?;
     Ok(())
 }
@@ -236,12 +238,11 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
                     .into_iter()
                     .map(|worker_key| {
                         core.get_worker_by_address(&worker_key.into_string())
-                            .unwrap()
-                            .clone()
+                            .unwrap().id
                     })
                     .collect()
             }
-            None => core.get_workers().cloned().collect(),
+            None => core.get_workers().map(|w| w.id).collect(),
         };
         let mut key_mapping = Vec::with_capacity(message.data.len());
         let data: Vec<(TaskRef, BytesMut)> = message
@@ -281,19 +282,20 @@ pub async fn dask_scatter<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
         .iter()
         .map(|(_task_id, key)| key.clone())
         .collect();
-    let mut state = state_ref.get_mut();
-    // TODO: If client was disconnected during scatter, we should remove the uploaded tasks
-
-    for (task_id, key) in key_mapping {
-        state.insert_task_key(key, task_id);
-        state.subscribe_client_to_task(task_id, client_id);
-    }
-
     {
-        let client = state.get_client_by_id_or_panic(client_id);
-        client.send_finished_keys(keys.clone())?;
-    }
+        let mut state = state_ref.get_mut();
+        // TODO: If client was disconnected during scatter, we should remove the uploaded tasks
 
+        for (task_id, key) in key_mapping {
+            state.insert_task_key(key, task_id);
+            state.subscribe_client_to_task(task_id, client_id);
+        }
+
+        {
+            let client = state.get_client_by_id_or_panic(client_id);
+            client.send_finished_keys(keys.clone())?;
+        }
+    }
     writer.send(serialize_single_packet(keys)?).await?;
     Ok(())
 }
@@ -315,7 +317,7 @@ pub async fn who_has<W: Sink<DaskPacket, Error = crate::Error> + Unpin>(
                     .and_then(|task_id| core.get_task_by_id(task_id))
                 {
                     Some(task) => match task.get().get_workers() {
-                        Some(ws) => ws.iter().map(|w| w.get().address().into()).collect(),
+                        Some(ws) => ws.iter().map(|w_id| core.get_worker_by_id_or_panic(*w_id).address().into()).collect(),
                         None => Vec::new(),
                     },
                     None => Vec::new(),

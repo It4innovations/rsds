@@ -1,6 +1,5 @@
 use std::str;
 
-use crate::common::WrappedRcRefCell;
 use crate::scheduler::protocol::WorkerInfo;
 
 pub type WorkerId = u64;
@@ -38,14 +37,14 @@ impl Worker {
     }
 }
 
-pub type WorkerRef = WrappedRcRefCell<Worker>;
+//pub type WorkerRef = WrappedRcRefCell<Worker>;
 
-impl WorkerRef {
+impl Worker {
     pub fn new(id: WorkerId, ncpus: u32, listen_address: String) -> Self {
-        Self::wrap(Worker {
+        Worker {
             id,
             ncpus,
             listen_address,
-        })
+        }
     }
 }

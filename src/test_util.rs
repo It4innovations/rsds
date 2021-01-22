@@ -22,7 +22,7 @@ use crate::server::protocol::messages::worker::{TaskFinishedMsg, ToWorkerMessage
 use crate::server::reactor::{on_assignments, on_new_tasks, on_new_worker, on_task_finished};
 use crate::server::comm::Comm;
 use crate::server::task::{ErrorInfo, TaskRef};
-use crate::server::worker::{WorkerId, WorkerRef};
+use crate::server::worker::{WorkerId, Worker};
 
 /// Memory stream for reading and writing at the same time.
 pub struct MemoryStream {
@@ -227,8 +227,8 @@ pub fn create_test_comm() -> TestComm {
 pub fn create_test_workers(core: &mut Core, cpus: &[u32]) {
     for (i, c) in cpus.iter().enumerate() {
         let worker_id = (100 + i) as WorkerId;
-        let worker_ref = WorkerRef::new(worker_id, *c, format!("test{}:123", i));
-        on_new_worker(core, &mut TestComm::default(), worker_ref);
+        let worker = Worker::new(worker_id, *c, format!("test{}:123", i));
+        on_new_worker(core, &mut TestComm::default(), worker);
     }
 }
 
@@ -251,11 +251,10 @@ pub fn start_on_worker(core: &mut Core, task_id: TaskId, worker_id: WorkerId) {
 
 pub fn finish_on_worker(core: &mut Core, task_id: TaskId, worker_id: WorkerId) {
     let mut comm = TestComm::default();
-    let worker_ref = core.get_worker_by_id_or_panic(worker_id).clone();
     on_task_finished(
         core,
         &mut comm,
-        &worker_ref,
+        worker_id,
         TaskFinishedMsg {
             id: task_id,
             size: 1000,

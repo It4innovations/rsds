@@ -162,7 +162,7 @@ async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef) {
             // Task that requested data was removed (because of work stealing)
             return;
         }
-        let worker_id: WorkerId = state_ref.get_mut().random_choice(&workers).clone();
+        let worker_id: WorkerId = *state_ref.get_mut().random_choice(&workers);
         (worker_id, data_obj.id)
     };
     let address = state_ref
@@ -399,51 +399,53 @@ async fn connection_rpc_loop(
                     }
                     Some(data) => data?,
                 };
-                let mut state = state_ref.get_mut();
                 let mut error = None;
-                match state.data_objects.get(&msg.task_id) {
-                    None => {
-                        let data_ref = DataObjectRef::new(
-                            msg.task_id,
-                            data.len() as u64,
-                            DataObjectState::Local(LocalData {
-                                serializer: msg.serializer,
-                                bytes: data.into(),
-                                subworkers: Default::default(),
-                            }),
-                        );
-                        state.add_data_object(data_ref);
-                    }
-                    Some(data_ref) => {
-                        let data_obj = data_ref.get();
-                        match &data_obj.state {
-                            DataObjectState::Remote(_) => {
-                                /* set the data and check waiting tasks */
-                                todo!()
-                            }
-                            DataObjectState::InSubworkers(_)
-                            | DataObjectState::LocalDownloading(_) => {
-                                log::debug!(
-                                    "Uploaded data {} is already in subworkers",
-                                    &msg.task_id
-                                );
-                                todo!()
-                            }
-                            DataObjectState::Local(local) => {
-                                log::debug!("Uploaded data {} is already in worker", &msg.task_id);
-                                if local.serializer != msg.serializer
-                                    || local.bytes.len() != data.len()
-                                {
-                                    log::error!(
-                                        "Incompatible data {} was data uploaded",
+                {
+                    let mut state = state_ref.get_mut();
+                    match state.data_objects.get(&msg.task_id) {
+                        None => {
+                            let data_ref = DataObjectRef::new(
+                                msg.task_id,
+                                data.len() as u64,
+                                DataObjectState::Local(LocalData {
+                                    serializer: msg.serializer,
+                                    bytes: data.into(),
+                                    subworkers: Default::default(),
+                                }),
+                            );
+                            state.add_data_object(data_ref);
+                        }
+                        Some(data_ref) => {
+                            let data_obj = data_ref.get();
+                            match &data_obj.state {
+                                DataObjectState::Remote(_) => {
+                                    /* set the data and check waiting tasks */
+                                    todo!()
+                                }
+                                DataObjectState::InSubworkers(_)
+                                | DataObjectState::LocalDownloading(_) => {
+                                    log::debug!(
+                                        "Uploaded data {} is already in subworkers",
                                         &msg.task_id
                                     );
-                                    error = Some("Incompatible data was uploaded".into());
+                                    todo!()
                                 }
+                                DataObjectState::Local(local) => {
+                                    log::debug!("Uploaded data {} is already in worker", &msg.task_id);
+                                    if local.serializer != msg.serializer
+                                        || local.bytes.len() != data.len()
+                                    {
+                                        log::error!(
+                                            "Incompatible data {} was data uploaded",
+                                            &msg.task_id
+                                        );
+                                        error = Some("Incompatible data was uploaded".into());
+                                    }
+                                }
+                                DataObjectState::Removed => unreachable!(),
                             }
-                            DataObjectState::Removed => unreachable!(),
                         }
-                    }
+                    };
                 };
 
                 log::debug!("Object {} upload from {} finished", &msg.task_id, address);

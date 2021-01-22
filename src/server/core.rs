@@ -3,13 +3,13 @@ use crate::scheduler::{TaskId, WorkerId};
 use crate::server::gateway::Gateway;
 
 use crate::server::task::{Task, TaskRef, TaskRuntimeState};
-use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_remove;
+use crate::server::worker::Worker;
 
 #[derive(Default)]
 pub struct Core {
     tasks: Map<TaskId, TaskRef>,
-    workers: Map<WorkerId, WorkerRef>,
+    workers: Map<WorkerId, Worker>,
 
     task_id_counter: IdCounter,
     worker_id_counter: IdCounter,
@@ -49,9 +49,9 @@ impl Core {
         //self.gateway.as_ref()
     }
 
-    pub fn new_worker(&mut self, worker_ref: WorkerRef) {
-        let worker_id = worker_ref.get().id;
-        self.workers.insert(worker_id, worker_ref);
+    pub fn new_worker(&mut self, worker: Worker) {
+        let worker_id = worker.id;
+        self.workers.insert(worker_id, worker);
     }
 
     pub fn remove_worker(&mut self, worker_id: WorkerId) {
@@ -59,29 +59,28 @@ impl Core {
     }
 
     #[inline]
-    pub fn get_worker_by_address(&self, address: &str) -> Option<&WorkerRef> {
-        self.workers.values().find(|w| w.get().address() == address)
+    pub fn get_worker_by_address(&self, address: &str) -> Option<&Worker> {
+        self.workers.values().find(|w| w.address() == address)
     }
 
     pub fn get_worker_addresses(&self) -> Map<WorkerId, String> {
         self.workers
             .values()
-            .map(|w_ref| {
-                let w = w_ref.get();
+            .map(|w| {
                 (w.id, w.listen_address.clone())
             })
             .collect()
     }
 
     #[inline]
-    pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &WorkerRef {
+    pub fn get_worker_by_id_or_panic(&self, id: WorkerId) -> &Worker {
         self.workers.get(&id).unwrap_or_else(|| {
             panic!("Asking for invalid worker id={}", id);
         })
     }
 
     #[inline]
-    pub fn get_workers(&self) -> impl Iterator<Item = &WorkerRef> {
+    pub fn get_workers(&self) -> impl Iterator<Item = &Worker> {
         self.workers.values()
     }
 

@@ -194,8 +194,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                         workers: core_ref
                             .get()
                             .get_workers()
-                            .map(|w| {
-                                let worker = w.get();
+                            .map(|worker| {
                                 let address = worker.listen_address.clone();
                                 (
                                     address.clone(),
@@ -243,7 +242,7 @@ pub async fn generic_rpc_loop<T: AsyncRead + AsyncWrite>(
                 }
                 GenericMessage::Ncores => {
                     log::debug!("Ncores request from {}", &address);
-                    get_ncores(&mut core_ref.get_mut(), &mut writer).await?;
+                    get_ncores(&core_ref, &mut writer).await?;
                 }
                 /*GenericMessage::Proxy(msg) => {
                     log::debug!("Proxy request from {}", &address);

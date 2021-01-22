@@ -2,10 +2,9 @@ use crate::common::data::SerializationType;
 use crate::common::transport::make_protocol_builder;
 use crate::common::Map;
 use crate::scheduler::{TaskId, ToSchedulerMessage};
-use crate::server::core::CoreRef;
+use crate::server::core::{CoreRef, Core};
 use crate::server::comm::{CommSenderRef, Comm};
 use crate::server::task::{TaskRef, TaskRuntimeState};
-use crate::server::worker::WorkerRef;
 use crate::trace::trace_task_new_finished;
 use crate::transfer::fetch::fetch_data;
 use crate::transfer::messages::{DataRequest, DataResponse, UploadDataMsg};
@@ -19,13 +18,14 @@ use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 
 use crate::scheduler::protocol::NewFinishedTaskInfo;
+use crate::server::worker::WorkerId;
 
 pub async fn gather(
     core_ref: &CoreRef,
     _comm_ref: &CommSenderRef,
     task_ids: &[TaskId],
 ) -> crate::Result<Vec<(TaskId, BytesMut, SerializationType)>> {
-    let mut worker_map: Map<String, Vec<TaskId>> = Default::default();
+    let mut worker_map: Map<WorkerId, Vec<TaskId>> = Default::default();
     {
         let core = core_ref.get();
         let mut rng = rand::thread_rng();
@@ -33,10 +33,10 @@ pub async fn gather(
             let task_ref = core.get_task_by_id_or_panic(*task_id);
             let task = task_ref.get();
             &task.get_workers().map(|ws| {
-                let ws = Vec::<&WorkerRef>::from_iter(ws.into_iter());
+                let ws = Vec::<&WorkerId>::from_iter(ws.into_iter());
                 ws.choose(&mut rng).map(|w| {
                     worker_map
-                        .entry(w.get().address().to_string())
+                        .entry(**w)
                         .or_default()
                         .push(*task_id);
                 })
@@ -47,7 +47,7 @@ pub async fn gather(
     let mut worker_futures: FuturesUnordered<_> = FuturesUnordered::from_iter(
         worker_map
             .into_iter()
-            .map(|(worker, keys)| get_data_from_worker(worker, keys)),
+            .map(|(w_id, keys)| get_data_from_worker(core_ref.get().get_worker_by_id_or_panic(w_id).listen_address.clone(), keys)),
     );
 
     let mut result = Vec::with_capacity(task_ids.len());
@@ -91,10 +91,12 @@ pub async fn get_data_from_worker(
 }
 
 pub async fn update_data_on_worker(
-    worker_ref: WorkerRef,
+    core: &CoreRef,
+    worker_id: WorkerId,
     data: Vec<(TaskRef, BytesMut)>,
 ) -> crate::Result<()> {
-    let connection = connect_to_worker(worker_ref.get().listen_address.clone()).await?;
+    let address = core.get().get_worker_by_id_or_panic(worker_id).listen_address.clone();
+    let connection = connect_to_worker(address).await?;
     let mut stream = make_protocol_builder().new_framed(connection);
 
     for (task_ref, data_for_id) in data {
@@ -125,28 +127,30 @@ pub async fn update_data_on_worker(
         };
         match &mut task_ref.get_mut().state {
             TaskRuntimeState::Finished(_, ref mut set) => {
-                set.insert(worker_ref.clone());
+                set.insert(worker_id);
             }
             _ => unreachable!(),
         };
-        trace_task_new_finished(task_ref.get().id, size, worker_ref.get().id);
+        trace_task_new_finished(task_ref.get().id, size, worker_id);
     }
 
     Ok(())
 }
 
 fn scatter_tasks<D>(
+    core: &Core,
     data: Vec<D>,
-    workers: &[WorkerRef],
+    workers: &[WorkerId],
     counter: usize,
-) -> Vec<(WorkerRef, Vec<D>)> {
-    let total_cpus: usize = workers.iter().map(|wr| wr.get().ncpus as usize).sum();
+) -> Vec<(WorkerId, Vec<D>)> {
+    let cpus : Vec<usize> = workers.iter().map(|w_id| core.get_worker_by_id_or_panic(*w_id).ncpus as usize).collect();
+    let total_cpus: usize = cpus.iter().sum();
     let mut counter = counter % total_cpus;
 
     let mut cpu = 0;
     let mut index = 0;
-    for (i, wr) in workers.iter().enumerate() {
-        let ncpus = wr.get().ncpus as usize;
+    for (i, _w_id) in workers.iter().enumerate() {
+        let ncpus = cpus[i];
         if counter >= ncpus {
             counter -= ncpus;
         } else {
@@ -156,20 +160,20 @@ fn scatter_tasks<D>(
         }
     }
 
-    let mut worker_ref = &workers[index];
-    let mut ncpus = worker_ref.get().ncpus as usize;
+    let mut worker_id = workers[index];
+    let mut ncpus = cpus[index];
 
-    let mut result: Map<WorkerRef, Vec<D>> = Map::new();
+    let mut result: Map<WorkerId, Vec<D>> = Map::new();
 
     for d in data {
-        result.entry(worker_ref.clone()).or_default().push(d);
+        result.entry(worker_id).or_default().push(d);
         cpu += 1;
         if cpu >= ncpus {
             cpu = 0;
             index += 1;
             index %= workers.len();
-            worker_ref = &workers[index];
-            ncpus = worker_ref.get().ncpus as usize;
+            worker_id = workers[index];
+            ncpus = cpus[index];
         }
     }
     result.into_iter().collect()
@@ -178,16 +182,16 @@ fn scatter_tasks<D>(
 pub async fn scatter(
     core_ref: &CoreRef,
     comm_ref: &CommSenderRef,
-    workers: &[WorkerRef],
+    workers: &[WorkerId],
     data: Vec<(TaskRef, BytesMut)>,
 ) {
     let counter = core_ref.get_mut().get_and_move_scatter_counter(data.len());
     let tasks: Vec<_> = data.iter().map(|(t_ref, _)| t_ref.clone()).collect();
-    let placement = scatter_tasks(data, workers, counter);
+    let placement = scatter_tasks(&core_ref.get(), data, workers, counter);
     let worker_futures = join_all(
         placement
             .into_iter()
-            .map(|(worker, data)| update_data_on_worker(worker, data)),
+            .map(|(worker, data)| update_data_on_worker(&core_ref, worker, data)),
     );
 
     // TODO: Proper error handling
@@ -206,7 +210,7 @@ pub async fn scatter(
                     .get_workers()
                     .unwrap()
                     .iter()
-                    .map(|wr| wr.get().id)
+                    .copied()
                     .collect(),
                 size: task.data_info().unwrap().size,
             });

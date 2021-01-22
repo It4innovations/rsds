@@ -6,7 +6,8 @@ use crate::scheduler::protocol::TaskId;
 use crate::server::core::Core;
 use crate::server::protocol::messages::worker::{ComputeTaskMsg, ToWorkerMessage};
 use crate::server::protocol::PriorityValue;
-use crate::server::worker::WorkerRef;
+use crate::scheduler::WorkerId;
+
 
 #[derive(Debug)]
 pub struct DataInfo {
@@ -15,10 +16,10 @@ pub struct DataInfo {
 
 pub enum TaskRuntimeState {
     Waiting,
-    Scheduled(WorkerRef),
-    Assigned(WorkerRef),
-    Stealing(WorkerRef, WorkerRef), // (from, to)
-    Finished(DataInfo, Set<WorkerRef>),
+    Scheduled(WorkerId),
+    Assigned(WorkerId),
+    Stealing(WorkerId, WorkerId), // (from, to)
+    Finished(DataInfo, Set<WorkerId>),
     Released,
 }
 
@@ -136,7 +137,7 @@ impl Task {
                     .get_workers()
                     .unwrap()
                     .iter()
-                    .map(|w| w.get().id())
+                    .copied()
                     .collect();
                 (task.id, task.data_info().unwrap().size, addresses)
             })
@@ -167,9 +168,9 @@ impl Task {
     }
 
     #[inline]
-    pub fn is_assigned_or_stealed_from(&self, worker_ref: &WorkerRef) -> bool {
+    pub fn is_assigned_or_stealed_from(&self, worker_id: WorkerId) -> bool {
         match &self.state {
-            TaskRuntimeState::Assigned(w) | TaskRuntimeState::Stealing(w, _) => worker_ref == w,
+            TaskRuntimeState::Assigned(w) | TaskRuntimeState::Stealing(w, _) => worker_id == *w,
             _ => false,
         }
     }
@@ -193,7 +194,7 @@ impl Task {
     }
 
     #[inline]
-    pub fn get_workers(&self) -> Option<&Set<WorkerRef>> {
+    pub fn get_workers(&self) -> Option<&Set<WorkerId>> {
         match &self.state {
             TaskRuntimeState::Finished(_, ws) => Some(ws),
             _ => None,
