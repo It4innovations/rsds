@@ -10,7 +10,8 @@ use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::LocalSet;
-use tokio::time::delay_for;
+use tokio::time::{delay_for, Delay};
+use futures::select_biased;
 
 use crate::common::rpc::forward_queue_to_sink;
 use crate::common::transport::make_protocol_builder;
@@ -34,6 +35,7 @@ use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
 use futures::stream::FuturesUnordered;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -144,39 +146,54 @@ pub async fn run_worker(
 }
 
 const MAX_RUNNING_DOWNLOADS: usize = 32;
+const MAX_ATTEMPTS : u32 = 8;
 
-async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef) {
-    let (worker_id, data_id) = {
-        let data_obj = data_ref.get();
-        let workers = match &data_obj.state {
-            DataObjectState::Remote(rs) => &rs.workers,
-            DataObjectState::Local(_)
-            | DataObjectState::Removed
-            | DataObjectState::InSubworkers(_)
-            | DataObjectState::LocalDownloading(_) => {
-                /* It is already finished */
+async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
+{
+    for attempt in 0..MAX_ATTEMPTS {
+        let (worker_id, data_id) = {
+            let data_obj = data_ref.get();
+            let workers = match &data_obj.state {
+                DataObjectState::Remote(rs) => &rs.workers,
+                DataObjectState::Local(_)
+                | DataObjectState::Removed
+                | DataObjectState::InSubworkers(_)
+                | DataObjectState::LocalDownloading(_) => {
+                    /* It is already finished */
+                    return;
+                }
+            };
+            if data_obj.consumers.is_empty() {
+                // Task that requested data was removed (because of work stealing)
                 return;
             }
+            let worker_id: WorkerId = state_ref.get_mut().random_choice(&workers).clone();
+            (worker_id, data_obj.id)
         };
-        if data_obj.consumers.is_empty() {
-            // Task that requested data was removed (because of work stealing)
-            return;
+        let address = state_ref
+            .get()
+            .worker_addresses
+            .get(&worker_id)
+            .unwrap()
+            .clone();
+        let connection = connect_to_worker(address).await.unwrap();
+        let stream = make_protocol_builder().new_framed(connection);
+        match fetch_data(stream, data_id).await {
+            Ok((stream, data, serializer)) => {
+                state_ref
+                    .get_mut()
+                    .on_data_downloaded(data_ref, data, serializer);
+                return;
+            }
+            Err(e) => {
+                log::error!("Download of id={} failed; error={}; attempt={}/{}",
+                            data_ref.get().id, e, attempt, MAX_ATTEMPTS);
+                delay_for(Duration::from_secs(1)).await;
+            }
         }
-        let worker_id: WorkerId = *state_ref.get_mut().random_choice(&workers);
-        (worker_id, data_obj.id)
-    };
-    let address = state_ref
-        .get()
-        .worker_addresses
-        .get(&worker_id)
-        .unwrap()
-        .clone();
-    let connection = connect_to_worker(address).await.unwrap();
-    let stream = make_protocol_builder().new_framed(connection);
-    let (_stream, data, serializer) = fetch_data(stream, data_id).await.unwrap();
-    state_ref
-        .get_mut()
-        .on_data_downloaded(data_ref, data, serializer);
+    }
+    log::error!("Failed to download id={} after all attemps", data_ref.get().id);
+    todo!();
 }
 
 async fn worker_data_downloader(
@@ -246,7 +263,7 @@ async fn worker_message_loop(
                 state.add_task(task_ref);
             }
             ToWorkerMessage::DeleteData(msg) => {
-                state.remove_data(msg.id);
+                state.remove_data_by_id(msg.id);
             }
             ToWorkerMessage::StealTasks(msg) => {
                 log::debug!("Steal {} attempts", msg.ids.len());

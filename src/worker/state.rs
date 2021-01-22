@@ -12,7 +12,7 @@ use crate::server::protocol::messages::worker::{
 };
 use crate::server::protocol::{Priority, PriorityValue};
 use crate::server::worker::WorkerId;
-use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData};
+use crate::worker::data::{DataObjectRef, DataObjectState, LocalData, RemoteData, DataObject};
 use crate::worker::reactor::try_assign_tasks;
 use crate::worker::subworker::{SubworkerId, SubworkerRef};
 use crate::worker::task::{TaskRef, TaskState};
@@ -190,20 +190,32 @@ impl WorkerState {
         self.tasks.insert(id, task_ref);
     }
 
-    pub fn remove_data(&mut self, task_id: TaskId) {
-        log::debug!("Removing data object {}", task_id);
+    pub fn remove_data_by_id(&mut self, task_id: TaskId) {
+        log::debug!("Removing data object by id={}", task_id);
         if let Some(data_ref) = self.data_objects.remove(&task_id) {
             let mut data_obj = data_ref.get_mut();
-            data_obj.state = DataObjectState::Removed;
-            if !data_obj.consumers.is_empty() {
-                todo!(); // What should happen when server removes data but there are tasks that needs it?
-            }
-            if let Some(sw_refs) = data_obj.get_placement() {
-                for sw_ref in sw_refs {
-                    sw_ref.get().send_remove_data(data_obj.id);
-                }
-            }
+            self.remove_data_helper(&mut data_obj);
+        } else {
+            log::debug!("Object not here");
         };
+    }
+
+    pub fn remove_data(&mut self, data_obj: &mut DataObject) {
+        log::debug!("Removing data object {}", data_obj.id);
+        assert!(self.data_objects.remove(&data_obj.id).is_some());
+        self.remove_data_helper(data_obj);
+    }
+
+    fn remove_data_helper(&mut self, data_obj: &mut DataObject) {
+        if !data_obj.consumers.is_empty() {
+            todo!(); // What should happen when server removes data but there are tasks that needs it?
+        }
+        data_obj.state = DataObjectState::Removed;
+        if let Some(sw_refs) = data_obj.get_placement() {
+            for sw_ref in sw_refs {
+                sw_ref.get().send_remove_data(data_obj.id);
+            }
+        }
     }
 
     pub fn random_choice<'a, T>(&mut self, items: &'a [T]) -> &'a T {
@@ -257,11 +269,12 @@ impl WorkerState {
         for data_ref in std::mem::take(&mut task.deps) {
             let mut data = data_ref.get_mut();
             assert!(data.consumers.remove(&task_ref));
-            /*if data.consumers.is_empty() {
-                let match data.state {
+            if data.consumers.is_empty() {
+                match data.state {
                     DataObjectState::Remote(_) => {
-                        /* We are doing to stop unnecessary download */
+                        /* We are going to stop unnecessary download */
                         assert!(!just_finished);
+                        self.remove_data(&mut data);
                     }
                     DataObjectState::InSubworkers(_)
                     | DataObjectState::Local(_)
@@ -272,7 +285,7 @@ impl WorkerState {
                         unreachable!()
                     }
                 };
-            }*/
+            }
         }
     }
 
