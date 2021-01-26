@@ -6,6 +6,7 @@ use bytes::BytesMut;
 use futures::SinkExt;
 use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
+use crate::error::DsError;
 
 pub async fn fetch_data(
     mut stream: tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
@@ -16,7 +17,7 @@ pub async fn fetch_data(
     SerializationType,
 )> {
     let message = DataRequest::FetchRequest(FetchRequestMsg { task_id });
-    let data = rmp_serde::to_vec_named(&message).unwrap();
+    let data = rmp_serde::to_vec_named(&message)?;
     stream.send(data.into()).await?;
 
     let message: DataResponse = {
@@ -28,13 +29,14 @@ pub async fn fetch_data(
     };
     let header = match message {
         DataResponse::NotAvailable => {
-            log::error!("Fetching data={} failed", task_id);
-            todo!();
+            log::error!("Fetching data={} failed: not available", task_id);
+            return Err(DsError::GenericError("Data object not available".into()));
         }
         DataResponse::Data(x) => x,
         DataResponse::DataUploaded(_) => {
             // Worker send complete garbage, it should be considered as invalid and termianted
-            todo!()
+            log::error!("Fetching data={} failed: invalid response", task_id);
+            return Err(DsError::GenericError("Request returned invalid response".into()));
         }
     };
     let data = match stream.next().await {
