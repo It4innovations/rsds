@@ -93,9 +93,7 @@ def generate_dir(path):
             fn(output)
 
 
-@click.command()
-@click.argument("directory")
-def all(directory):
+def generate_all(directory):
     result_frame = os.path.join(directory, "result.json")
     if os.path.isfile(result_frame):
         generate_summary(result_frame, directory)
@@ -104,6 +102,12 @@ def all(directory):
     dirs = [os.path.join(directory, subdir) for subdir in os.listdir(directory)]
     with Pool() as pool:
         pool.map(generate_dir, dirs)
+
+
+@click.command()
+@click.argument("directory")
+def all(directory):
+    generate_all(directory)
 
 
 @click.group()

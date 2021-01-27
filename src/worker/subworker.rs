@@ -329,7 +329,8 @@ async fn run_subworker(
     let listener = UnixListener::bind(&socket_path)?;
 
     let mut log_path = paths.work_dir.clone();
-    log_path.push(format!("subworker-{}.log", subworker_id));
+    let worker_id = std::env::var("RSDS_WORKER_ID").unwrap_or_else(|_| "0".into());
+    log_path.push(format!("subworker-{}-{}.log", worker_id, subworker_id));
     let mut process_future = {
         let log_stdout = File::create(&log_path)?;
         let log_stderr = log_stdout.try_clone()?;
