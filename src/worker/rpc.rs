@@ -13,7 +13,7 @@ use tokio::task::LocalSet;
 use tokio::time::{delay_for};
 
 use crate::common::rpc::forward_queue_to_sink;
-use crate::transfer::transport::make_protocol_builder;
+use crate::transfer::transport::{make_protocol_builder, connect_to_worker};
 
 //use crate::server::protocol::messages::worker::{GetDataResponse, ToWorkerGenericMessage};
 
@@ -170,7 +170,15 @@ async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
             (worker_id, data_obj.id)
         };
 
-        let stream = state_ref.get_mut().get_or_create_worker_connection(worker_id).await.unwrap();
+
+        let worker_conn = state_ref.get_mut().pop_worker_connection(worker_id);
+        let stream = if let Some(stream) = worker_conn {
+            stream
+        } else {
+            let address = state_ref.get().get_worker_address(worker_id).unwrap().clone();
+            connect_to_worker(address).await.unwrap()
+        };
+
         match fetch_data(stream, data_id).await {
             Ok((stream, data, serializer)) => {
                 let mut state = state_ref.get_mut();

@@ -4,7 +4,6 @@ use crate::scheduler::TaskId;
 use crate::transfer::messages::{DataRequest, DataResponse, FetchRequestMsg};
 use bytes::BytesMut;
 use futures::SinkExt;
-use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 use crate::error::DsError;
 use crate::transfer::DataConnection;

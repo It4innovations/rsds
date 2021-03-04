@@ -21,7 +21,6 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use smallvec::{smallvec, SmallVec};
 use crate::transfer::DataConnection;
-use crate::transfer::transport::connect_to_worker;
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -292,17 +291,16 @@ impl WorkerState {
         }
     }
 
-    pub async fn get_or_create_worker_connection(&mut self, worker_id: WorkerId) -> crate::Result<DataConnection> {
-        if let Some(connection) = self.worker_connections.get_mut(&worker_id).and_then(|connections| connections.pop()) {
-            Ok(connection)
-        } else {
-            let address = self.worker_addresses.get(&worker_id).unwrap().clone();
-            connect_to_worker(address).await
-        }
+    pub fn pop_worker_connection(&mut self, worker_id: WorkerId) -> Option<DataConnection> {
+        self.worker_connections.get_mut(&worker_id).and_then(|connections| connections.pop())
     }
 
     pub fn return_worker_connection(&mut self, worker_id: WorkerId, connection: DataConnection) {
         self.worker_connections.entry(worker_id).or_default().push(connection);
+    }
+
+    pub fn get_worker_address(&self, worker_id: WorkerId) -> Option<&String> {
+        self.worker_addresses.get(&worker_id)
     }
 
     pub fn steal_task(&mut self, task_id: TaskId) -> StealResponse {
