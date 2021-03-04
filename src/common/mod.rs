@@ -11,5 +11,4 @@ pub mod data;
 mod id_counter;
 mod key_id_map;
 pub mod rpc;
-pub mod transport;
 mod wrapped;

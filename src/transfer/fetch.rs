@@ -7,12 +7,13 @@ use futures::SinkExt;
 use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 use crate::error::DsError;
+use crate::transfer::DataConnection;
 
 pub async fn fetch_data(
-    mut stream: tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
+    mut stream: DataConnection,
     task_id: TaskId,
 ) -> crate::Result<(
-    tokio_util::codec::Framed<TcpStream, tokio_util::codec::LengthDelimitedCodec>,
+    DataConnection,
     BytesMut,
     SerializationType,
 )> {

@@ -10,11 +10,10 @@ use tokio::net::lookup_host;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::LocalSet;
-use tokio::time::{delay_for, Delay};
-use futures::select_biased;
+use tokio::time::{delay_for};
 
 use crate::common::rpc::forward_queue_to_sink;
-use crate::common::transport::make_protocol_builder;
+use crate::transfer::transport::make_protocol_builder;
 
 //use crate::server::protocol::messages::worker::{GetDataResponse, ToWorkerGenericMessage};
 
@@ -35,7 +34,7 @@ use crate::worker::state::WorkerStateRef;
 use crate::worker::subworker::{start_subworkers, SubworkerPaths};
 use crate::worker::task::TaskRef;
 use futures::stream::FuturesUnordered;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use crate::transfer::DataConnection;
 
 async fn start_listener() -> crate::Result<(TcpListener, String)> {
     let address = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
@@ -170,19 +169,13 @@ async fn download_data(state_ref: WorkerStateRef, data_ref: DataObjectRef)
             let worker_id: WorkerId = state_ref.get_mut().random_choice(&workers).clone();
             (worker_id, data_obj.id)
         };
-        let address = state_ref
-            .get()
-            .worker_addresses
-            .get(&worker_id)
-            .unwrap()
-            .clone();
-        let connection = connect_to_worker(address).await.unwrap();
-        let stream = make_protocol_builder().new_framed(connection);
+
+        let stream = state_ref.get_mut().get_or_create_worker_connection(worker_id).await.unwrap();
         match fetch_data(stream, data_id).await {
             Ok((stream, data, serializer)) => {
-                state_ref
-                    .get_mut()
-                    .on_data_downloaded(data_ref, data, serializer);
+                let mut state = state_ref.get_mut();
+                state.return_worker_connection(worker_id, stream);
+                state.on_data_downloaded(data_ref, data, serializer);
                 return;
             }
             Err(e) => {
@@ -234,14 +227,6 @@ async fn worker_data_downloader(
             }
         }
     }
-}
-
-/* TODO: Refactor this! the same function is in the server */
-async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
-    let address = address.trim_start_matches("tcp://");
-    let stream = TcpStream::connect(address).await?;
-    stream.set_nodelay(true)?;
-    Ok(stream)
 }
 
 async fn worker_message_loop(
@@ -298,11 +283,12 @@ pub async fn connection_initiator(
     loop {
         let (socket, address) = listener.accept().await?;
         socket.set_nodelay(true)?;
+        let stream = make_protocol_builder().new_framed(socket);
 
         let state = state_ref.clone();
         tokio::task::spawn_local(async move {
             log::debug!("New connection: {}", address);
-            connection_rpc_loop(socket, state, address)
+            connection_rpc_loop(stream, state, address)
                 .await
                 .expect("Connection failed");
             log::debug!("Connection ended: {}", address);
@@ -311,7 +297,7 @@ pub async fn connection_initiator(
 }
 
 async fn connection_rpc_loop(
-    stream: TcpStream,
+    mut stream: DataConnection,
     state_ref: WorkerStateRef,
     address: SocketAddr,
 ) -> crate::Result<()> {
@@ -320,7 +306,6 @@ async fn connection_rpc_loop(
         DirectResult(DataResponse, Option<Bytes>),
     };
 
-    let mut stream = make_protocol_builder().new_framed(stream);
     loop {
         let data = match stream.next().await {
             None => return Ok(()),

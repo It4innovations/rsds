@@ -10,7 +10,7 @@ use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use crate::common::transport::make_protocol_builder;
+use crate::transfer::transport::make_protocol_builder;
 use crate::common::WrappedRcRefCell;
 
 use crate::server::protocol::messages::worker::{

@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 
 use crate::common::rpc::forward_queue_to_sink;
-use crate::common::transport::make_protocol_builder;
+use crate::transfer::transport::make_protocol_builder;
 use crate::server::core::CoreRef;
 use crate::server::protocol::messages::generic::{GenericMessage, RegisterWorkerMsg};
 use crate::server::protocol::messages::worker::{FromWorkerMessage, WorkerRegistrationResponse};

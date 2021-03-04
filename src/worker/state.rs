@@ -20,6 +20,8 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use smallvec::{smallvec, SmallVec};
+use crate::transfer::DataConnection;
+use crate::transfer::transport::connect_to_worker;
 
 pub type WorkerStateRef = WrappedRcRefCell<WorkerState>;
 
@@ -36,6 +38,7 @@ pub struct WorkerState {
     pub download_sender: tokio::sync::mpsc::UnboundedSender<(DataObjectRef, Priority)>,
     pub worker_id: WorkerId,
     pub worker_addresses: Map<WorkerId, String>,
+    pub worker_connections: Map<WorkerId, Vec<DataConnection>>,
     pub random: SmallRng,
 }
 
@@ -289,6 +292,19 @@ impl WorkerState {
         }
     }
 
+    pub async fn get_or_create_worker_connection(&mut self, worker_id: WorkerId) -> crate::Result<DataConnection> {
+        if let Some(connection) = self.worker_connections.get_mut(&worker_id).and_then(|connections| connections.pop()) {
+            Ok(connection)
+        } else {
+            let address = self.worker_addresses.get(&worker_id).unwrap().clone();
+            connect_to_worker(address).await
+        }
+    }
+
+    pub fn return_worker_connection(&mut self, worker_id: WorkerId, connection: DataConnection) {
+        self.worker_connections.entry(worker_id).or_default().push(connection);
+    }
+
     pub fn steal_task(&mut self, task_id: TaskId) -> StealResponse {
         match self.tasks.get(&task_id).cloned() {
             None => StealResponse::NotHere,
@@ -332,6 +348,7 @@ impl WorkerStateRef {
             ready_task_queue: Default::default(),
             data_objects: Default::default(),
             random: SmallRng::from_entropy(),
+            worker_connections: Default::default(),
         })
     }
 }

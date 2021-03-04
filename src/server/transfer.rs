@@ -1,5 +1,5 @@
 use crate::common::data::SerializationType;
-use crate::common::transport::make_protocol_builder;
+use crate::transfer::transport::{connect_to_worker};
 use crate::common::Map;
 use crate::scheduler::{TaskId, ToSchedulerMessage};
 use crate::server::core::{CoreRef, Core};
@@ -14,7 +14,6 @@ use futures::stream::FuturesUnordered;
 use futures::SinkExt;
 use rand::seq::SliceRandom;
 use std::iter::FromIterator;
-use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 
 use crate::scheduler::protocol::NewFinishedTaskInfo;
@@ -57,13 +56,6 @@ pub async fn gather(
     Ok(result)
 }
 
-async fn connect_to_worker(address: String) -> crate::Result<tokio::net::TcpStream> {
-    let address = address.trim_start_matches("tcp://");
-    let stream = TcpStream::connect(address).await?;
-    stream.set_nodelay(true)?;
-    Ok(stream)
-}
-
 pub async fn get_data_from_worker(
     worker_address: String,
     task_ids: Vec<TaskId>,
@@ -71,8 +63,7 @@ pub async fn get_data_from_worker(
     // TODO: Storing worker connection?
     // Directly resend to client?
 
-    let connection = connect_to_worker(worker_address.clone()).await?;
-    let mut stream = make_protocol_builder().new_framed(connection);
+    let mut stream = connect_to_worker(worker_address.clone()).await?;
 
     let mut result = Vec::with_capacity(task_ids.len());
     for task_id in task_ids {
@@ -96,8 +87,7 @@ pub async fn update_data_on_worker(
     data: Vec<(TaskRef, BytesMut)>,
 ) -> crate::Result<()> {
     let address = core.get().get_worker_by_id_or_panic(worker_id).listen_address.clone();
-    let connection = connect_to_worker(address).await?;
-    let mut stream = make_protocol_builder().new_framed(connection);
+    let mut stream = connect_to_worker(address).await?;
 
     for (task_ref, data_for_id) in data {
         let task_id = task_ref.get().id;
