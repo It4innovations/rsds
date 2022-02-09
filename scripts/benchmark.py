@@ -78,7 +78,7 @@ class DaskCluster:
         modules = self.scheduler.get("modules", ())
         if modules:
             self.init_cmd += [f"ml {' '.join(modules)}"]
-        self.init_cmd += [f"workon {venv}"]
+        self.init_cmd += [f"source {venv}"]
 
         write_metadata(self.scheduler, self.workdir)
 
@@ -642,7 +642,7 @@ def submit(input, name, nodes, queue, walltime, workdir, project, profile, boots
 export PBS_START_TIME=`date +%s`
 
 source {ENV_INIT_SCRIPT} || exit 1
-workon {workon} || exit 1
+source {workon} || exit 1
 
 python {script_path} benchmark {target_input} {directory} {" ".join(args)}
 if [ $? -eq {TIMEOUT_EXIT_CODE} ]
