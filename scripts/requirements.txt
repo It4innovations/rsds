@@ -6,7 +6,7 @@ pandas==1.0.0
 bokeh==1.4.0
 click==7.0
 tqdm==4.35.0
-joblib==0.14.0
+joblib==1.2.0
 xarray==0.14.1
 scikit-learn==0.21.3
 dask[dataframe]==2.16.0
