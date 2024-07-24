@@ -3,6 +3,8 @@
 It serves mostly as an experiment for evaluating the performance gain of having a Dask server written in a language
 without automatic memory management and for benchmarking different scheduling algorithms.
 
+**Note: RSDS is no longer being developed. Its spiritual successor is [HyperQueue](https://github.com/It4innovations/hyperqueue).**
+
 ## Disclaimer
 Dask/distributed has a very complex feature set and protocol and we do not support most of the advanced features
 like dashboard or custom communication protocols (UCX) at this moment. 
