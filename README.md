@@ -14,7 +14,6 @@ We have published an article about RSDS and the overheads of Dask titled [Runtim
     doi = {10.1109/WORKS51914.2020.00006},
     journal = {2020 IEEE/ACM Workflows in Support of Large-Scale Science (WORKS)},
     author = {Böhm, Stanislav and Beránek, Jakub},
-    author+an = {2=highlight},
     month = {nov},
     year = {2020},
     keywords = {Computer Science - Distributed, Parallel, and Cluster Computing},
