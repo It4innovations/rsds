@@ -3,6 +3,25 @@
 It serves mostly as an experiment for evaluating the performance gain of having a Dask server written in a language
 without automatic memory management and for benchmarking different scheduling algorithms.
 
+We have published an article about RSDS and the overheads of Dask titled [Runtime vs Scheduler: Analyzing Dask’s Overheads
+](https://www.computer.org/csdl/proceedings-article/works/2020/104000a001/1q7jxiyDsFW). You can use the following BibTex record to cite it:
+
+```bibtex
+@article{rsds,
+    title = {Runtime vs {Scheduler}: {Analyzing} {Dask}'s {Overheads}},
+    copyright = {All rights reserved},
+    shorttitle = {Runtime vs {Scheduler}},
+    doi = {10.1109/WORKS51914.2020.00006},
+    journal = {2020 IEEE/ACM Workflows in Support of Large-Scale Science (WORKS)},
+    author = {Böhm, Stanislav and Beránek, Jakub},
+    author+an = {2=highlight},
+    month = {nov},
+    year = {2020},
+    keywords = {Computer Science - Distributed, Parallel, and Cluster Computing},
+    pages = {1--8},
+}
+```
+
 **Note: RSDS is no longer being developed. Its spiritual successor is [HyperQueue](https://github.com/It4innovations/hyperqueue).**
 
 ## Disclaimer
